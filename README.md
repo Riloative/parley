@@ -39,21 +39,57 @@ parley looks and behaves like a terminal coding assistant, but it only converses
 
 ## Install
 
-Requires Node.js 22 or newer (macOS or Linux).
+### Standalone binary (no Node.js needed)
 
 ```bash
-git clone https://github.com/riloative/parley.git
+curl -fsSL https://raw.githubusercontent.com/Riloative/parley/main/install.sh | sh
+```
+
+The script picks the build for your OS and CPU, downloads it from the latest [release](https://github.com/Riloative/parley/releases), verifies its SHA-256 against the release's `SHA256SUMS`, and installs it to `~/.local/bin/parley` without sudo. It prints a hint if that directory isn't on your `PATH`.
+
+- **Choose a version:** `curl -fsSL …/install.sh | PARLEY_VERSION=v0.1.0 sh`
+- **Choose a directory:** `PARLEY_INSTALL_DIR=~/bin`
+
+| Target | Built and tested on | Notes |
+| --- | --- | --- |
+| macOS, Apple Silicon (`darwin-arm64`) | native GitHub runner (`macos-latest`) | ad-hoc signed, not notarized |
+| macOS, Intel (`darwin-x64`) | native GitHub runner (`macos-15-intel`) | ad-hoc signed, not notarized |
+| Linux x64 (`linux-x64`) | native GitHub runner (`ubuntu-24.04`) | glibc 2.28 or newer, libatomic |
+| Linux arm64 (`linux-arm64`) | native GitHub runner (`ubuntu-24.04-arm`) | glibc 2.28 or newer, libatomic |
+
+On Linux the binary needs glibc 2.28 or newer (Debian 10, Ubuntu 20.04, RHEL 8 and later) and the `libatomic` library. Desktop systems have it; minimal containers may not (`sudo apt install libatomic1` or `sudo dnf install libatomic`). `install.sh` explains if the binary can't start.
+
+The binary embeds the Node.js runtime, so it is large: about 150 MB on disk and about 48 MB to download. There are no musl (Alpine) or Windows builds; on Alpine use the npm package below with Alpine's `nodejs`.
+
+**macOS Gatekeeper.** The binaries are signed ad hoc but not notarized (that needs a paid Apple Developer ID). Files downloaded with `curl`, as `install.sh` does, are not quarantined, so they run normally. If you downloaded the archive with a browser and macOS refuses to open `parley`, remove the quarantine flag:
+
+```bash
+xattr -d com.apple.quarantine ~/.local/bin/parley
+```
+
+To install a release archive by hand, download `parley-<os>-<arch>.tar.gz` and `SHA256SUMS` from the release, check the archive with `shasum -a 256 -c SHA256SUMS --ignore-missing`, then unpack it and move `parley` onto your `PATH`. To upgrade, run the install command again. To uninstall, delete the file.
+
+### npm (Node.js 22 or newer)
+
+From a clone:
+
+```bash
+git clone https://github.com/Riloative/parley.git
 cd parley
 npm install -g .
 ```
 
-The repository ships a prebuilt, self-contained bundle in `dist/`, so the global install has no dependencies and needs no compiler.
-
-Or install a release without cloning (see [Releases](https://github.com/riloative/parley/releases)):
+Or from a release, without cloning:
 
 ```bash
-npm install -g https://github.com/riloative/parley/releases/download/v0.0.1/parley-0.0.1.tgz
-``` Check your environment afterwards:
+npm install -g https://github.com/Riloative/parley/releases/download/v0.1.0/parley-0.1.0.tgz
+```
+
+The repository ships a prebuilt, self-contained bundle in `dist/`, so the global install has no dependencies and needs no compiler.
+
+### Check the install
+
+`parley --version` shows the version, whether you're running the standalone binary or the npm package, and the Node.js runtime. `parley doctor` checks your environment and shows the install method and location:
 
 ```bash
 parley doctor

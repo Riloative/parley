@@ -10,11 +10,10 @@ import { join } from 'node:path';
 import * as pty from 'node-pty';
 import xtermHeadless from '@xterm/headless';
 import type { Terminal as XTerminal } from '@xterm/headless';
-import { ensureBuilt } from '../build-once.js';
+import { parleyCommand } from '../build-once.js';
 
 const { Terminal } = xtermHeadless as unknown as { Terminal: typeof XTerminal };
 
-const ROOT = new URL('../..', import.meta.url).pathname;
 
 export interface Session {
   term: InstanceType<typeof Terminal>;
@@ -72,6 +71,8 @@ export function testEnv(home: string, extra: Record<string, string> = {}): Recor
   for (const [k, v] of Object.entries(process.env)) {
     if (v === undefined) continue;
     if (/^(CI|GITHUB_ACTIONS|TMUX|TERM_PROGRAM|COLORFGBG|NO_COLOR|FORCE_COLOR|SSH_.*|.*_API_KEY)$/.test(k)) continue;
+    // Tests set proxies explicitly when they need one.
+    if (/^(https?_proxy|no_proxy|all_proxy)$/i.test(k)) continue;
     env[k] = v;
   }
   return {
@@ -101,13 +102,13 @@ function fixSpawnHelper(): void {
 }
 
 export function spawnParley(opts: SpawnOptions = {}): Session {
-  ensureBuilt();
   fixSpawnHelper();
+  const launch = parleyCommand(opts.args ?? []);
   const cols = opts.cols ?? 80;
   const rows = opts.rows ?? 24;
   const home = opts.home ?? makeHome(opts.noConfig ? '' : (opts.config ?? DEFAULT_CONFIG));
   const term = new Terminal({ cols, rows, scrollback: 5000, allowProposedApi: true });
-  const proc = pty.spawn(opts.command ?? process.execPath, opts.commandArgs ?? [join(ROOT, 'bin', 'parley.js'), ...(opts.args ?? [])], {
+  const proc = pty.spawn(opts.command ?? launch.command, opts.commandArgs ?? launch.args, {
     name: 'xterm-256color',
     cols,
     rows,

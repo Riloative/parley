@@ -39,7 +39,7 @@ describe('conversations', () => {
     await sleep(50);
     s!.write('\x03');
     await s!.exited;
-    expect(s!.all().join('\n')).toMatch(/Resume this conversation with: parley -r \S+/);
+    await s!.waitFor(/Resume this conversation with: parley -r \S+/);
     await s!.close(true);
     s = spawnParley({ cols: 90, rows: 30, home, args: ['-c'] });
     await s.waitFor('Send a message');

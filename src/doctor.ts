@@ -1,6 +1,6 @@
 // `parley doctor`: check the environment and explain how to fix problems.
 
-import { accessSync, constants, existsSync, mkdirSync, statSync } from 'node:fs';
+import { accessSync, constants, existsSync, mkdirSync, realpathSync, statSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { boot } from './bootstrap.js';
 import { paths } from './config/paths.js';
@@ -8,6 +8,7 @@ import { colorLevel, inTmux, likelySupportsSyncOutput, overSsh, terminalName, un
 import { detectClipboardHelper } from './term/clipboard.js';
 import { detectKeychain, keychainLabel, resolveKey, isLocalUrl, defaultKeyEnv } from './config/credentials.js';
 import { KeyDecoder } from './term/keys.js';
+import { BUILD_KIND, VERSION } from './version.js';
 
 type Level = 'ok' | 'warn' | 'fail' | 'info';
 
@@ -63,9 +64,22 @@ export async function runDoctor(): Promise<number> {
   failures = 0;
   process.stdout.write('parley doctor\n');
 
+  section('Installation');
+  const where = BUILD_KIND === 'binary' ? process.execPath : (process.argv[1] ?? '');
+  let real = where;
+  try {
+    real = realpathSync(where);
+  } catch {
+    /* keep */
+  }
+  const method = BUILD_KIND === 'binary' ? 'standalone binary' : /[\\/]lib[\\/]node_modules[\\/]|[\\/]node_modules[\\/]parley[\\/]/.test(where) ? 'npm (global)' : 'from a source checkout';
+  line('info', 'Version', `parley ${VERSION}`);
+  line('info', 'Install method', method);
+  line('info', 'Location', real === where ? where : `${where} → ${real}`);
+
   section('System');
   const major = Number(process.versions.node.split('.')[0]);
-  line(major >= 22 ? 'ok' : 'fail', 'Node.js', process.version, major >= 22 ? undefined : 'Install Node.js 22 or newer (the current LTS).');
+  line(major >= 22 ? 'ok' : 'fail', 'Node.js', `${process.version}${BUILD_KIND === 'binary' ? ' (embedded in the binary)' : ''}`, major >= 22 ? undefined : 'Install Node.js 22 or newer (the current LTS).');
   line('info', 'Platform', `${process.platform} ${process.arch}`);
 
   section('Terminal');

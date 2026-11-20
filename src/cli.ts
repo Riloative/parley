@@ -1,8 +1,11 @@
 // Entry point. Kept deliberately tiny: argument parsing, --help and
 // --version run without loading React, Ink, providers or the highlighter.
 
-declare const __PARLEY_VERSION__: string;
-export const VERSION = typeof __PARLEY_VERSION__ === 'string' ? __PARLEY_VERSION__ : '0.0.0-dev';
+import { mark } from './trace.js';
+
+import { BUILD_KIND, VERSION, versionLine } from './version.js';
+
+export { BUILD_KIND, VERSION, versionLine };
 
 export interface Args {
   print: boolean;
@@ -139,6 +142,7 @@ export function parseArgs(argv: string[]): Args | { error: string } {
 }
 
 async function main(): Promise<void> {
+  mark('cli');
   const parsed = parseArgs(process.argv.slice(2));
   if ('error' in parsed) {
     process.stderr.write(`parley: ${parsed.error}\n`);
@@ -150,7 +154,7 @@ async function main(): Promise<void> {
     return;
   }
   if (args.command === 'version') {
-    process.stdout.write(`parley ${VERSION}\n`);
+    process.stdout.write(`${versionLine()}\n`);
     return;
   }
   if (args.noColor) process.env.NO_COLOR = '1';
@@ -177,6 +181,7 @@ async function main(): Promise<void> {
     return;
   }
   const { runInteractive } = await import('./interactive.js');
+  mark('interactive-loaded');
   await runInteractive(args);
 }
 

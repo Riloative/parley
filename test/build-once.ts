@@ -19,3 +19,16 @@ export function ensureBuilt(): void {
     execFileSync(process.execPath, [join(root, 'scripts', 'build.mjs')], { cwd: root, stdio: 'inherit' });
   }
 }
+
+/**
+ * How to launch the parley under test: the standalone binary named by
+ * PARLEY_BIN, or the Node build (bin/parley.js, rebuilt when stale).
+ */
+export function parleyCommand(args: string[] = []): { command: string; args: string[]; shell: string } {
+  const root = new URL('..', import.meta.url).pathname;
+  const bin = process.env.PARLEY_BIN;
+  if (bin) return { command: bin, args, shell: `'${bin}'` };
+  ensureBuilt();
+  const script = join(root, 'bin', 'parley.js');
+  return { command: process.execPath, args: [script, ...args], shell: `'${process.execPath}' '${script}'` };
+}

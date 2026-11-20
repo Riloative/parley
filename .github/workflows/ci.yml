@@ -50,3 +50,13 @@ jobs:
           out="$(echo hi | parley -p -m mock/echo say)"
           [ "$out" = "$(printf 'You said: hi\n\nsay')" ]
           parley doctor || true
+
+  shellcheck:
+    name: shellcheck install.sh
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: shellcheck --version && shellcheck -s sh install.sh
+
+  binaries:
+    uses: ./.github/workflows/binaries.yml
