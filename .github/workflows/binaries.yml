@@ -65,7 +65,8 @@ jobs:
         run: |
           # The Node runtime also needs libatomic, which minimal images lack.
           docker run --rm -v "$PWD/build/bin:/b:ro" almalinux:8 sh -c 'ldd --version | head -1; /b/parley --version 2>&1 | grep -q libatomic && echo "libatomic missing, as expected; installing"; dnf install -y -q libatomic >/dev/null && /b/parley --version && echo hi | /b/parley -p -m mock/echo say'
-          if docker run --rm -v "$PWD/build/bin:/b:ro" ubuntu:18.04 /b/parley --version > old.txt 2>&1; then
+          # Install libatomic there too, so the failure that remains is glibc's.
+          if docker run --rm -v "$PWD/build/bin:/b:ro" ubuntu:18.04 sh -c 'apt-get update -qq >/dev/null && apt-get install -y -qq libatomic1 >/dev/null && /b/parley --version' > old.txt 2>&1; then
             echo "Unexpectedly ran on glibc 2.27; update the documented minimum" >&2
             exit 1
           fi

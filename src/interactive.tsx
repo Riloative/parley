@@ -3,7 +3,7 @@
 
 import React from 'react';
 import { PassThrough } from 'node:stream';
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, writeSync } from 'node:fs';
 import type { Args } from './cli.js';
 import { boot, chooseModel, resolveTheme } from './bootstrap.js';
 import { Session } from './core/session.js';
@@ -73,7 +73,9 @@ export async function runInteractive(args: Args): Promise<void> {
     terminal.stop();
     restoreTerminal();
     if (code === 0 && session.file) {
-      process.stdout.write(lineToAnsi([{ text: `\nResume this conversation with: parley -r ${session.file.id}\n`, style: { fg: 'dim' } }]));
+      // Synchronous: process.exit() follows, and an async write to a pipe or
+      // (on macOS) a pty could be dropped.
+      writeSync(1, lineToAnsi([{ text: `\nResume this conversation with: parley -r ${session.file.id}\n`, style: { fg: 'dim' } }]));
     }
     process.exit(code);
   };
