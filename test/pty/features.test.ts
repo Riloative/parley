@@ -333,8 +333,11 @@ describe('/terminal-setup', () => {
     await s!.waitFor('extended-keys on');
     await s!.waitFor('Add the Shift+Enter keybinding to VS Code');
     s!.write('\x1b[B\r'); // No → Yes
-    // Wait for the write itself: the message naming the file wraps with long paths.
-    await s!.waitFor(() => existsSync(`${keybindings}.parley-backup`));
+    // Wait for the write itself (the message naming the file wraps with long
+    // paths). The backup is made first and the new file renamed into place
+    // after it, so wait for the new content.
+    await s!.waitFor(() => readFileSync(keybindings, 'utf8').includes('shift+enter'));
+    expect(existsSync(`${keybindings}.parley-backup`)).toBe(true);
     const text = readFileSync(keybindings, 'utf8');
     expect(text.startsWith('// my bindings\n')).toBe(true);
     expect(text).toContain('"key": "shift+enter"');
