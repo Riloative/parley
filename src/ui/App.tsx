@@ -226,8 +226,13 @@ export function App(props: AppProps): React.ReactElement {
   }, [terminal, transcript]);
 
   useEffect(() => {
-    // Warm the syntax highlighter while the user is typing.
-    const t = setTimeout(() => void loadHighlighter(), 30);
+    // After the first frame, warm what the first reply will need: the syntax
+    // highlighter, and the emoji width table (built lazily, see
+    // scripts/esbuild-plugins.mjs), so neither stalls streaming later.
+    const t = setTimeout(() => {
+      textWidth('\u{1F44D}');
+      void loadHighlighter();
+    }, 30);
     return () => clearTimeout(t);
   }, []);
 

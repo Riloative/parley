@@ -13,6 +13,7 @@
 // Output: <out>/parley (ad-hoc signed on macOS) and <out>/parley-<os>-<arch>.tar.gz
 
 import { build } from 'esbuild';
+import { sharedPlugins } from './esbuild-plugins.mjs';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -99,6 +100,7 @@ await build({
   },
   // Ink's optional DevTools hook would be linked eagerly in a single file.
   alias: { 'react-devtools-core': join(root, 'scripts', 'stubs', 'react-devtools-core.mjs') },
+  plugins: sharedPlugins,
   banner: {
     js: "import { createRequire as __parleyCreateRequire } from 'node:module'; const require = __parleyCreateRequire(import.meta.url);",
   },
