@@ -20,6 +20,8 @@ export interface Session {
   term: InstanceType<typeof Terminal>;
   proc: pty.IPty;
   raw: string;
+  /** The part of `raw` the emulator has already processed. */
+  parsed: string;
   home: string;
   write(s: string): void;
   screen(): string[];
@@ -113,10 +115,19 @@ export function spawnParley(opts: SpawnOptions = {}): Session {
     env: testEnv(home, opts.env),
   });
   let raw = '';
+  let parsed = '';
   let pending = Promise.resolve();
   proc.onData((d) => {
     raw += d;
-    pending = pending.then(() => new Promise<void>((r) => term.write(d, r)));
+    pending = pending.then(
+      () =>
+        new Promise<void>((r) =>
+          term.write(d, () => {
+            parsed += d;
+            r();
+          }),
+        ),
+    );
     // Answer the terminal queries the way a basic xterm does (DA1 only, no
     // kitty keyboard protocol) so behaviour is deterministic.
     if (opts.kitty && d.includes('\x1b[?u')) proc.write('\x1b[?0u');
@@ -134,6 +145,9 @@ export function spawnParley(opts: SpawnOptions = {}): Session {
     proc,
     get raw() {
       return raw;
+    },
+    get parsed() {
+      return parsed;
     },
     home,
     write: (d) => proc.write(d),
