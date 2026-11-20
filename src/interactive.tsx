@@ -124,6 +124,14 @@ export async function runInteractive(args: Args, probe?: EarlyProbe): Promise<vo
   };
   installExitHandlers((code, _reason, report) => shutdown(code, report));
 
+  // The terminal's background answer may have arrived since boot(). Loading
+  // the interface is synchronous, so a reply already sitting in the input
+  // buffer has not been read yet: give the event loop one turn to read it
+  // (well under a millisecond; this never waits for the terminal). Nothing
+  // has been drawn yet and the probe still owns stdin, so the answer can
+  // still choose the palette.
+  if (probe && !probe.background()) await new Promise((r) => setImmediate(r));
+  if (probe?.background()) setTheme(resolveTheme(args.theme ?? b.config.theme, process.env, probe.background()));
   terminal.start();
   if (session.conv.title && b.config.terminalTitle) terminal.setTitle(session.conv.title);
   else if (b.config.terminalTitle) terminal.setTitle('parley');
@@ -131,9 +139,6 @@ export async function runInteractive(args: Args, probe?: EarlyProbe): Promise<vo
   mark('terminal-started');
   const { render } = await import('ink');
   mark('ink-loaded');
-  // The terminal's background answer may have arrived since boot(). Nothing
-  // has been drawn yet, so it can still choose the palette.
-  if (probe?.background()) setTheme(resolveTheme(args.theme ?? b.config.theme, process.env, probe.background()));
   const instance = render(
     <CrashBoundary onCrash={(e) => setImmediate(() => shutdown(1, crashReport(e)))}>
       <App
