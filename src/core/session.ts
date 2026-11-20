@@ -304,6 +304,11 @@ export class Session extends EventEmitter {
       this.send_({ type: 'queue' });
       return;
     }
+    if (!parseModelRef(this.model)) {
+      this.notice(this.model ? `"${this.model}" is not a valid model. Use provider/model-id; see /model.` : 'No model selected. Choose one with /model.', 'warning');
+      this.send_({ type: 'restore-input', text: msg.display ?? msg.text });
+      return;
+    }
     const caps = await this.capabilities().catch(() => undefined);
     const window = caps?.contextWindow;
     if (window) {
@@ -609,14 +614,7 @@ export class Session extends EventEmitter {
         this.send_({ type: 'queue' });
         this.send_({ type: 'restore-input', text });
       } else {
-        const q = this.queue;
-        this.queue = [];
-        this.send_({ type: 'queue' });
-        await this.submit({
-          text: q.map((m) => m.text).join('\n\n'),
-          display: q.map((m) => m.display ?? m.text).join('\n\n'),
-          attachments: q.flatMap((m) => m.attachments ?? []),
-        });
+        await this.flushQueue();
       }
     }
   }
@@ -748,5 +746,19 @@ export class Session extends EventEmitter {
       this.busy = false;
       this.abort = null;
     }
+    await this.flushQueue();
+  }
+
+  /** Send messages queued while busy (e.g. during compaction). */
+  private async flushQueue(): Promise<void> {
+    if (!this.queue.length || this.streaming || this.busy) return;
+    const q = this.queue;
+    this.queue = [];
+    this.send_({ type: 'queue' });
+    await this.submit({
+      text: q.map((m) => m.text).join('\n\n'),
+      display: q.map((m) => m.display ?? m.text).join('\n\n'),
+      attachments: q.flatMap((m) => m.attachments ?? []),
+    });
   }
 }

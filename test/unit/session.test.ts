@@ -174,4 +174,23 @@ describe('session', () => {
     await session.submit({ text: 'hi' });
     expect(notices.join('\n')).toContain(`Nothing is listening at http://127.0.0.1:${port}`);
   });
+
+  it('does not save a message when no model is selected', async () => {
+    const { session, events } = make('');
+    await session.submit({ text: 'hello' });
+    expect(session.conv.messageCount).toBe(0);
+    expect(session.file).toBeNull();
+    expect(events.find((e) => e.type === 'restore-input')).toMatchObject({ text: 'hello' });
+  });
+
+  it('sends messages queued during compaction afterwards', async () => {
+    const { session } = make();
+    await session.submit({ text: 'one' });
+    await session.submit({ text: 'two' });
+    const p = session.compact();
+    await session.submit({ text: 'queued' });
+    await p;
+    expect(session.conv.context().map((m) => m.role)).toEqual(['summary', 'user', 'assistant']);
+    expect(textOf(session).at(-1)).toMatch(/^assistant:You said: Summary of the conversation so far:[\s\S]*queued$/);
+  });
 });
