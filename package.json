@@ -1,0 +1,50 @@
+{
+  "name": "parley",
+  "version": "0.1.0",
+  "description": "A terminal chat client for Claude, OpenAI, Mistral and local models",
+  "type": "module",
+  "license": "MIT",
+  "private": true,
+  "bin": {
+    "parley": "bin/parley.js"
+  },
+  "files": [
+    "bin",
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "prepare": "node scripts/build.mjs",
+    "dev": "node scripts/build.mjs && node bin/parley.js",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:unit": "vitest run test/unit",
+    "test:pty": "vitest run test/pty",
+    "check": "npm run typecheck && npm run lint && npm test"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.11.0",
+    "highlight.js": "^11.12.0",
+    "ink": "^8.0.0",
+    "marked": "^18.2.1",
+    "react": "^19.3.1",
+    "string-width": "^8.3.0",
+    "undici": "^8.13.0",
+    "yaml": "^2.9.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "@types/react": "^19.3.0",
+    "@xterm/headless": "^6.0.0",
+    "esbuild": "^0.28.2",
+    "eslint": "^9.39.5",
+    "node-pty": "^1.1.0",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.73.0",
+    "vitest": "^5.1.1"
+  }
+}
