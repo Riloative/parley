@@ -6,7 +6,10 @@ import { debug, debugEnabled } from '../debug.js';
 import { redact } from '../config/credentials.js';
 import { ProviderError } from './types.js';
 
+import type * as UndiciNs from 'undici';
+
 type FetchFn = typeof globalThis.fetch;
+type Undici = typeof UndiciNs;
 
 let fetchPromise: Promise<FetchFn> | undefined;
 
@@ -18,7 +21,11 @@ function hasProxyEnv(): boolean {
 export function getFetch(): Promise<FetchFn> {
   fetchPromise ??= (async () => {
     try {
-      const undici = await import('undici');
+      // undici is CommonJS: in the code-split npm bundle the dynamic import
+      // yields only a `default` export, while the single-file binary exposes
+      // named exports. Accept both.
+      const mod = (await import('undici')) as Undici & { default?: Undici };
+      const undici = typeof mod.EnvHttpProxyAgent === 'function' ? mod : mod.default!;
       const opts = {
         // A local model may take minutes to load before sending anything.
         headersTimeout: 0,
@@ -29,7 +36,11 @@ export function getFetch(): Promise<FetchFn> {
       const f = undici.fetch as unknown as FetchFn;
       return ((input: Parameters<FetchFn>[0], init?: Parameters<FetchFn>[1]) =>
         f(input, { ...(init ?? {}), dispatcher } as RequestInit)) as FetchFn;
-    } catch {
+    } catch (e) {
+      // Without undici there is no proxy support and fetch's default
+      // timeouts apply; say so rather than failing silently.
+      debug('undici unavailable; using the built-in fetch (no proxy support, default timeouts)', { error: (e as Error).message });
+      if (hasProxyEnv()) process.emitWarning('parley could not load its HTTP client; HTTPS_PROXY/HTTP_PROXY will be ignored.');
       return globalThis.fetch.bind(globalThis);
     }
   })();

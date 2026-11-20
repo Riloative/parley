@@ -179,21 +179,20 @@ describe('rendering core', () => {
 });
 
 import { spawnSync } from 'node:child_process';
-import { join } from 'node:path';
 import { testEnv } from './harness.js';
+import { parleyCommand } from '../build-once.js';
 
 const hasTmux = spawnSync('sh', ['-c', 'command -v tmux'], { stdio: 'ignore' }).status === 0;
 
 describe.runIf(hasTmux)('inside tmux', () => {
   it('renders and streams correctly', async () => {
-    const root = new URL('../..', import.meta.url).pathname;
     const sock = `parley-test-${process.pid}`;
     // tmux needs the test environment inside the session, so pass it via env.
     s = spawnParley({
       cols: 80,
       rows: 24,
       command: 'tmux',
-      commandArgs: ['-L', sock, '-f', '/dev/null', 'new-session', '-x', '80', '-y', '24', `${process.execPath} ${join(root, 'bin', 'parley.js')} -m mock/long?lines=80\\&tps=3000`],
+      commandArgs: ['-L', sock, '-f', '/dev/null', 'new-session', '-x', '80', '-y', '24', `${parleyCommand().shell} -m mock/long?lines=80\\&tps=3000`],
     });
     try {
       await s.waitFor('Send a message', 15_000);

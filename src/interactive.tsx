@@ -15,9 +15,12 @@ import { App } from './ui/App.js';
 import type { Item } from './ui/blocks.js';
 import { loadConfig } from './config/config.js';
 import { lineToAnsi } from './render/style.js';
+import { mark, startupMarks } from './trace.js';
 
 export async function runInteractive(args: Args): Promise<void> {
+  mark('boot-start');
   const b = boot(args.theme);
+  mark('booted');
   const history = new InputHistory(paths.historyFile);
   history.load();
 
@@ -80,7 +83,9 @@ export async function runInteractive(args: Args): Promise<void> {
   if (session.conv.title && b.config.terminalTitle) terminal.setTitle(session.conv.title);
   else if (b.config.terminalTitle) terminal.setTitle('parley');
 
+  mark('terminal-started');
   const { render } = await import('ink');
+  mark('ink-loaded');
   const instance = render(
     <App
       session={session}
@@ -110,7 +115,8 @@ export async function runInteractive(args: Args): Promise<void> {
   if (process.env.PARLEY_STARTUP_TRACE) {
     // Time from process start to the first rendered frame (for profiling).
     void instance.waitUntilRenderFlush().then(() => {
-      appendFileSync(process.env.PARLEY_STARTUP_TRACE!, `${performance.now().toFixed(1)}\n`);
+      mark('first-frame');
+      appendFileSync(process.env.PARLEY_STARTUP_TRACE!, `${performance.now().toFixed(1)}\n${JSON.stringify(startupMarks())}\n`);
     });
   }
 

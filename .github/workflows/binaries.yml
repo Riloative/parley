@@ -1,0 +1,154 @@
+name: Binaries
+
+# Builds the standalone executable on a native runner for each target, runs
+# the whole PTY suite and the CLI smoke checks against it, installs it with
+# install.sh from a local release layout, and uploads the packaged archive.
+# Called by CI on every push and pull request, and by the release workflow,
+# so the release path is exercised before any tag exists.
+
+on:
+  workflow_call:
+
+jobs:
+  build:
+    name: binary ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x64
+            runner: ubuntu-24.04
+          - target: linux-arm64
+            runner: ubuntu-24.04-arm
+          - target: darwin-x64
+            runner: macos-15-intel
+          - target: darwin-arm64
+            runner: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # Node here only runs the build script and the tests; the runtime
+      # embedded in the binary is pinned in scripts/binary-runtime.json.
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install tmux (for the tmux rendering test)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y tmux
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build the binary
+        run: node scripts/build-binary.mjs
+
+      - name: Check the archive and the binary
+        shell: bash
+        run: |
+          test -f "build/bin/parley-${{ matrix.target }}.tar.gz"
+          file build/bin/parley
+          ls -l build/bin
+          build/bin/parley --version
+          build/bin/parley --version | grep -q "standalone binary, Node v$(node -p "require('./scripts/binary-runtime.json').node"), ${{ matrix.target }})"
+
+      - name: Minimum glibc required (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          objdump -T build/bin/parley | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1
+          objdump -T build/bin/parley | grep -o 'GLIBCXX_[0-9.]*' | sort -uV | tail -1
+
+      - name: Runs on the oldest supported glibc (Debian 10, glibc 2.28), not older (Ubuntu 18.04, glibc 2.27)
+        if: runner.os == 'Linux'
+        run: |
+          docker run --rm -v "$PWD/build/bin:/b:ro" debian:10 sh -c 'ldd --version | head -1; /b/parley --version; echo hi | /b/parley -p -m mock/echo say'
+          if docker run --rm -v "$PWD/build/bin:/b:ro" ubuntu:18.04 /b/parley --version; then
+            echo "Unexpectedly ran on glibc 2.27; update the documented minimum" >&2
+            exit 1
+          fi
+
+      - name: Signature (macOS)
+        if: runner.os == 'macOS'
+        run: codesign --verify --verbose build/bin/parley && codesign -dv build/bin/parley 2>&1 | head -5
+
+      - name: Smoke checks
+        shell: bash
+        run: |
+          export PARLEY_NO_KEYCHAIN=1
+          out="$(echo hi | build/bin/parley -p -m mock/echo say)"
+          [ "$out" = "$(printf 'You said: hi\n\nsay')" ]
+          build/bin/parley doctor | tee doctor.txt || true
+          grep -q 'Install method         standalone binary' doctor.txt
+
+      - name: PTY suite against the binary
+        run: npx vitest run test/pty
+        env:
+          PARLEY_BIN: ${{ github.workspace }}/build/bin/parley
+
+      - name: Start-up time (binary and Node build)
+        run: |
+          node scripts/bench-startup.mjs --runs 20 --bin build/bin/parley
+          npm run build
+          node scripts/bench-startup.mjs --runs 20
+
+      - name: install.sh against this build
+        shell: bash
+        run: |
+          rel="$RUNNER_TEMP/releases/latest/download"
+          mkdir -p "$rel"
+          cp "build/bin/parley-${{ matrix.target }}.tar.gz" "$rel/"
+          (cd "$rel" && (sha256sum parley-*.tar.gz 2>/dev/null || shasum -a 256 parley-*.tar.gz) > SHA256SUMS)
+          PARLEY_RELEASES_URL="file://$RUNNER_TEMP/releases" PARLEY_INSTALL_DIR="$RUNNER_TEMP/bin" sh install.sh
+          "$RUNNER_TEMP/bin/parley" --version | grep -q 'standalone binary'
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: parley-${{ matrix.target }}
+          path: build/bin/parley-${{ matrix.target }}.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+
+  package:
+    name: package release assets
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Download the binaries
+        uses: actions/download-artifact@v5
+        with:
+          pattern: parley-*
+          path: assets
+          merge-multiple: true
+
+      - name: Pack the npm package
+        run: npm pack --pack-destination assets
+
+      - name: Checksums
+        working-directory: assets
+        run: |
+          for t in darwin-arm64 darwin-x64 linux-arm64 linux-x64; do test -f "parley-$t.tar.gz"; done
+          sha256sum parley-*.tar.gz parley-*.tgz > SHA256SUMS
+          cat SHA256SUMS
+          ls -l
+
+      - name: install.sh against the assembled release
+        run: |
+          mkdir -p "$RUNNER_TEMP/releases/latest"
+          cp -r assets "$RUNNER_TEMP/releases/latest/download"
+          PARLEY_RELEASES_URL="file://$RUNNER_TEMP/releases" PARLEY_INSTALL_DIR="$RUNNER_TEMP/bin" sh install.sh
+          "$RUNNER_TEMP/bin/parley" --version
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: release-assets
+          path: assets/
+          if-no-files-found: error
+          retention-days: 14

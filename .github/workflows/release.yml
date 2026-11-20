@@ -1,8 +1,11 @@
 name: Release
 
-# Push a tag like v0.0.1 (matching the version in package.json) to publish a
-# GitHub Release with the installable package attached. The release notes are
-# that version's section of CHANGELOG.md.
+# Push a tag like v0.1.0 (matching the version in package.json) to publish a
+# GitHub Release. It carries:
+#   - parley-<os>-<arch>.tar.gz  standalone binaries built on native runners
+#   - parley-<version>.tgz       the npm package
+#   - SHA256SUMS                 checksums of all of the above (used by install.sh)
+# The release notes are that version's section of CHANGELOG.md.
 
 on:
   push:
@@ -12,7 +15,7 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  verify:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -44,8 +47,24 @@ jobs:
           npm run lint
           npm test
 
-      - name: Pack
-        run: npm pack
+  binaries:
+    needs: verify
+    uses: ./.github/workflows/binaries.yml
+
+  publish:
+    needs: [verify, binaries]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Download the packaged assets (binaries, npm package, SHA256SUMS)
+        uses: actions/download-artifact@v5
+        with:
+          name: release-assets
+          path: assets
+
+      - name: List the assets
+        run: ls -l assets && cat assets/SHA256SUMS
 
       - name: Extract release notes from CHANGELOG.md
         run: |
@@ -61,7 +80,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" parley-*.tgz \
+          gh release create "$GITHUB_REF_NAME" assets/* \
             --title "parley $GITHUB_REF_NAME" \
             --notes-file release-notes.md \
             --verify-tag

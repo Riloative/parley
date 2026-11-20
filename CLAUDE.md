@@ -22,16 +22,41 @@ npm run check:dist   # rebuild and fail if dist/ differs from the commit
 
 Why dist/ is committed: `npm install -g .` packs the folder *before* installing any dependency, so no build step can run there. Everything is bundled, so the package has no runtime dependencies (all packages are devDependencies). CI fails if dist/ is stale.
 
+## Standalone binaries
+
+`node scripts/build-binary.mjs` builds `build/bin/parley` (and `build/bin/parley-<os>-<arch>.tar.gz`) for the machine it runs on. Binaries are never committed; CI builds them on native runners (`.github/workflows/binaries.yml`). Test any build with the PTY suite: `PARLEY_BIN=$PWD/build/bin/parley npx vitest run test/pty`.
+
+- **Technology: Node.js single executable applications (SEA).** Pinned runtime: Node **26.13.1** (active LTS), in `scripts/binary-runtime.json`. The script downloads the official build for the host platform, checks it against `SHASUMS256.txt`, and runs `node --build-sea`.
+- **Shape of the build:** one ESM file (`mainFormat: "module"`, so yoga-layout's top-level await works) with code splitting off, because an executable can't load chunk files. esbuild inlines the lazily imported modules. `react-devtools-core` is aliased to a stub (`scripts/stubs/`), because Ink's optional DevTools import would otherwise be linked eagerly and fail. Code cache on; `execArgvExtension: "none"`, so `NODE_OPTIONS` can't change the binary's behaviour.
+- **Why SEA over `bun build --compile`.** Both passed the full PTY suite (49 tests) and the HTTP tests (Anthropic SDK, Responses API, `HTTP_PROXY`/`NO_PROXY`) locally on linux-x64. Bun was smaller (110 MB vs 153 MB) and faster to start (169 ms vs 229 ms median first frame in a cloud container). SEA was chosen for reliability:
+  - it is the same runtime the npm package and every test already use, from official, checksummed builds with LTS support
+  - Bun's Node compatibility layer is a second runtime whose differences (tty, signals, streams, undici internals) the tests might not catch
+  - the start-up gap is the runtime (Node 26 runs the npm build equally slowly), and is addressed by start-up work that benefits both builds
+- **Why not Node 22/24 SEA:** only CommonJS entry points before Node 25. **Why not `deno compile`:** not needed, since SEA passed.
+- **Targets:** darwin-arm64, darwin-x64, linux-x64 and linux-arm64, each built and tested on a native GitHub runner (`macos-latest`, `macos-15-intel`, `ubuntu-24.04`, `ubuntu-24.04-arm`).
+  - **macOS:** binaries are signed ad hoc (`codesign --sign -`), not notarized.
+  - **Linux:** binaries need glibc ≥ 2.28 (Node's official builds; CI runs them in Debian 10 and checks they fail on Ubuntu 18.04), plus libstdc++ (GLIBCXX_3.4.21) and libatomic.
+  - **Not built:** musl (Node has no official musl builds) and Windows.
+- **To upgrade the embedded Node:** change `scripts/binary-runtime.json`, rebuild locally, and run the PTY suite with `PARLEY_BIN`.
+
+`install.sh` (POSIX sh, shellcheck-clean, tested in `test/unit/install.test.ts` and in CI against the real archives) installs a release binary. `PARLEY_RELEASES_URL` points it at another layout, such as `file://` in tests.
+
 ## Releasing
 
 1. Bump the version: `npm version X.Y.Z --no-git-tag-version`, then `npm run build` (the version is baked into dist/).
 2. Add a `## X.Y.Z — date` section to CHANGELOG.md.
-3. Merge to main, then tag the merge commit `vX.Y.Z` and push the tag. `.github/workflows/release.yml` checks the tag against package.json, re-runs the checks, packs the package and publishes a GitHub Release with that CHANGELOG section as its notes.
+3. Merge to main. Tags cannot be pushed from Claude Code cloud sessions (HTTP 403), so give the user these commands to run in a GitHub Codespace, with the merge commit's full SHA:
+   `git fetch origin main --tags` · `git tag -a vX.Y.Z -m "parley X.Y.Z" <sha>` · `git push origin vX.Y.Z`.
+4. `.github/workflows/release.yml` then checks the tag against package.json, re-runs the checks, builds and tests the four binaries through the reusable `binaries.yml`, and publishes a GitHub Release. The release carries `parley-<os>-<arch>.tar.gz`, the npm tarball and `SHA256SUMS`, with that CHANGELOG section as its notes. CI runs the same build-and-package steps on every pull request.
 
 ## Layout
 
 ```
 bin/parley.js            enables Node's compile cache, imports dist/cli.js
+src/version.ts           version, build kind (node package vs standalone binary)
+src/trace.ts             start-up phase marks for PARLEY_STARTUP_TRACE
+scripts/build-binary.mjs standalone executable (Node SEA); scripts/bench-startup.mjs start-up benchmark
+install.sh               curl | sh installer for the release binaries
 src/cli.ts               arg parsing; --help/--version without loading anything else; dispatch
 src/interactive.tsx      wires terminal + session + transcript + Ink; exit/signal handling
 src/print.ts             -p mode (pipes, --json, exit codes)
@@ -102,6 +127,7 @@ src/config/              config.ts (YAML + validation with line numbers), creden
 - The Anthropic SDK (1.x) sends `Authorization: Bearer` and API version 2026-10-21, which rejects sampling parameters.
 - Fetch refuses some ports ("bad port", e.g. 1, 9); tests pick free ephemeral ports instead.
 - `listFiles()` refuses to crawl `$HOME` itself (the @ picker would be enormous); PTY tests that use @ run in a subdirectory.
-- `PARLEY_STARTUP_TRACE=<file>` appends the time (ms since process start) of the first rendered frame — use it to check cold start. Node's compile cache (enabled in bin/parley.js) roughly halves module compile time after the first run.
+- `PARLEY_STARTUP_TRACE=<file>` appends the time (ms since process start) of the first rendered frame, then a JSON line of phase marks (`src/trace.ts`). `node scripts/bench-startup.mjs [--bin path] [--runs 20]` reports median and p95 over many runs (`BENCH_MARKS=1` prints the marks). Node's compile cache (enabled in bin/parley.js) roughly halves module compile time after the first run.
+- `PARLEY_BIN=/path/to/parley` makes the PTY and print-mode tests run against that executable instead of `node bin/parley.js`.
 - node-pty's macOS prebuilt `spawn-helper` can lose its execute bit on install; the harness chmods it.
 - The PTY harness answers the terminal's DA1 query; `kitty: true` also answers the kitty keyboard query (xterm.js itself doesn't implement the protocol).

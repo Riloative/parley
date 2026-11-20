@@ -1,14 +1,13 @@
 // Non-interactive mode, driven through pipes (stdout is not a terminal).
 import { spawn } from 'node:child_process';
-import { createServer } from 'node:http';
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { readFileSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { ensureBuilt } from '../build-once.js';
+import { parleyCommand } from '../build-once.js';
 import { makeHome, testEnv, DEFAULT_CONFIG } from './harness.js';
 
-const BIN = new URL('../../bin/parley.js', import.meta.url).pathname;
 const homes: string[] = [];
 
 function run(args: string[], opts: { stdin?: string; home?: string; env?: Record<string, string> } = {}): Promise<{ code: number; out: string; err: string; ms: number }> {
@@ -16,7 +15,8 @@ function run(args: string[], opts: { stdin?: string; home?: string; env?: Record
   homes.push(home);
   return new Promise((resolve) => {
     const started = Date.now();
-    const p = spawn(process.execPath, [BIN, ...args], { env: testEnv(home, opts.env), cwd: home });
+    const launch = parleyCommand(args);
+    const p = spawn(launch.command, launch.args, { env: testEnv(home, opts.env), cwd: home });
     let out = '';
     let err = '';
     p.stdout.on('data', (d) => (out += d));
@@ -26,7 +26,7 @@ function run(args: string[], opts: { stdin?: string; home?: string; env?: Record
   });
 }
 
-beforeAll(() => ensureBuilt());
+beforeAll(() => void parleyCommand());
 afterAll(() => homes.forEach((h) => rmSync(h, { recursive: true, force: true })));
 
 describe('parley -p', () => {
@@ -87,7 +87,8 @@ describe('parley -p', () => {
 
   it('answers --help and --version quickly without loading the interface', async () => {
     const v = await run(['--version']);
-    expect(v.out).toMatch(/^parley \d+\.\d+\.\d+\n$/);
+    const kind = process.env.PARLEY_BIN ? 'standalone binary' : 'node package';
+    expect(v.out).toMatch(new RegExp(`^parley \\d+\\.\\d+\\.\\d+ \\(${kind}, Node v\\d+\\.\\d+\\.\\d+, (linux|darwin)-(x64|arm64)\\)\\n$`));
     const h = await run(['--help']);
     expect(h.out).toContain('Usage');
     expect(h.ms).toBeLessThan(2000);
@@ -125,6 +126,79 @@ describe('--debug', () => {
     expect(text).toContain('"status":200');
     expect(text).toContain('/chat/completions');
     expect(text).not.toContain('super-secret-key-value-123');
+  });
+});
+
+// Real HTTP through the built program (Node package or standalone binary):
+// the SDK-based Anthropic adapter, the Responses API, and proxy handling.
+describe('providers over HTTP', () => {
+  const fixture = (n: string) => readFileSync(new URL(`../fixtures/${n}`, import.meta.url), 'utf8');
+  const seen: Array<{ url: string; auth?: string; body: string; via: 'direct' | 'proxy' }> = [];
+  let direct: ReturnType<typeof createServer>;
+  let proxy: ReturnType<typeof createServer>;
+  let directUrl = '';
+  let proxyUrl = '';
+  const respond = (url: string, res: ServerResponse) => {
+    if (url.split('?')[0]!.endsWith('/v1/models')) {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ data: [{ id: 'claude-test', type: 'model', display_name: 'T', created_at: '2026-01-01T00:00:00Z', max_input_tokens: 100000, max_tokens: 8000, capabilities: { image_input: { supported: true }, thinking: { supported: true, types: { adaptive: { supported: true } } } } }], has_more: false }));
+      return;
+    }
+    res.writeHead(200, { 'content-type': 'text/event-stream' });
+    if (url.endsWith('/v1/messages')) res.end(fixture('anthropic-thinking.sse'));
+    else if (url.endsWith('/v1/responses')) res.end(fixture('openai-responses.sse'));
+    else res.end('data: {"choices":[{"index":0,"delta":{"content":"via ' + url + '"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n');
+  };
+  const handler = (via: 'direct' | 'proxy') => (req: IncomingMessage, res: ServerResponse) => {
+    let body = '';
+    req.on('data', (c) => (body += c));
+    req.on('end', () => {
+      seen.push({ url: req.url ?? '', auth: req.headers.authorization, body, via });
+      respond(req.url ?? '', res);
+    });
+  };
+  beforeAll(async () => {
+    direct = createServer(handler('direct'));
+    proxy = createServer(handler('proxy'));
+    await new Promise<void>((r) => direct.listen(0, '127.0.0.1', r));
+    await new Promise<void>((r) => proxy.listen(0, '127.0.0.1', r));
+    directUrl = `http://127.0.0.1:${(direct.address() as AddressInfo).port}`;
+    proxyUrl = `http://127.0.0.1:${(proxy.address() as AddressInfo).port}`;
+  });
+  afterAll(() => {
+    direct.close();
+    proxy.close();
+  });
+
+  it('streams from the Anthropic adapter (SDK) with thinking', async () => {
+    seen.length = 0;
+    const home = makeHome(`default_model: a/claude-test\nproviders:\n  a:\n    type: anthropic\n    base_url: ${directUrl}\n    api_key_env: A_KEY\n`);
+    const r = await run(['-p', 'hi', '--json'], { home, env: { A_KEY: 'sk-ant-test-0123456789' } });
+    const j = JSON.parse(r.out) as { text: string; reasoning: string; usage: { outputTokens: number } };
+    expect(j.text).toBe('Hello, world!');
+    expect(j.reasoning).toContain('Keep it short.');
+    expect(j.usage.outputTokens).toBe(42);
+    const req = seen.find((s) => s.url.startsWith('/v1/messages'))!;
+    expect(req.auth).toBe('Bearer sk-ant-test-0123456789');
+    expect(JSON.parse(req.body)).toMatchObject({ model: 'claude-test', stream: true, thinking: { type: 'adaptive' } });
+  });
+
+  it('streams from the OpenAI Responses adapter', async () => {
+    const home = makeHome(`default_model: o/gpt-5-test\nproviders:\n  o:\n    type: openai\n    base_url: ${directUrl}/v1\n    api_key_env: O_KEY\n`);
+    const r = await run(['-p', 'hi'], { home, env: { O_KEY: 'sk-test-0123456789' } });
+    expect(r.out).toBe('Hi there.\n');
+  });
+
+  it('sends requests through HTTP_PROXY and honours NO_PROXY', async () => {
+    seen.length = 0;
+    const viaProxy = makeHome(`default_model: r/m\nproviders:\n  r:\n    type: openai-compatible\n    base_url: http://upstream.parley.invalid/v1\n`);
+    const a = await run(['-p', 'hi'], { home: viaProxy, env: { HTTP_PROXY: proxyUrl } });
+    expect(a.out).toBe('via http://upstream.parley.invalid/v1/chat/completions\n');
+    expect(seen.at(-1)?.via).toBe('proxy');
+    const bypass = makeHome(`default_model: r/m\nproviders:\n  r:\n    type: openai-compatible\n    base_url: ${directUrl}/v1\n`);
+    const b = await run(['-p', 'hi'], { home: bypass, env: { HTTP_PROXY: proxyUrl, NO_PROXY: '127.0.0.1' } });
+    expect(b.out).toBe('via /v1/chat/completions\n');
+    expect(seen.at(-1)?.via).toBe('direct');
   });
 });
 

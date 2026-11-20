@@ -26,6 +26,7 @@ await build({
   define: {
     'process.env.NODE_ENV': '"production"',
     __PARLEY_VERSION__: JSON.stringify(pkg.version),
+    __PARLEY_BUILD__: '"node"',
   },
   // react-devtools-core is an optional Ink peer used only for debugging.
   external: ['react-devtools-core'],

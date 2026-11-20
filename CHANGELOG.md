@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Standalone binaries** for macOS (arm64, x64) and Linux (x64, arm64). They are built with Node.js single executable applications (Node 26.13.1 embedded), so Node doesn't need to be installed. Each release attaches `parley-<os>-<arch>.tar.gz` and `SHA256SUMS`.
+- **`install.sh`:** `curl -fsSL …/install.sh | sh` installs the binary to `~/.local/bin` after verifying its checksum. `PARLEY_VERSION` and `PARLEY_INSTALL_DIR` choose the version and directory.
+- **Build details:** `parley --version` shows the build kind (standalone binary or node package), the Node runtime and the platform. `parley doctor` shows the install method and location.
+
+### Fixed
+
+- **Proxy support in the npm package.** In the code-split npm bundle, parley couldn't load its HTTP client and silently fell back to the built-in `fetch`. As a result, `HTTPS_PROXY`/`HTTP_PROXY` were ignored and the no-timeout settings for slow local model loads didn't apply. A test now drives the built program through a proxy.
+
 ## 0.0.1 — 2026-11-20
 
 First release.
