@@ -255,6 +255,49 @@ describe('appearance and editor', () => {
     expect(s!.raw).toMatch(/\x1b\[(3[1-6]|9[0-7])m/);
   }, 30_000);
 
+  describe('theme: auto follows the terminal background (OSC 11)', () => {
+    const AUTO = DEFAULT_CONFIG.replace('theme: dark', 'theme: auto');
+    const LIGHT_ACCENT = '38;2;193;95;60';
+    const DARK_ACCENT = '38;2;217;119;87';
+
+    it('uses the light palette when the terminal reports a light background', async () => {
+      await start({ home: makeHome(AUTO), background: 'rgb:ffff/ffff/fafa' });
+      await s!.waitFor('Send a message');
+      expect(s!.raw).toContain(LIGHT_ACCENT);
+      expect(s!.raw).not.toContain(DARK_ACCENT);
+    }, 30_000);
+
+    it('keeps the dark palette for a dark background, or when the terminal does not answer', async () => {
+      await start({ home: makeHome(AUTO), background: 'rgb:1e1e/1e1e/2e2e' });
+      await s!.waitFor('Send a message');
+      expect(s!.raw).toContain(DARK_ACCENT);
+      await s!.close();
+      await start({ home: makeHome(AUTO) });
+      await s!.waitFor('Send a message');
+      expect(s!.raw).toContain(DARK_ACCENT);
+    }, 30_000);
+
+    it('a late answer (slow link) changes nothing and never reaches the input box', async () => {
+      await start({ home: makeHome(AUTO), background: 'rgb:ffff/ffff/ffff', backgroundDelayMs: 700 });
+      await s!.waitFor('Send a message');
+      await sleep(900);
+      s!.write('abc');
+      await s!.waitFor('│ > abc');
+      expect(s!.screen().join('\n')).not.toMatch(/rgb:|11;/);
+      expect(s!.raw).not.toContain(LIGHT_ACCENT);
+    }, 30_000);
+
+    it('keys typed while parley starts are kept, in order', async () => {
+      s = spawnParley({ home: makeHome(AUTO), background: 'rgb:ffff/ffff/ffff' });
+      // Once the background query is out, parley owns the keyboard (raw
+      // mode) while the interface loads.
+      await s.waitFor(() => s!.raw.includes('\x1b]11;?'));
+      s.write('typed early');
+      await s.waitFor('│ > typed early');
+      expect(s.raw).toContain(LIGHT_ACCENT);
+    }, 30_000);
+  });
+
   it('/theme switches to the light palette and reprints', async () => {
     await start();
     await say('colourful');

@@ -7,6 +7,7 @@ import { writeSync } from 'node:fs';
 import { KeyDecoder, type InputEvent } from './keys.js';
 import { inTmux } from './caps.js';
 import { redact } from '../config/credentials.js';
+import type { EarlyProbe } from './probe.js';
 
 const BRACKETED_PASTE_ON = '\x1b[?2004h';
 const BRACKETED_PASTE_OFF = '\x1b[?2004l';
@@ -74,6 +75,8 @@ export function restoreTerminal(): void {
 
 export interface TerminalOptions {
   setTitle: boolean;
+  /** The start-up background query, whose stdin this controller takes over. */
+  probe?: EarlyProbe;
 }
 
 export class TerminalController extends EventEmitter {
@@ -90,10 +93,16 @@ export class TerminalController extends EventEmitter {
     super();
     this.inkStdout = new InkStdout(process.stdout);
     this.probed = new Promise((r) => (this.probeDone = r));
+    this.on('newListener', (event: string) => {
+      if (event === 'input' && this.queue.length && !this.draining) setImmediate(() => void this.drain());
+    });
   }
 
   start(): void {
     const stdin = process.stdin;
+    const early = this.opts.probe?.handOver();
+    // The probe's DA1 reply may still be on its way; it is not ours.
+    this.ignoreDa1 = early?.da1Outstanding ? 1 : 0;
     if (stdin.isTTY) stdin.setRawMode(true);
     stdin.setEncoding('utf8');
     stdin.on('data', this.onData);
@@ -107,6 +116,8 @@ export class TerminalController extends EventEmitter {
     // If the terminal answers neither query, give up after a moment.
     setTimeout(() => this.finishProbe(false), 300).unref();
     process.stdout.on('resize', this.onResize);
+    // Keys typed while the interface was loading.
+    if (early?.pending) this.onData(early.pending);
   }
 
   private finishProbe(kitty: boolean): void {
@@ -140,6 +151,7 @@ export class TerminalController extends EventEmitter {
     }
   };
 
+  private ignoreDa1 = 0;
   private queue: InputEvent[] = [];
   private draining = false;
 
@@ -147,6 +159,10 @@ export class TerminalController extends EventEmitter {
     for (const e of events) {
       if (e.type === 'kitty-flags') {
         this.finishProbe(true);
+        continue;
+      }
+      if (e.type === 'device-attributes' && this.ignoreDa1 > 0) {
+        this.ignoreDa1--;
         continue;
       }
       if (e.type === 'device-attributes') {
@@ -168,9 +184,11 @@ export class TerminalController extends EventEmitter {
    * already a single event, so this costs one yield per control key.
    */
   private async drain(): Promise<void> {
+    // Keys typed while the interface loads wait for it to start listening.
+    if (!this.listenerCount('input')) return;
     this.draining = true;
     try {
-      while (this.queue.length) {
+      while (this.queue.length && this.listenerCount('input')) {
         const e = this.queue.shift()!;
         this.emit('input', e);
         if (this.queue.length) {

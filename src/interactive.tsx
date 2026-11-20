@@ -10,6 +10,7 @@ import { Session } from './core/session.js';
 import { InputHistory } from './core/history.js';
 import { paths } from './config/paths.js';
 import { TerminalController, installExitHandlers, restoreTerminal } from './term/terminal.js';
+import type { EarlyProbe } from './term/probe.js';
 import { TranscriptModel } from './ui/transcript.js';
 import { App } from './ui/App.js';
 import type { Item } from './ui/blocks.js';
@@ -53,9 +54,9 @@ function writeNow(fd: 1 | 2, text: string): void {
   }
 }
 
-export async function runInteractive(args: Args): Promise<void> {
+export async function runInteractive(args: Args, probe?: EarlyProbe): Promise<void> {
   mark('boot-start');
-  const b = boot(args.theme);
+  const b = boot(args.theme, probe?.background());
   mark('booted');
   const history = new InputHistory(paths.historyFile);
   history.load();
@@ -74,7 +75,7 @@ export async function runInteractive(args: Args): Promise<void> {
   if (args.model) session.setModel(args.model);
   if (!session.model && b.configExists) notes.push({ text: 'No model selected yet. Pick one with /model (or set default_model in the config).', tone: 'warning' });
 
-  const terminal = new TerminalController({ setTitle: b.config.terminalTitle });
+  const terminal = new TerminalController({ setTitle: b.config.terminalTitle, probe });
   const welcome = (): Item => ({
     kind: 'welcome',
     key: `w${Math.random()}`,
@@ -142,7 +143,7 @@ export async function runInteractive(args: Args): Promise<void> {
         reloadConfig={() => loadConfig(b.configFile).config}
         onExit={() => setTimeout(() => shutdown(0), 0)}
         initial={!b.configExists && !args.model ? 'setup' : args.resume && !args.resumeId ? 'resume' : undefined}
-        resolveTheme={(t) => resolveTheme(t)}
+        resolveTheme={(t) => resolveTheme(t, process.env, probe?.background())}
         ink={ink}
       />
     </CrashBoundary>,

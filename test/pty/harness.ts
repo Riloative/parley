@@ -49,6 +49,10 @@ export interface SpawnOptions {
   cwd?: string;
   /** Write no config file (first-run). */
   noConfig?: boolean;
+  /** Answer the OSC 11 background query with this colour (e.g. rgb:ffff/ffff/ffff). */
+  background?: string;
+  /** ...after this many milliseconds (a slow link). */
+  backgroundDelayMs?: number;
 }
 
 export const DEFAULT_CONFIG = `default_model: mock/echo
@@ -131,6 +135,11 @@ export function spawnParley(opts: SpawnOptions = {}): Session {
     );
     // Answer the terminal queries the way a basic xterm does (DA1 only, no
     // kitty keyboard protocol) so behaviour is deterministic.
+    if (opts.background && d.includes('\x1b]11;?')) {
+      const reply = `\x1b]11;${opts.background}\x1b\\`;
+      if (opts.backgroundDelayMs) setTimeout(() => proc.write(reply), opts.backgroundDelayMs);
+      else proc.write(reply);
+    }
     if (opts.kitty && d.includes('\x1b[?u')) proc.write('\x1b[?0u');
     if (d.includes('\x1b[c')) proc.write('\x1b[?62;22c');
   });

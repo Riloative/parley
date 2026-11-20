@@ -20,9 +20,12 @@ export interface Boot {
   store: Store;
 }
 
-export function resolveTheme(t: Config['theme'] | string | undefined, env = process.env): ThemeName {
+/** `auto` follows the terminal: its answer to the OSC 11 background query
+ * when there is one, then COLORFGBG, then dark. */
+export function resolveTheme(t: Config['theme'] | string | undefined, env = process.env, background?: 'light' | 'dark'): ThemeName {
   if (colorLevel() <= 1 && t !== 'dark' && t !== 'light') return 'ansi';
   if (t === 'dark' || t === 'light' || t === 'ansi') return t;
+  if (background) return background;
   // COLORFGBG="15;0" → light foreground on dark background.
   const fgbg = env.COLORFGBG?.split(';');
   const bg = fgbg ? Number(fgbg[fgbg.length - 1]) : NaN;
@@ -30,11 +33,11 @@ export function resolveTheme(t: Config['theme'] | string | undefined, env = proc
   return 'dark';
 }
 
-export function boot(themeOverride?: string): Boot {
+export function boot(themeOverride?: string, background?: 'light' | 'dark'): Boot {
   const loaded = loadConfig();
   const registry = new Registry(loaded.config);
   const store = new Store(paths.dataDir);
-  setTheme(resolveTheme(themeOverride ?? loaded.config.theme));
+  setTheme(resolveTheme(themeOverride ?? loaded.config.theme, process.env, background));
   return {
     config: loaded.config,
     configFile: loaded.file,

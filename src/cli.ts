@@ -2,6 +2,7 @@
 // --version run without loading React, Ink, providers or the highlighter.
 
 import { mark } from './trace.js';
+import { startEarlyProbe } from './term/probe.js';
 
 import { BUILD_KIND, VERSION, versionLine } from './version.js';
 
@@ -180,9 +181,11 @@ async function main(): Promise<void> {
     process.exitCode = await runPrint(args);
     return;
   }
+  // Ask the terminal for its background now, while the interface loads.
+  const probe = startEarlyProbe();
   const { runInteractive } = await import('./interactive.js');
   mark('interactive-loaded');
-  await runInteractive(args);
+  await runInteractive(args, probe);
 }
 
 main().catch((e: Error) => {
