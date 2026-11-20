@@ -12,7 +12,7 @@
 
 - **Keys typed ahead across screens.** Several keys arriving at once (fast typing, slow SSH links) could land on the previous screen of a multi-step dialog. In the provider wizard, the name you typed could even be saved as the API key. Input is now delivered one key at a time, letting the interface catch up in between; held keys are replayed to the next screen; and each wizard step has its own text field.
 - **Crashes and signals.**
-  - An error inside the interface now restores the terminal, prints the error and exits with status 1. It used to exit 0 silently.
+  - An error inside the interface now restores the terminal, prints the error (redacted) and exits with status 1. It used to exit 0 silently; in the standalone binary, Ink's error screen also dumped raw bytes of the executable to the terminal for several seconds.
   - A crash report is printed after cleanup, so it is no longer drawn over.
   - Ctrl+C reaching parley while `$EDITOR` is open no longer quits parley.
 - **Conversation files.**

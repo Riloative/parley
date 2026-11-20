@@ -18,6 +18,31 @@ import { lineToAnsi } from './render/style.js';
 import { mark, startupMarks } from './trace.js';
 import { redact } from './config/credentials.js';
 
+function crashReport(e: unknown): string {
+  return `\nparley crashed: ${redact(String((e as Error)?.stack ?? e))}\n`;
+}
+
+/**
+ * Catches an exception thrown while rendering, before Ink's own error screen
+ * can show it. That screen prints the message unredacted and a "source"
+ * excerpt read from the file in the stack trace, which in the standalone
+ * binary is the 150 MB executable: seconds of raw bytes written to the
+ * terminal. Render nothing, and let shutdown restore the terminal and print
+ * a redacted report.
+ */
+class CrashBoundary extends React.Component<{ onCrash: (e: unknown) => void; children: React.ReactNode }, { failed: boolean }> {
+  override state = { failed: false };
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true };
+  }
+  override componentDidCatch(e: unknown): void {
+    this.props.onCrash(e);
+  }
+  override render(): React.ReactNode {
+    return this.state.failed ? null : this.props.children;
+  }
+}
+
 /** Write before process.exit(): synchronously, so nothing is dropped, with an
  * async fallback if the descriptor is non-blocking and full (EAGAIN). */
 function writeNow(fd: 1 | 2, text: string): void {
@@ -105,20 +130,22 @@ export async function runInteractive(args: Args): Promise<void> {
   const { render } = await import('ink');
   mark('ink-loaded');
   const instance = render(
-    <App
-      session={session}
-      transcript={transcript}
-      terminal={terminal}
-      history={history}
-      store={b.store}
-      config={b.config}
-      configFile={b.configFile}
-      reloadConfig={() => loadConfig(b.configFile).config}
-      onExit={() => setTimeout(() => shutdown(0), 0)}
-      initial={!b.configExists && !args.model ? 'setup' : args.resume && !args.resumeId ? 'resume' : undefined}
-      resolveTheme={(t) => resolveTheme(t)}
-      ink={ink}
-    />,
+    <CrashBoundary onCrash={(e) => setImmediate(() => shutdown(1, crashReport(e)))}>
+      <App
+        session={session}
+        transcript={transcript}
+        terminal={terminal}
+        history={history}
+        store={b.store}
+        config={b.config}
+        configFile={b.configFile}
+        reloadConfig={() => loadConfig(b.configFile).config}
+        onExit={() => setTimeout(() => shutdown(0), 0)}
+        initial={!b.configExists && !args.model ? 'setup' : args.resume && !args.resumeId ? 'resume' : undefined}
+        resolveTheme={(t) => resolveTheme(t)}
+        ink={ink}
+      />
+    </CrashBoundary>,
     {
       stdout: terminal.inkStdout as unknown as NodeJS.WriteStream,
       stdin: fakeStdin,
@@ -156,7 +183,7 @@ export async function runInteractive(args: Args): Promise<void> {
   if (crash) {
     // Ink unmounts on an exception inside a component; report it instead of
     // exiting as if nothing happened.
-    shutdown(1, `\nparley crashed: ${redact(String((crash as Error)?.stack ?? crash))}\n`);
+    shutdown(1, crashReport(crash));
     return;
   }
   shutdown(0);

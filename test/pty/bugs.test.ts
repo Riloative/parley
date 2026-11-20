@@ -49,12 +49,17 @@ describe('terminal restore', () => {
   // after the last "on", cursor shown after the last "hide".
   const restored = (raw: string) => raw.lastIndexOf('\x1b[?2004l') > raw.lastIndexOf('\x1b[?2004h') && raw.lastIndexOf('\x1b[?25h') > raw.lastIndexOf('\x1b[?25l');
 
-  it('an exception while rendering restores the terminal and exits non-zero with the error', async () => {
+  it('an exception while rendering restores the terminal and exits non-zero with a redacted error', async () => {
     s = spawnParley({ env: { PARLEY_DEBUG_CRASH: 'render' } });
     const code = await Promise.race([s.exited, sleep(10_000).then(() => -999)]);
     expect(code).toBe(1);
     expect(restored(s.raw)).toBe(true);
     await s.waitFor(/parley crashed: .*debug crash \(render\)/);
+    // Not Ink's error screen: it printed the message unredacted and, in the
+    // standalone binary, a "source excerpt" of raw executable bytes.
+    expect(s.raw).not.toContain(' ERROR ');
+    expect(s.raw).not.toContain('DEBUGCRASHSECRETVALUE');
+    expect(s.raw).toContain('[redacted]');
   });
 
   it('an uncaught exception restores the terminal, saves the partial reply and exits non-zero', async () => {

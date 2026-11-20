@@ -73,7 +73,7 @@ function useForceUpdate(): () => void {
 }
 
 export function App(props: AppProps): React.ReactElement {
-  if (process.env.PARLEY_DEBUG_CRASH === 'render') throw new Error('debug crash (render)');
+  if (process.env.PARLEY_DEBUG_CRASH === 'render') throw new Error('debug crash (render) key=sk-ant-api03-DEBUGCRASHSECRETVALUE0123456789');
   const { session, transcript, terminal, history, store } = props;
   const app = useApp();
   const force = useForceUpdate();
