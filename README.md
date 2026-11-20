@@ -47,7 +47,13 @@ cd parley
 npm install -g .
 ```
 
-The repository ships a prebuilt, self-contained bundle in `dist/`, so the global install has no dependencies and needs no compiler. Check your environment afterwards:
+The repository ships a prebuilt, self-contained bundle in `dist/`, so the global install has no dependencies and needs no compiler.
+
+Or install a release without cloning (see [Releases](https://github.com/riloative/parley/releases)):
+
+```bash
+npm install -g https://github.com/riloative/parley/releases/download/v0.0.1/parley-0.0.1.tgz
+``` Check your environment afterwards:
 
 ```bash
 parley doctor

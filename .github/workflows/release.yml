@@ -1,0 +1,67 @@
+name: Release
+
+# Push a tag like v0.0.1 (matching the version in package.json) to publish a
+# GitHub Release with the installable package attached. The release notes are
+# that version's section of CHANGELOG.md.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Check the tag matches package.json
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match package.json version $version" >&2
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check the committed bundle is up to date
+        run: |
+          npm run build
+          git diff --stat --exit-code -- dist
+
+      - name: Type-check, lint and test
+        run: |
+          npm run typecheck
+          npm run lint
+          npm test
+
+      - name: Pack
+        run: npm pack
+
+      - name: Extract release notes from CHANGELOG.md
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="$version" '
+            $0 ~ "^## " v "( |$)" { on = 1; next }
+            on && /^## / { exit }
+            on { print }
+          ' CHANGELOG.md > release-notes.md
+          test -s release-notes.md
+
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" parley-*.tgz \
+            --title "parley $GITHUB_REF_NAME" \
+            --notes-file release-notes.md \
+            --verify-tag

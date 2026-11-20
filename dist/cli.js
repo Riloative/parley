@@ -1,5 +1,5 @@
 import { createRequire as __parleyCreateRequire } from 'node:module'; const require = __parleyCreateRequire(import.meta.url);
-import"./chunk-URYMO42N.js";var p="0.1.0",l=`parley \u2014 a terminal chat client for Claude, OpenAI, Mistral and local models
+import"./chunk-URYMO42N.js";var p="0.0.1",l=`parley \u2014 a terminal chat client for Claude, OpenAI, Mistral and local models
 
 Usage
   parley [options] [prompt]          start an interactive chat
