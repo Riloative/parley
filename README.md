@@ -362,7 +362,7 @@ prices:                              # USD per million tokens, for /cost
   local/*: { input: 0, output: 0 }
 ```
 
-`theme: auto` asks the terminal for its background colour at start-up (OSC 11), and otherwise uses `COLORFGBG`, then assumes a dark background. The question never delays start-up: a terminal that answers too late or not at all gets the fallback, so set `light` explicitly if detection misses. `NO_COLOR` turns colour off everywhere.
+`theme: auto` asks the terminal for its background colour at start-up (OSC 11), and otherwise uses `COLORFGBG`, then assumes a dark background. The question never delays start-up: an answer that arrives after the first frame applies to everything drawn after it, and a terminal that doesn't answer gets the fallback, so set `light` explicitly if detection misses. `NO_COLOR` turns colour off everywhere.
 
 ## Non-interactive use
 

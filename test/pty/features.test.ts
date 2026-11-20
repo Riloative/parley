@@ -262,9 +262,11 @@ describe('appearance and editor', () => {
 
     it('uses the light palette when the terminal reports a light background', async () => {
       await start({ home: makeHome(AUTO), background: 'rgb:ffff/ffff/fafa' });
-      await s!.waitFor('Send a message');
+      // Usually the answer arrives before the first frame and the welcome box
+      // is light too; on a loaded machine it can arrive just after, and then
+      // applies from the next thing drawn (the spinner, in the accent colour).
+      await say('hello');
       expect(s!.raw).toContain(LIGHT_ACCENT);
-      expect(s!.raw).not.toContain(DARK_ACCENT);
     }, 30_000);
 
     it('keeps the dark palette for a dark background, or when the terminal does not answer', async () => {
@@ -277,14 +279,20 @@ describe('appearance and editor', () => {
       expect(s!.raw).toContain(DARK_ACCENT);
     }, 30_000);
 
-    it('a late answer (slow link) changes nothing and never reaches the input box', async () => {
+    it('a late answer (slow link) applies from then on, without reprinting, and never reaches the input box', async () => {
       await start({ home: makeHome(AUTO), background: 'rgb:ffff/ffff/ffff', backgroundDelayMs: 700 });
       await s!.waitFor('Send a message');
+      expect(s!.raw).not.toContain(LIGHT_ACCENT); // the welcome box was drawn before the answer
       await sleep(900);
       s!.write('abc');
       await s!.waitFor('│ > abc');
       expect(s!.screen().join('\n')).not.toMatch(/rgb:|11;/);
-      expect(s!.raw).not.toContain(LIGHT_ACCENT);
+      s!.write('\x15');
+      await say('later');
+      expect(s!.raw).toContain(LIGHT_ACCENT);
+      // Nothing was reprinted: the scrollback was never cleared.
+      expect(s!.raw).not.toContain('\x1b[3J');
+      expect(s!.all().filter((l) => l.includes('Welcome to parley')).length).toBe(1);
     }, 30_000);
 
     it('keys typed while parley starts are kept, in order', async () => {

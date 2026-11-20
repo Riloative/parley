@@ -161,6 +161,12 @@ export class TerminalController extends EventEmitter {
         this.finishProbe(true);
         continue;
       }
+      if (e.type === 'background') {
+        // An answer to the start-up background query that arrived after the
+        // controller took over stdin.
+        this.emit('background', e.background);
+        continue;
+      }
       if (e.type === 'device-attributes' && this.ignoreDa1 > 0) {
         this.ignoreDa1--;
         continue;

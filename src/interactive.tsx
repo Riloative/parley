@@ -6,12 +6,12 @@ import { PassThrough } from 'node:stream';
 import { appendFileSync, writeSync } from 'node:fs';
 import type { Args } from './cli.js';
 import { boot, chooseModel, resolveTheme } from './bootstrap.js';
-import { setTheme } from './render/theme.js';
+import { getTheme, setTheme } from './render/theme.js';
 import { Session } from './core/session.js';
 import { InputHistory } from './core/history.js';
 import { paths } from './config/paths.js';
 import { TerminalController, installExitHandlers, restoreTerminal } from './term/terminal.js';
-import type { EarlyProbe } from './term/probe.js';
+import type { Background, EarlyProbe } from './term/probe.js';
 import { TranscriptModel } from './ui/transcript.js';
 import { App } from './ui/App.js';
 import type { Item } from './ui/blocks.js';
@@ -131,7 +131,19 @@ export async function runInteractive(args: Args, probe?: EarlyProbe): Promise<vo
   // has been drawn yet and the probe still owns stdin, so the answer can
   // still choose the palette.
   if (probe && !probe.background()) await new Promise((r) => setImmediate(r));
-  if (probe?.background()) setTheme(resolveTheme(args.theme ?? b.config.theme, process.env, probe.background()));
+  let background = probe?.background();
+  if (background) setTheme(resolveTheme(args.theme ?? b.config.theme, process.env, background));
+  // A later answer (a slow link) still applies to everything drawn from then
+  // on. What is already printed keeps its colours: reprinting would clear
+  // the scrollback, including the shell history above parley.
+  terminal.on('background', (bg: Background) => {
+    if (background) return;
+    background = bg;
+    const t = resolveTheme(args.theme ?? session.config.theme, process.env, bg);
+    if (t === getTheme().name) return;
+    setTheme(t);
+    transcript.emit('change');
+  });
   terminal.start();
   if (session.conv.title && b.config.terminalTitle) terminal.setTitle(session.conv.title);
   else if (b.config.terminalTitle) terminal.setTitle('parley');
@@ -152,7 +164,7 @@ export async function runInteractive(args: Args, probe?: EarlyProbe): Promise<vo
         reloadConfig={() => loadConfig(b.configFile).config}
         onExit={() => setTimeout(() => shutdown(0), 0)}
         initial={!b.configExists && !args.model ? 'setup' : args.resume && !args.resumeId ? 'resume' : undefined}
-        resolveTheme={(t) => resolveTheme(t, process.env, probe?.background())}
+        resolveTheme={(t) => resolveTheme(t, process.env, background)}
         ink={ink}
       />
     </CrashBoundary>,

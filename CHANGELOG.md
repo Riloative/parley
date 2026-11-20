@@ -8,7 +8,7 @@
 - **`install.sh`:** `curl -fsSL …/install.sh | sh` installs the binary to `~/.local/bin` after verifying its checksum. `PARLEY_VERSION` and `PARLEY_INSTALL_DIR` choose the version and directory.
 - **Build details:** `parley --version` shows the build kind (standalone binary or node package), the Node runtime and the platform. `parley doctor` shows the install method and location.
 - **OpenAI reasoning carries over between turns.** With the Responses API in stateless mode (`store: false`), parley now keeps each reply's encrypted reasoning and sends it back with the next request to the same model, so reasoning models keep their train of thought across turns.
-- **`theme: auto` follows the terminal's background.** parley asks the terminal for its background colour (OSC 11) at start-up and picks the light or dark palette. It never waits for the answer: a terminal that answers late or not at all gets the previous behaviour.
+- **`theme: auto` follows the terminal's background.** parley asks the terminal for its background colour (OSC 11) at start-up and picks the light or dark palette. It never waits for the answer: a late answer (a slow link) applies to everything drawn after it, and a terminal that doesn't answer gets the previous behaviour.
 - **`/terminal-setup`** shows the VS Code keybinding and the tmux setting that make Shift+Enter insert a new line, and writes them to the right file (with a backup) only if you confirm.
 - **`soft_line_breaks: join`** renders a single newline inside a Markdown paragraph as a space, as CommonMark does. The default, `keep`, is unchanged.
 
