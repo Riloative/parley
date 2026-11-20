@@ -35,7 +35,7 @@ Why dist/ is committed: `npm install -g .` packs the folder *before* installing 
 - **Why not Node 22/24 SEA:** only CommonJS entry points before Node 25. **Why not `deno compile`:** not needed, since SEA passed.
 - **Targets:** darwin-arm64, darwin-x64, linux-x64 and linux-arm64, each built and tested on a native GitHub runner (`macos-latest`, `macos-15-intel`, `ubuntu-24.04`, `ubuntu-24.04-arm`).
   - **macOS:** binaries are signed ad hoc (`codesign --sign -`), not notarized.
-  - **Linux:** binaries need glibc ≥ 2.28 (Node's official builds; CI runs them in Debian 10 and checks they fail on Ubuntu 18.04), plus libstdc++ (GLIBCXX_3.4.21) and libatomic.
+  - **Linux:** binaries need glibc ≥ 2.28 (Node's official builds), plus libstdc++ (GLIBCXX_3.4.21) and libatomic, which minimal images such as `debian:10` lack. CI runs the binaries in AlmaLinux 8 (glibc 2.28, after installing libatomic) and checks that they fail with a glibc error on Ubuntu 18.04.
   - **Not built:** musl (Node has no official musl builds) and Windows.
 - **To upgrade the embedded Node:** change `scripts/binary-runtime.json`, rebuild locally, and run the PTY suite with `PARLEY_BIN`.
 

@@ -10,10 +10,10 @@ const SCRIPT = new URL('../../install.sh', import.meta.url).pathname;
 const ASSET = 'parley-linux-x64.tar.gz';
 let root: string;
 
-function makeRelease(dir: string, version: string, opts: { badSum?: boolean } = {}): void {
+function makeRelease(dir: string, version: string, opts: { badSum?: boolean; broken?: string } = {}): void {
   mkdirSync(dir, { recursive: true });
   const stage = mkdtempSync(join(tmpdir(), 'parley-stage-'));
-  writeFileSync(join(stage, 'parley'), `#!/bin/sh\necho "parley ${version} (fake)"\n`);
+  writeFileSync(join(stage, 'parley'), opts.broken ? `#!/bin/sh\necho "${opts.broken}" >&2\nexit 127\n` : `#!/bin/sh\necho "parley ${version} (fake)"\n`);
   chmodSync(join(stage, 'parley'), 0o755);
   execFileSync('tar', ['czf', join(dir, ASSET), '-C', stage, 'parley']);
   rmSync(stage, { recursive: true, force: true });
@@ -44,6 +44,7 @@ beforeAll(() => {
   makeRelease(join(root, 'releases', 'latest', 'download'), '9.9.9');
   makeRelease(join(root, 'releases', 'download', 'v0.0.7'), '0.0.7');
   makeRelease(join(root, 'bad', 'latest', 'download'), '6.6.6', { badSum: true });
+  makeRelease(join(root, 'noatomic', 'latest', 'download'), '5.5.5', { broken: './parley: error while loading shared libraries: libatomic.so.1: cannot open shared object file' });
 });
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
@@ -79,6 +80,13 @@ describe('install.sh', () => {
     expect(r.code).toBe(1);
     expect(r.err).toMatch(/checksum mismatch for parley-linux-x64\.tar\.gz/);
     expect(existsSync(join(r.dir, 'parley'))).toBe(false);
+  });
+
+  it('explains a binary that cannot start, naming the missing library', () => {
+    const r = run({ PARLEY_RELEASES_URL: `file://${root}/noatomic` });
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('does not start on this system');
+    expect(r.out).toContain('sudo apt install libatomic1');
   });
 
   it('explains unsupported platforms', () => {

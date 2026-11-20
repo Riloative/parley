@@ -93,8 +93,18 @@ parley_install() {
     die "cannot install into $install_dir"
   }
 
-  installed="$("$install_dir/parley" --version 2>/dev/null || true)"
-  say "Installed $install_dir/parley${installed:+ — $installed}"
+  if installed="$("$install_dir/parley" --version 2>"$tmp/err")"; then
+    say "Installed $install_dir/parley — $installed"
+  else
+    say "Installed $install_dir/parley, but it does not start on this system:"
+    sed 's/^/  /' "$tmp/err"
+    if grep -q libatomic "$tmp/err"; then
+      say "It needs the libatomic library: sudo apt install libatomic1 (Debian/Ubuntu) or sudo dnf install libatomic (Fedora/RHEL)."
+    elif grep -q GLIBC_ "$tmp/err"; then
+      say "It needs glibc 2.28 or newer (Debian 10, Ubuntu 20.04, RHEL 8 or later). Use the npm package instead on older systems."
+    fi
+    exit 1
+  fi
   if [ "$os" = darwin ]; then
     say "(Downloaded with curl, so macOS does not quarantine it. If Gatekeeper ever blocks it: xattr -d com.apple.quarantine \"$install_dir/parley\")"
   fi
