@@ -22,6 +22,12 @@ npm run check:dist   # rebuild and fail if dist/ differs from the commit
 
 Why dist/ is committed: `npm install -g .` packs the folder *before* installing any dependency, so no build step can run there. Everything is bundled, so the package has no runtime dependencies (all packages are devDependencies). CI fails if dist/ is stale.
 
+## Releasing
+
+1. Bump the version: `npm version X.Y.Z --no-git-tag-version`, then `npm run build` (the version is baked into dist/).
+2. Add a `## X.Y.Z — date` section to CHANGELOG.md.
+3. Merge to main, then tag the merge commit `vX.Y.Z` and push the tag. `.github/workflows/release.yml` checks the tag against package.json, re-runs the checks, packs the package and publishes a GitHub Release with that CHANGELOG section as its notes.
+
 ## Layout
 
 ```
