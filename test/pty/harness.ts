@@ -2,7 +2,9 @@
 // headless xterm.js emulator in sync, so tests can assert on what a user
 // would actually see (and on the raw bytes written).
 
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as pty from 'node-pty';
@@ -86,8 +88,19 @@ export function testEnv(home: string, extra: Record<string, string> = {}): Recor
   };
 }
 
+// node-pty's prebuilt macOS spawn-helper is sometimes installed without its
+// execute bit, which makes every spawn fail with "posix_spawnp failed".
+function fixSpawnHelper(): void {
+  const root = dirname(createRequire(import.meta.url).resolve('node-pty/package.json'));
+  for (const dir of ['prebuilds/darwin-arm64', 'prebuilds/darwin-x64', 'build/Release']) {
+    const helper = join(root, dir, 'spawn-helper');
+    if (existsSync(helper) && !(statSync(helper).mode & 0o111)) chmodSync(helper, 0o755);
+  }
+}
+
 export function spawnParley(opts: SpawnOptions = {}): Session {
   ensureBuilt();
+  fixSpawnHelper();
   const cols = opts.cols ?? 80;
   const rows = opts.rows ?? 24;
   const home = opts.home ?? makeHome(opts.noConfig ? '' : (opts.config ?? DEFAULT_CONFIG));
