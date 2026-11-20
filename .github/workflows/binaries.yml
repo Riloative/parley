@@ -62,16 +62,35 @@ jobs:
 
       - name: Runs on the oldest supported glibc (AlmaLinux 8, glibc 2.28), not older (Ubuntu 18.04, glibc 2.27)
         if: runner.os == 'Linux'
+        timeout-minutes: 20
         run: |
+          # Distribution mirrors fail now and then (one dnf run once spent 27
+          # minutes before giving up). Package installs are bounded, and only
+          # they are retried: inside the containers, exit 75 means "the mirror
+          # failed", any other failure is a real result.
+          retry() {
+            for i in 1 2 3; do
+              "$@" && rc=0 || rc=$?
+              [ "$rc" -ne 75 ] && return "$rc"
+              echo "package mirror failed (attempt $i); retrying" >&2
+              sleep 15
+            done
+            echo "package mirror still failing after 3 attempts" >&2
+            return 1
+          }
           # The Node runtime also needs libatomic, which minimal images lack.
-          docker run --rm -v "$PWD/build/bin:/b:ro" almalinux:8 sh -c 'ldd --version | head -1; /b/parley --version 2>&1 | grep -q libatomic && echo "libatomic missing, as expected; installing"; dnf install -y -q libatomic >/dev/null && /b/parley --version && echo hi | /b/parley -p -m mock/echo say'
-          # Install libatomic there too, so the failure that remains is glibc's.
-          if docker run --rm -v "$PWD/build/bin:/b:ro" ubuntu:18.04 sh -c 'apt-get update -qq >/dev/null && apt-get install -y -qq libatomic1 >/dev/null && /b/parley --version' > old.txt 2>&1; then
-            echo "Unexpectedly ran on glibc 2.27; update the documented minimum" >&2
-            exit 1
-          fi
-          cat old.txt
-          grep -q 'GLIBC_2.2[0-9]' old.txt
+          retry docker run --rm -v "$PWD/build/bin:/b:ro" almalinux:8 sh -c '
+            ldd --version | head -1
+            /b/parley --version 2>&1 | grep -q libatomic && echo "libatomic missing, as expected; installing"
+            timeout 240 dnf install -y -q --setopt=retries=3 --setopt=timeout=20 libatomic >/dev/null || exit 75
+            /b/parley --version && echo hi | /b/parley -p -m mock/echo say'
+          # Ubuntu 18.04, with libatomic installed too, so the failure that
+          # remains is glibc's.
+          retry docker run --rm -v "$PWD/build/bin:/b:ro" ubuntu:18.04 sh -c '
+            timeout 240 sh -c "apt-get update -qq && apt-get install -y -qq libatomic1" >/dev/null 2>&1 || exit 75
+            if /b/parley --version >/tmp/out 2>&1; then echo "Unexpectedly ran on glibc 2.27; update the documented minimum"; exit 1; fi
+            cat /tmp/out
+            grep -q "GLIBC_2.2[0-9]" /tmp/out'
 
       - name: Signature (macOS)
         if: runner.os == 'macOS'
