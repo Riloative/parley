@@ -10,6 +10,19 @@
 
 ### Fixed
 
+- **Keys typed ahead across screens.** Several keys arriving at once (fast typing, slow SSH links) could land on the previous screen of a multi-step dialog. In the provider wizard, the name you typed could even be saved as the API key. Input is now delivered one key at a time, letting the interface catch up in between; held keys are replayed to the next screen; and each wizard step has its own text field.
+- **Crashes and signals.**
+  - An error inside the interface now restores the terminal, prints the error and exits with status 1. It used to exit 0 silently.
+  - A crash report is printed after cleanup, so it is no longer drawn over.
+  - Ctrl+C reaching parley while `$EDITOR` is open no longer quits parley.
+- **Conversation files.**
+  - A damaged or hand-edited line (`null`, a message without content, an unknown role or content type, a dangling branch pointer) is skipped instead of crashing later.
+  - A lock left by a killed parley whose process ID has since been reused by another program is recognised as stale. Locks now record the holder's start time; old locks are still read.
+- **`parley -p -c`** now says when the latest conversation is open in another window, instead of exiting 1 with no message.
+- **Streaming Markdown.** A code fence's language label was committed before its opening line had fully arrived, so `python` could be shown as `p`.
+- **Ctrl+L then resize.** Resizing the terminal after Ctrl+L brought the cleared conversation back.
+- **Keys in error text.** An error message quoting the API key (from a mid-stream error, a crash report or a retry reason) is now redacted everywhere: notices, the transcript and logs.
+- **Long Retry-After.** When a provider asks for a wait longer than a minute, parley now stops and says how long to wait, instead of retrying early.
 - **Proxy support in the npm package.** In the code-split npm bundle, parley couldn't load its HTTP client and silently fell back to the built-in `fetch`. As a result, `HTTPS_PROXY`/`HTTP_PROXY` were ignored and the no-timeout settings for slow local model loads didn't apply. A test now drives the built program through a proxy.
 
 ## 0.0.1 — 2026-11-20

@@ -33,15 +33,19 @@ export async function runPrint(args: Args): Promise<number> {
   }
 
   const session = new Session({ config: b.config, registry: b.registry, store: b.store, model: '' });
-  if (args.continue) {
-    const last = b.store.list()[0];
-    if (last && !session.resume(last.id)) return 1;
-  } else if (args.resume && args.resumeId) {
-    if (!session.resume(args.resumeId)) {
-      process.stderr.write(`parley: could not open conversation ${args.resumeId}\n`);
-      return 1;
-    }
+  // Report notices raised while opening the conversation (e.g. it is locked
+  // by another parley window) before the main listener is attached.
+  const early: string[] = [];
+  const onEarly = (e: SessionEvent) => {
+    if (e.type === 'notice' && e.tone === 'error') early.push(e.text);
+  };
+  session.on('event', onEarly);
+  const resumeId = args.continue ? b.store.list()[0]?.id : args.resume ? args.resumeId : undefined;
+  if (resumeId && !session.resume(resumeId)) {
+    process.stderr.write(`parley: ${early[0] ?? `could not open conversation ${resumeId}`}\n`);
+    return 1;
   }
+  session.off('event', onEarly);
   const model = chooseModel(b, args.model, session.conv.model);
   if (!model) {
     process.stderr.write('parley: no model selected. Use -m provider/model-id, or set default_model in the config file.\n');

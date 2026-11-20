@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { Session, type SessionEvent } from '../../src/core/session.js';
+import { toChatMessages } from '../../src/core/conversation.js';
 import { Store, replay } from '../../src/core/store.js';
 import { Registry } from '../../src/providers/registry.js';
 import { defaultConfig, type Config } from '../../src/config/config.js';
@@ -134,6 +135,18 @@ describe('session', () => {
     session.setModel('mock/echo');
     await session.submit({ text: 'next' });
     expect(textOf(session)[3]).toBe('assistant:You said: next');
+  });
+
+  it('replays signed reasoning unchanged to the same model on the next turn', async () => {
+    const { session } = make('mock/reasoning?tps=5000');
+    await session.submit({ text: 'first' });
+    const sent = toChatMessages(session.conv.context(), { provider: 'mock', model: 'reasoning?tps=5000' });
+    const reasoning = sent[1]!.content.find((p) => p.type === 'reasoning');
+    expect(reasoning).toMatchObject({ type: 'reasoning', signature: 'mock-signature', provider: 'mock', model: 'reasoning?tps=5000' });
+    expect((reasoning as { text: string }).text).toContain('The user is asking a question');
+    // A different model on the same provider gets no reasoning blocks.
+    const other = toChatMessages(session.conv.context(), { provider: 'mock', model: 'echo' });
+    expect(other[1]!.content.some((p) => p.type === 'reasoning')).toBe(false);
   });
 
   it('refuses to send a message that would overflow the context window and suggests /compact', async () => {

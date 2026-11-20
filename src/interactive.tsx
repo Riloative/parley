@@ -16,6 +16,7 @@ import type { Item } from './ui/blocks.js';
 import { loadConfig } from './config/config.js';
 import { lineToAnsi } from './render/style.js';
 import { mark, startupMarks } from './trace.js';
+import { redact } from './config/credentials.js';
 
 export async function runInteractive(args: Args): Promise<void> {
   mark('boot-start');
@@ -56,8 +57,12 @@ export async function runInteractive(args: Args): Promise<void> {
   const fakeStdin = new PassThrough() as unknown as NodeJS.ReadStream;
   const ink: { clear?: () => void } = {};
   let exiting = false;
-  const shutdown = (code: number) => {
-    if (exiting) return;
+  const shutdown = (code: number, report?: string) => {
+    if (exiting) {
+      // A crash during shutdown: the terminal is already being restored.
+      if (report) writeSync(2, report);
+      return;
+    }
     exiting = true;
     try {
       session.flushPersist();
@@ -72,6 +77,7 @@ export async function runInteractive(args: Args): Promise<void> {
     }
     terminal.stop();
     restoreTerminal();
+    if (report) writeSync(2, report);
     if (code === 0 && session.file) {
       // Synchronous: process.exit() follows, and an async write to a pipe or
       // (on macOS) a pty could be dropped.
@@ -79,7 +85,7 @@ export async function runInteractive(args: Args): Promise<void> {
     }
     process.exit(code);
   };
-  installExitHandlers((code) => shutdown(code));
+  installExitHandlers((code, _reason, report) => shutdown(code, report));
 
   terminal.start();
   if (session.conv.title && b.config.terminalTitle) terminal.setTitle(session.conv.title);
@@ -126,6 +132,22 @@ export async function runInteractive(args: Args): Promise<void> {
     const p = args.prompt;
     setTimeout(() => void session.submit({ text: p }), 50);
   }
-  await instance.waitUntilExit().catch(() => undefined);
+  if (process.env.PARLEY_DEBUG_CRASH?.startsWith('uncaught')) {
+    // Test hook: crash outside React after a delay.
+    const ms = Number(process.env.PARLEY_DEBUG_CRASH.split(':')[1] ?? 0);
+    setTimeout(() => {
+      throw new Error('debug crash (uncaught)');
+    }, ms);
+  }
+  let crash: unknown;
+  await instance.waitUntilExit().catch((e: unknown) => {
+    crash = e;
+  });
+  if (crash) {
+    // Ink unmounts on an exception inside a component; report it instead of
+    // exiting as if nothing happened.
+    shutdown(1, `\nparley crashed: ${redact(String((crash as Error)?.stack ?? crash))}\n`);
+    return;
+  }
   shutdown(0);
 }

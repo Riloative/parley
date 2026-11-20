@@ -109,7 +109,13 @@ src/config/              config.ts (YAML + validation with line numbers), creden
 - The dynamic area is clamped so it is always shorter than the terminal (Ink falls back to clearing the viewport otherwise). The live tail shows its last lines if it is taller.
 - Session frames are batched to ~30 fps; Ink runs with `maxFps: 30`, `incrementalRendering`, and DEC 2026 synchronized output.
 - Ink gets a proxy stdout (`InkStdout`). On a width change the app clears screen + scrollback and remounts `<Static>` (new key) to reprint the conversation at the new width, then forwards the resize to Ink. The same "reprint" path handles Ctrl+O, rewind, retry, resume and theme changes.
-- Keys can arrive faster than React renders (a paste plus Enter in one chunk), so editor/search/picker state that key handlers read lives in refs updated synchronously. Keep it that way.
+- Keys can arrive faster than React renders (a paste plus Enter in one chunk). Three layers deal with it:
+  - `TerminalController` delivers the events of a chunk one at a time, yielding to the event loop in between, so React commits each key's effect before the next.
+  - State that key handlers read (editor, search, picker, prompt) lives in refs that are updated synchronously.
+  - A picker or prompt that has just acted answers `'hold'`, and the router replays held keys to whatever handles input next.
+
+  Keep all three.
+- `PARLEY_DEBUG_CRASH=render|uncaught[:ms]` forces a crash, for the terminal-restore tests in `test/pty/bugs.test.ts`.
 
 ## Conventions
 

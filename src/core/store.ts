@@ -19,7 +19,9 @@ import {
 } from 'node:fs';
 import { basename, join } from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { Conversation, type StoredMessage } from './conversation.js';
+import type { ContentPart } from '../providers/types.js';
 import { paths } from '../config/paths.js';
 
 export const SCHEMA_VERSION = 1;
@@ -57,9 +59,111 @@ function pidAlive(pid: number): boolean {
   }
 }
 
+interface LockInfo {
+  pid: number;
+  /** When the holding process started (ms since epoch), to detect PID reuse. */
+  started?: number;
+}
+
+/** Locks written by parley 0.0.1 hold just the PID. */
+function parseLock(text: string): LockInfo {
+  const t = text.trim();
+  try {
+    const j = JSON.parse(t) as Partial<LockInfo>;
+    if (j && typeof j === 'object' && typeof j.pid === 'number') return { pid: j.pid, started: typeof j.started === 'number' ? j.started : undefined };
+  } catch {
+    /* legacy format */
+  }
+  return { pid: Number(t) || 0 };
+}
+
+const ownStart = () => Date.now() - process.uptime() * 1000;
+
+/** Start time of another process, from `ps -o etime=` ([[dd-]hh:]mm:ss). */
+function processStart(pid: number): number | undefined {
+  try {
+    const out = execFileSync('ps', ['-o', 'etime=', '-p', String(pid)], { encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    const m = /^(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)$/.exec(out);
+    if (!m) return undefined;
+    const secs = Number(m[1] ?? 0) * 86400 + Number(m[2] ?? 0) * 3600 + Number(m[3]) * 60 + Number(m[4]);
+    return Date.now() - secs * 1000;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Whether the process that wrote a lock is still the one running. */
+function holderAlive(info: LockInfo): boolean {
+  if (!pidAlive(info.pid)) return false;
+  if (info.started === undefined) return true;
+  const started = processStart(info.pid);
+  // ps resolution is a second; allow generous slack for clock adjustments.
+  return started === undefined || Math.abs(started - info.started) < 10_000;
+}
+
 export class ConversationLockedError extends Error {
   constructor(readonly pid: number) {
     super(`This conversation is open in another parley window (pid ${pid}).`);
+  }
+}
+
+const ROLES = new Set(['user', 'assistant', 'summary']);
+const isStr = (v: unknown): v is string => typeof v === 'string';
+
+function validPart(p: unknown): ContentPart | null {
+  if (!p || typeof p !== 'object') return null;
+  const o = p as Record<string, unknown>;
+  switch (o.type) {
+    case 'text':
+      return isStr(o.text) ? { type: 'text', text: o.text } : null;
+    case 'image':
+      return isStr(o.hash) && isStr(o.mediaType) ? { type: 'image', hash: o.hash, mediaType: o.mediaType, ...(isStr(o.name) ? { name: o.name } : {}) } : null;
+    case 'file':
+      return isStr(o.name) && isStr(o.text) ? { type: 'file', name: o.name, text: o.text } : null;
+    case 'reasoning':
+      return isStr(o.text)
+        ? {
+            type: 'reasoning',
+            text: o.text,
+            provider: isStr(o.provider) ? o.provider : '',
+            model: isStr(o.model) ? o.model : '',
+            ...(isStr(o.signature) ? { signature: o.signature } : {}),
+            ...(isStr(o.redacted) ? { redacted: o.redacted } : {}),
+          }
+        : null;
+    default:
+      return null;
+  }
+}
+
+/** Check an event's shape; returns null for anything that cannot be used. */
+export function validEvent(raw: unknown): StoreEvent | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const e = raw as Record<string, unknown>;
+  switch (e.type) {
+    case 'meta':
+      return typeof e.createdAt === 'number' ? (e as unknown as StoreEvent) : null;
+    case 'message': {
+      if (!isStr(e.id) || !isStr(e.role) || !ROLES.has(e.role)) return null;
+      if (e.parentId !== null && !isStr(e.parentId)) return null;
+      const content = Array.isArray(e.content) ? e.content.map(validPart).filter((p): p is ContentPart => p !== null) : null;
+      if (!content) return null;
+      return { ...(e as unknown as StoredMessage), type: 'message', ts: typeof e.ts === 'number' ? e.ts : 0, content };
+    }
+    case 'partial':
+      return isStr(e.id) && (e.parentId === null || isStr(e.parentId)) ? (e as unknown as StoreEvent) : null;
+    case 'delta':
+      return isStr(e.id) && (e.text === undefined || isStr(e.text)) && (e.reasoning === undefined || isStr(e.reasoning)) ? (e as unknown as StoreEvent) : null;
+    case 'head':
+      return e.id === null || isStr(e.id) ? (e as unknown as StoreEvent) : null;
+    case 'title':
+      return isStr(e.title) ? (e as unknown as StoreEvent) : null;
+    case 'system':
+      return e.prompt === null || isStr(e.prompt) ? (e as unknown as StoreEvent) : null;
+    case 'model':
+      return isStr(e.model) ? (e as unknown as StoreEvent) : null;
+    default:
+      return null;
   }
 }
 
@@ -70,12 +174,16 @@ export function replay(id: string, text: string): { conv: Conversation; partial?
   let lastPartial: string | undefined;
   for (const line of text.split('\n')) {
     if (!line.trim()) continue;
-    let ev: StoreEvent;
+    let raw: unknown;
     try {
-      ev = JSON.parse(line) as StoreEvent;
+      raw = JSON.parse(line);
     } catch {
       continue; // half-written last line after a crash
     }
+    // Hand-edited, newer or damaged files: skip anything malformed rather
+    // than letting it crash rendering later.
+    const ev = validEvent(raw);
+    if (!ev) continue;
     switch (ev.type) {
       case 'meta':
         conv.createdAt = ev.createdAt;
@@ -99,6 +207,7 @@ export function replay(id: string, text: string): { conv: Conversation; partial?
         break;
       }
       case 'head':
+        if (ev.id !== null && !conv.messages.has(ev.id) && !partials.has(ev.id)) break;
         conv.headId = ev.id;
         if (ev.ts) conv.updatedAt = Math.max(conv.updatedAt, ev.ts);
         break;
@@ -113,6 +222,7 @@ export function replay(id: string, text: string): { conv: Conversation; partial?
         break;
     }
   }
+  if (conv.headId && !conv.messages.has(conv.headId) && !partials.has(conv.headId)) conv.headId = null;
   // A reply that was streaming when the process died: recover what arrived.
   let partial: StoredMessage | undefined;
   if (lastPartial && partials.has(lastPartial)) {
@@ -153,14 +263,14 @@ export class ConversationFile {
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         const fd = openSync(this.lockPath, 'wx', 0o600);
-        writeSync(fd, String(process.pid));
+        writeSync(fd, JSON.stringify({ pid: process.pid, started: Math.round(ownStart()) }));
         closeSync(fd);
         return;
       } catch (e) {
         if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
-        const pid = Number(readFileSafe(this.lockPath).trim());
-        if (pidAlive(pid) && pid !== process.pid) throw new ConversationLockedError(pid);
-        if (pid === process.pid) return;
+        const info = parseLock(readFileSafe(this.lockPath));
+        if (info.pid === process.pid) return;
+        if (holderAlive(info)) throw new ConversationLockedError(info.pid);
         try {
           unlinkSync(this.lockPath); // stale lock from a crashed process
         } catch {
@@ -175,7 +285,7 @@ export class ConversationFile {
     if (this.released) return;
     this.released = true;
     try {
-      if (readFileSafe(this.lockPath).trim() === String(process.pid)) unlinkSync(this.lockPath);
+      if (parseLock(readFileSafe(this.lockPath)).pid === process.pid) unlinkSync(this.lockPath);
     } catch {
       /* ignore */
     }

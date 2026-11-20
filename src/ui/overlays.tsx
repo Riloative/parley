@@ -10,16 +10,21 @@ import { themeHex } from '../render/theme.js';
 import { padEnd, textWidth, truncate } from '../render/width.js';
 import * as E from './editor.js';
 
-/** Pasted text arrives as a Key named 'paste' with `text` set. */
-export type KeyHandler = (key: Key) => boolean;
+/** Pasted text arrives as a Key named 'paste' with `text` set. A handler
+ * returns 'hold' when it has just acted (selected, submitted, cancelled) and
+ * the screen is about to change: the router keeps further keys and replays
+ * them to whatever handles input next. */
+export type KeyHandler = (key: Key) => boolean | 'hold';
 
 export const pasteKey = (text: string): Key => ({ name: 'paste', text, ctrl: false, alt: false, shift: false });
 
 export interface KeyRouter {
   push(h: KeyHandler): () => void;
+  /** Replay held keys to the current handler (or the input box). */
+  flush(): void;
 }
 
-export const KeyRouterContext = React.createContext<KeyRouter>({ push: () => () => {} });
+export const KeyRouterContext = React.createContext<KeyRouter>({ push: () => () => {}, flush: () => {} });
 
 export function useKeys(handler: KeyHandler, active = true): void {
   const router = React.useContext(KeyRouterContext);
@@ -29,6 +34,26 @@ export function useKeys(handler: KeyHandler, active = true): void {
     if (!active) return;
     return router.push((k) => ref.current(k));
   }, [router, active]);
+}
+
+/** For a component that hands off after acting: `act()` marks it done (so
+ * further keys are held), and once it re-renders it takes keys again and
+ * the held ones are replayed to whoever now has focus. */
+function useHandoff(): { done: () => boolean; act: () => void } {
+  const router = React.useContext(KeyRouterContext);
+  const doneRef = useRef(false);
+  useEffect(() => {
+    if (doneRef.current) {
+      doneRef.current = false;
+      router.flush();
+    }
+  });
+  return {
+    done: () => doneRef.current,
+    act: () => {
+      doneRef.current = true;
+    },
+  };
 }
 
 export interface PickerItem<T = string> {
@@ -87,21 +112,30 @@ export function Picker<T>(props: PickerProps<T>): React.ReactElement {
     rerender((n) => n + 1);
   };
 
+  const handoff = useHandoff();
   useKeys((key) => {
+    if (handoff.done()) return 'hold';
     const vis = filterItems(queryRef.current);
     const cur = Math.min(indexRef.current, Math.max(0, vis.length - 1));
     if (key.name === 'paste') {
       if (searchable) setQuery(queryRef.current + (key.text ?? '').replace(/\n/g, ' '));
       return true;
     }
-    if (props.onKey?.(key, vis[cur])) return true;
+    if (props.onKey?.(key, vis[cur])) {
+      handoff.act();
+      return true;
+    }
     if (key.name === 'escape' || (key.ctrl && (key.name === 'c' || key.name === 'g'))) {
+      handoff.act();
       props.onCancel();
       return true;
     }
     if (key.name === 'enter') {
       const item = vis[cur];
-      if (item && !item.disabled) props.onSelect(item, queryRef.current);
+      if (item && !item.disabled) {
+        handoff.act();
+        props.onSelect(item, queryRef.current);
+      }
       return true;
     }
     if (key.name === 'up' || (key.ctrl && key.name === 'p')) {
@@ -199,18 +233,29 @@ export interface PromptProps {
 
 /** A single-line text prompt (used by setup flows, /rename, key entry). */
 export function Prompt(props: PromptProps): React.ReactElement {
-  const [ed, setEd] = useState<E.EditorState>(E.editorWith(props.initial ?? ''));
+  const [ed, setEdState] = useState<E.EditorState>(E.editorWith(props.initial ?? ''));
+  // As in the main input: the text lives in a ref so Enter sees every key
+  // that arrived before it, even within one input chunk.
+  const edRef = useRef(ed);
+  const setEd = (f: (s: E.EditorState) => E.EditorState) => {
+    edRef.current = f(edRef.current);
+    setEdState(edRef.current);
+  };
+  const handoff = useHandoff();
   useKeys((key) => {
+    if (handoff.done()) return 'hold';
     if (key.name === 'paste') {
       setEd((s) => E.insert(s, (key.text ?? '').replace(/\n/g, '')));
       return true;
     }
     if (key.name === 'escape' || (key.ctrl && key.name === 'c')) {
+      handoff.act();
       props.onCancel();
       return true;
     }
     if (key.name === 'enter') {
-      props.onSubmit(ed.text.trim());
+      handoff.act();
+      props.onSubmit(edRef.current.text.trim());
       return true;
     }
     setEd((s) => editKey(s, key) ?? s);

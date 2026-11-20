@@ -13,7 +13,7 @@ import type { Session, SessionEvent } from '../core/session.js';
 import type { InputHistory } from '../core/history.js';
 import type { Store } from '../core/store.js';
 import type { TerminalController } from '../term/terminal.js';
-import { CLEAR_SCREEN } from '../term/terminal.js';
+import { CLEAR_SCREEN, holdInterrupts } from '../term/terminal.js';
 import type { InputEvent, Key } from '../term/keys.js';
 import { isText } from '../term/keys.js';
 import { BULLET, renderItem } from './blocks.js';
@@ -73,6 +73,7 @@ function useForceUpdate(): () => void {
 }
 
 export function App(props: AppProps): React.ReactElement {
+  if (process.env.PARLEY_DEBUG_CRASH === 'render') throw new Error('debug crash (render)');
   const { session, transcript, terminal, history, store } = props;
   const app = useApp();
   const force = useForceUpdate();
@@ -115,32 +116,46 @@ export function App(props: AppProps): React.ReactElement {
 
   // ------------------------------------------------------------ key routing
   const stack = useRef<KeyHandler[]>([]);
-  // Keys typed right after an overlay is opened can arrive before it has
-  // mounted and registered its handler; hold them and replay them to it.
+  // Keys can arrive faster than screens change: right after an overlay is
+  // opened (before it registers its handler) or after a picker has acted
+  // (it answers 'hold'). Such keys are held and replayed, in order, to
+  // whatever handles input next — a new screen, or the input box once the
+  // overlay has closed.
   const overlayOpen = useRef(false);
   const heldKeys = useRef<Key[]>([]);
+  const dispatchRef = useRef<(k: Key) => void>(() => {});
+  const replayHeld = useCallback(() => {
+    queueMicrotask(() => {
+      while (heldKeys.current.length) {
+        const top = stack.current[stack.current.length - 1];
+        // Still nobody to take them (overlay mounting): keep holding.
+        if (!top && overlayOpen.current) return;
+        const k = heldKeys.current.shift()!;
+        if (top) {
+          if (top(k) === 'hold') {
+            heldKeys.current.unshift(k);
+            return;
+          }
+        } else dispatchRef.current(k);
+      }
+    });
+  }, []);
   const router = useMemo<KeyRouter>(
     () => ({
       push(h) {
         stack.current.push(h);
-        if (heldKeys.current.length) {
-          const keys = heldKeys.current;
-          heldKeys.current = [];
-          queueMicrotask(() => {
-            for (const k of keys) (stack.current[stack.current.length - 1] ?? h)(k);
-          });
-        }
+        if (heldKeys.current.length) replayHeld();
         return () => {
           stack.current = stack.current.filter((x) => x !== h);
         };
       },
+      flush: replayHeld,
     }),
-    [],
+    [replayHeld],
   );
 
   const setOverlay = useCallback((o: Overlay | null) => {
     overlayOpen.current = o !== null;
-    if (!o) heldKeys.current = [];
     setOverlayState(o);
   }, []);
   const closeOverlay = useCallback(() => setOverlay(null), [setOverlay]);
@@ -281,6 +296,7 @@ export function App(props: AppProps): React.ReactElement {
     const file = join(dir, 'prompt.md');
     writeFileSync(file, edRef.current.text);
     terminal.suspend();
+    holdInterrupts(true);
     try {
       const r = spawnSync('sh', ['-c', `${editor} "$1"`, 'sh', file], { stdio: 'inherit' });
       if (r.status === 0) {
@@ -294,6 +310,9 @@ export function App(props: AppProps): React.ReactElement {
     } finally {
       rmSync(dir, { recursive: true, force: true });
       terminal.resume();
+      // Signals raised while the editor ran are delivered after spawnSync
+      // returns; keep ignoring them until they have been.
+      setTimeout(() => holdInterrupts(false), 200);
       inkClear.current?.();
       transcript.reprint(true);
     }
@@ -931,29 +950,42 @@ export function App(props: AppProps): React.ReactElement {
   );
 
   useEffect(() => {
+    // Keys for the input box (no overlay); also used to replay held keys.
+    dispatchRef.current = (k: Key) => {
+      if (searchRef.current) handleSearchKey(k);
+      else if (k.name === 'paste') handlePaste(k.text ?? '');
+      else handleInputKey(k);
+    };
     const onInput = (e: InputEvent) => {
       if (e.type !== 'key' && e.type !== 'paste') return;
+      const key = e.type === 'paste' ? pasteKey(e.text) : e.key;
+      if (heldKeys.current.length) {
+        // Keep order behind keys that are already waiting.
+        heldKeys.current.push(key);
+        replayHeld();
+        return;
+      }
       const top = stack.current[stack.current.length - 1];
       if (top) {
-        top(e.type === 'paste' ? pasteKey(e.text) : e.key);
+        if (top(key) === 'hold') heldKeys.current.push(key);
         return;
       }
       if (overlayOpen.current) {
-        heldKeys.current.push(e.type === 'paste' ? pasteKey(e.text) : e.key);
+        heldKeys.current.push(key);
         return;
       }
-      if (searchRef.current) {
-        handleSearchKey(e.type === 'paste' ? pasteKey(e.text) : e.key);
-        return;
-      }
-      if (e.type === 'paste') handlePaste(e.text);
-      else handleInputKey(e.key);
+      dispatchRef.current(key);
     };
     terminal.on('input', onInput);
     return () => {
       terminal.off('input', onInput);
     };
-  }, [terminal, handleInputKey, handlePaste, handleSearchKey]);
+  }, [terminal, handleInputKey, handlePaste, handleSearchKey, replayHeld]);
+
+  // An overlay that closed while keys were held: they belong to the input box.
+  useEffect(() => {
+    if (!overlay && heldKeys.current.length) replayHeld();
+  }, [overlay, replayHeld]);
 
   // --------------------------------------------------------------- layout
   const dim = themeHex('dim');

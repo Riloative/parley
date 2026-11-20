@@ -59,6 +59,7 @@ function AddProviderWizard({ cols, existing, onDone }: WizardProps): React.React
   if (step === 'name') {
     return (
       <Prompt
+        key="name"
         title="Provider name"
         description="Used in model references, e.g. name/model-id. Letters, digits, '-', '_' and '.' only."
         initial={name}
@@ -75,6 +76,7 @@ function AddProviderWizard({ cols, existing, onDone }: WizardProps): React.React
   if (step === 'url') {
     return (
       <Prompt
+        key="url"
         title="Base URL"
         description="The OpenAI-compatible endpoint, usually ending in /v1."
         initial={url}
@@ -93,6 +95,7 @@ function AddProviderWizard({ cols, existing, onDone }: WizardProps): React.React
   const envName = preset?.keyEnv;
   return (
     <Prompt
+      key="api-key"
       title={`API key for ${name}`}
       description={`${envName && process.env[envName] ? `${envName} is already set, so you can leave this empty. ` : ''}Stored in the OS keychain, or in a private credentials file when no keychain is available. Leave empty to skip.`}
       mask
