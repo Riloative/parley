@@ -115,10 +115,21 @@ export function App(props: AppProps): React.ReactElement {
 
   // ------------------------------------------------------------ key routing
   const stack = useRef<KeyHandler[]>([]);
+  // Keys typed right after an overlay is opened can arrive before it has
+  // mounted and registered its handler; hold them and replay them to it.
+  const overlayOpen = useRef(false);
+  const heldKeys = useRef<Key[]>([]);
   const router = useMemo<KeyRouter>(
     () => ({
       push(h) {
         stack.current.push(h);
+        if (heldKeys.current.length) {
+          const keys = heldKeys.current;
+          heldKeys.current = [];
+          queueMicrotask(() => {
+            for (const k of keys) (stack.current[stack.current.length - 1] ?? h)(k);
+          });
+        }
         return () => {
           stack.current = stack.current.filter((x) => x !== h);
         };
@@ -127,8 +138,12 @@ export function App(props: AppProps): React.ReactElement {
     [],
   );
 
-  const setOverlay = useCallback((o: Overlay | null) => setOverlayState(o), []);
-  const closeOverlay = useCallback(() => setOverlayState(null), []);
+  const setOverlay = useCallback((o: Overlay | null) => {
+    overlayOpen.current = o !== null;
+    if (!o) heldKeys.current = [];
+    setOverlayState(o);
+  }, []);
+  const closeOverlay = useCallback(() => setOverlay(null), [setOverlay]);
 
   const flashHint = useCallback((text: string, ms = 1500) => {
     setHint({ text, until: Date.now() + ms });
@@ -921,6 +936,10 @@ export function App(props: AppProps): React.ReactElement {
       const top = stack.current[stack.current.length - 1];
       if (top) {
         top(e.type === 'paste' ? pasteKey(e.text) : e.key);
+        return;
+      }
+      if (overlayOpen.current) {
+        heldKeys.current.push(e.type === 'paste' ? pasteKey(e.text) : e.key);
         return;
       }
       if (searchRef.current) {

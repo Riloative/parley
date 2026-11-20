@@ -318,9 +318,10 @@ describe('configuration', () => {
   it('/config edits the file in place, keeping comments', async () => {
     const home = makeHome('# my comment\n' + DEFAULT_CONFIG);
     await start({ home });
-    s!.write('/config\r');
+    // Typed ahead in one burst: keys that arrive before the settings screen
+    // has mounted must still reach it.
+    s!.write('/config\r' + DOWN.repeat(5) + '\r');
     await s!.waitFor('Settings');
-    s!.write(DOWN.repeat(5) + '\r');
     await s!.waitFor(/Bell when a long reply finishes\s+on/);
     const text = readFileSync(join(home, 'config', 'parley', 'config.yaml'), 'utf8');
     expect(text).toContain('# my comment');
