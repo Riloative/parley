@@ -100,3 +100,14 @@ describe('redaction', () => {
     expect(redact('the value mine-secret-123 here', ['mine-secret-123'])).toBe('the value [redacted] here');
   });
 });
+
+describe('soft_line_breaks', () => {
+  it('accepts keep and join, defaults to keep, and reports other values with the line', async () => {
+    const { parseConfig } = await import('../../src/config/config.js');
+    expect(parseConfig('theme: dark\n').config.softLineBreaks).toBe('keep');
+    expect(parseConfig('soft_line_breaks: join\n').config.softLineBreaks).toBe('join');
+    const bad = parseConfig('theme: dark\nsoft_line_breaks: wrap\n');
+    expect(bad.config.softLineBreaks).toBe('keep');
+    expect(bad.issues).toEqual([expect.objectContaining({ line: 2, message: expect.stringMatching(/soft_line_breaks must be keep or join/) })]);
+  });
+});

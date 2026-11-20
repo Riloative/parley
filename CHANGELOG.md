@@ -7,6 +7,10 @@
 - **Standalone binaries** for macOS (arm64, x64) and Linux (x64, arm64). They are built with Node.js single executable applications (Node 26.13.1 embedded), so Node doesn't need to be installed. Each release attaches `parley-<os>-<arch>.tar.gz` and `SHA256SUMS`. Linux binaries need glibc 2.28+ and libatomic.
 - **`install.sh`:** `curl -fsSL …/install.sh | sh` installs the binary to `~/.local/bin` after verifying its checksum. `PARLEY_VERSION` and `PARLEY_INSTALL_DIR` choose the version and directory.
 - **Build details:** `parley --version` shows the build kind (standalone binary or node package), the Node runtime and the platform. `parley doctor` shows the install method and location.
+- **OpenAI reasoning carries over between turns.** With the Responses API in stateless mode (`store: false`), parley now keeps each reply's encrypted reasoning and sends it back with the next request to the same model, so reasoning models keep their train of thought across turns.
+- **`theme: auto` follows the terminal's background.** parley asks the terminal for its background colour (OSC 11) at start-up and picks the light or dark palette. It never waits for the answer: a terminal that answers late or not at all gets the previous behaviour.
+- **`/terminal-setup`** shows the VS Code keybinding and the tmux setting that make Shift+Enter insert a new line, and writes them to the right file (with a backup) only if you confirm.
+- **`soft_line_breaks: join`** renders a single newline inside a Markdown paragraph as a space, as CommonMark does. The default, `keep`, is unchanged.
 
 ### Performance
 
@@ -29,6 +33,8 @@
 - **Streaming Markdown.** A code fence's language label was committed before its opening line had fully arrived, so `python` could be shown as `p`.
 - **Ctrl+L then resize.** Resizing the terminal after Ctrl+L brought the cleared conversation back.
 - **Keys in error text.** An error message quoting the API key (from a mid-stream error, a crash report or a retry reason) is now redacted everywhere: notices, the transcript and logs.
+- **Keys typed while parley starts** are no longer dropped.
+- **Two confirmations in a row** no longer start on the previous answer: a dialog opened right after another one inherited its selection.
 - **Long Retry-After.** When a provider asks for a wait longer than a minute, parley now stops and says how long to wait, instead of retrying early.
 - **Proxy support in the npm package.** In the code-split npm bundle, parley couldn't load its HTTP client and silently fell back to the built-in `fetch`. As a result, `HTTPS_PROXY`/`HTTP_PROXY` were ignored and the no-timeout settings for slow local model loads didn't apply. A test now drives the built program through a proxy.
 

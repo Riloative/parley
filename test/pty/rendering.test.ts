@@ -252,4 +252,26 @@ describe.runIf(hasTmux)('inside tmux', () => {
       spawnSync('tmux', ['-L', sock, 'kill-server'], { stdio: 'ignore' });
     }
   }, 60_000);
+
+  it('Shift+Enter from an xterm-compatible terminal reaches parley through tmux as a new line', async () => {
+    const sock = `parley-keys-${process.pid}`;
+    s = spawnParley({
+      cols: 80,
+      rows: 24,
+      identifyAsXterm: true,
+      command: 'tmux',
+      commandArgs: ['-L', sock, '-f', '/dev/null', 'new-session', '-x', '80', '-y', '24', parleyCommand().shell],
+    });
+    try {
+      await s.waitFor('Send a message', 15_000);
+      await sleep(400);
+      s.write('one');
+      s.write('\x1b[27;2;13~'); // Shift+Enter, xterm modifyOtherKeys form
+      s.write('two');
+      await s.waitFor(() => /│ > one\s*│\n│\s+two/.test(s!.screen().join('\n')));
+      expect(s.screen().join('\n')).not.toContain('You said');
+    } finally {
+      spawnSync('tmux', ['-L', sock, 'kill-server'], { stdio: 'ignore' });
+    }
+  }, 60_000);
 });

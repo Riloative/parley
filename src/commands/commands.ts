@@ -1,8 +1,20 @@
 // Slash commands. Built-ins operate through the UiApi the App provides;
 // custom commands are Markdown prompt templates from the config directory.
 
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import {
+  SHIFT_ENTER_BINDING,
+  TMUX_LINES,
+  addShiftEnterBinding,
+  addTmuxLines,
+  readIfExists,
+  tmuxConfFile,
+  vscodeKeybindingFiles,
+  writeConfigFile,
+  type EditResult,
+} from '../term/setup.js';
 import type { Session, Tone } from '../core/session.js';
 import type { Config } from '../config/config.js';
 import { paths } from '../config/paths.js';
@@ -23,7 +35,10 @@ export interface UiApi {
   openThemePicker(): void;
   openPersonaPicker(): void;
   prompt(opts: { title: string; description?: string; initial?: string; mask?: boolean; placeholder?: string; onSubmit: (v: string) => void }): void;
-  confirm(question: string, onYes: () => void): void;
+  /** Ask yes/no; "no" is the default. onNo also runs on Esc. */
+  confirm(question: string, onYes: () => void, onNo?: () => void): void;
+  /** Whether the terminal speaks the kitty keyboard protocol (Shift+Enter works). */
+  keyboard(): { kitty: boolean };
   setInput(text: string): void;
   submitPrompt(text: string): void;
   copy(text: string, what: string): void;
@@ -41,6 +56,77 @@ export interface CommandDef {
   noArgs?: boolean;
   run(ui: UiApi, args: string): void | Promise<void>;
   custom?: boolean;
+}
+
+function terminalSetup(ui: UiApi): void {
+  const env = process.env;
+  const home = homedir();
+  const kitty = ui.keyboard().kitty;
+  const editors = vscodeKeybindingFiles(env, process.platform, home);
+  const tmuxFile = tmuxConfFile(env, home);
+  const shortTmux = tmuxFile.startsWith(home) ? `~${tmuxFile.slice(home.length)}` : tmuxFile;
+  ui.info(
+    [
+      kitty
+        ? '**Shift+Enter** already inserts a new line in this terminal (kitty keyboard protocol).'
+        : '**Shift+Enter** may arrive as a plain Enter in this terminal. Alt+Enter, Ctrl+J and `\\` then Enter always insert a new line.',
+      '',
+      '**VS Code, Cursor and other forks:** add this to keybindings.json (Command Palette → *Preferences: Open Keyboard Shortcuts (JSON)*). It makes Shift+Enter send what Alt+Enter sends.',
+      '',
+      '```json',
+      JSON.stringify(SHIFT_ENTER_BINDING, null, 2),
+      '```',
+      '',
+      `**tmux:** if Shift+Enter still sends the message inside tmux (3.2 or later), add these lines to \`${shortTmux}\`, then run \`tmux source-file ${shortTmux}\`.`,
+      '',
+      '```',
+      ...TMUX_LINES,
+      '```',
+    ].join('\n'),
+  );
+
+  // Offer to write only the files for the terminal parley is running in,
+  // one question at a time; "no" (the default) moves on.
+  const offers: Array<{ question: string; apply: () => void }> = [];
+  if (env.TERM_PROGRAM === 'vscode' && !kitty) {
+    for (const e of editors) {
+      offers.push({
+        question: `Add the Shift+Enter keybinding to ${e.name} (${e.file})?`,
+        apply: () => applyEdit(ui, e.file, addShiftEnterBinding(readIfExists(e.file)), `${e.name} now sends a new line for Shift+Enter in its terminal.`),
+      });
+    }
+  }
+  if (env.TMUX) {
+    offers.push({
+      question: `Add extended-keys to ${shortTmux} (only needed if Shift+Enter sends the message in tmux)?`,
+      apply: () => applyEdit(ui, tmuxFile, addTmuxLines(readIfExists(tmuxFile)), `Run \`tmux source-file ${shortTmux}\` (or restart tmux) to apply it.`),
+    });
+  }
+  const ask = (i: number): void => {
+    const o = offers[i];
+    if (!o) return;
+    ui.confirm(
+      o.question,
+      () => {
+        o.apply();
+        ask(i + 1);
+      },
+      () => ask(i + 1),
+    );
+  };
+  ask(0);
+}
+
+function applyEdit(ui: UiApi, file: string, r: EditResult, done: string): void {
+  if (!r.ok) return ui.notice(`Did not change ${file}: ${r.reason}. Add the snippet above by hand.`, 'warning');
+  if (!r.changed) return ui.notice(`${file} already has this setting.`, 'dim');
+  try {
+    mkdirSync(dirname(file), { recursive: true });
+    const { backup } = writeConfigFile(file, r.text);
+    ui.notice(`Updated ${file}${backup ? ` (previous version: ${backup})` : ''}. ${done}`, 'success');
+  } catch (e) {
+    ui.notice(`Could not write ${file}: ${(e as Error).message}`, 'error');
+  }
 }
 
 function lastAssistant(session: Session): StoredMessage | undefined {
@@ -301,6 +387,14 @@ export function builtinCommands(): CommandDef[] {
       noArgs: true,
       run(ui) {
         ui.openProviders();
+      },
+    },
+    {
+      name: 'terminal-setup',
+      description: 'Make Shift+Enter insert a new line in VS Code and tmux',
+      noArgs: true,
+      run(ui) {
+        terminalSetup(ui);
       },
     },
     {

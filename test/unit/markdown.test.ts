@@ -139,3 +139,24 @@ describe('markdown rendering', () => {
     expect(plain(u2.live).join('\n')).not.toContain('|');
   });
 });
+
+describe('soft_line_breaks', () => {
+  const md = 'one\ntwo  \nthree\n\n- item a\n  item b';
+  it('keeps a single newline as a line break by default, and joins the lines with join', async () => {
+    const { setSoftLineBreaks } = await import('../../src/render/markdown.js');
+    const text = (src: string) => renderMarkdown(src, { width: 60 }).map(plainText);
+    try {
+      expect(text(md)).toEqual(['one', 'two', 'three', '', '- item a', '  item b']);
+      setSoftLineBreaks('join');
+      // A hard break (two trailing spaces) is still a break.
+      expect(text(md)).toEqual(['one two', 'three', '', '- item a item b']);
+      // Streaming gives the same result as a one-shot render.
+      const s = new StreamingMarkdown(60);
+      const lines: Line[] = [];
+      for (let i = 1; i <= md.length; i++) lines.push(...s.update(md.slice(0, i), i === md.length).commit);
+      expect(lines.map(plainText)).toEqual(text(md));
+    } finally {
+      setSoftLineBreaks('keep');
+    }
+  });
+});

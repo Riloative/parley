@@ -5,6 +5,7 @@ import { formatIssues, loadConfig, type Config, type ConfigIssue } from './confi
 import { paths } from './config/paths.js';
 import { Registry } from './providers/registry.js';
 import { Store } from './core/store.js';
+import { setSoftLineBreaks } from './render/markdown.js';
 import { setTheme, type ThemeName } from './render/theme.js';
 import { colorLevel } from './term/caps.js';
 import { loadState } from './core/state.js';
@@ -38,6 +39,7 @@ export function boot(themeOverride?: string, background?: 'light' | 'dark'): Boo
   const registry = new Registry(loaded.config);
   const store = new Store(paths.dataDir);
   setTheme(resolveTheme(themeOverride ?? loaded.config.theme, process.env, background));
+  setSoftLineBreaks(loaded.config.softLineBreaks);
   return {
     config: loaded.config,
     configFile: loaded.file,

@@ -88,7 +88,8 @@ export function App(props: AppProps): React.ReactElement {
     edRef.current = v;
     setEdState(v);
   }, []);
-  const [overlay, setOverlayState] = useState<Overlay | null>(null);
+  const [overlay, setOverlayState] = useState<(Overlay & { id: number }) | null>(null);
+  const overlayId = useRef(0);
   const [search, setSearchState] = useState<SearchState | null>(null);
   const searchRef = useRef<SearchState | null>(null);
   const setSearch = useCallback((v: SearchState | null) => {
@@ -154,9 +155,23 @@ export function App(props: AppProps): React.ReactElement {
     [replayHeld],
   );
 
+  const closedSinceOpen = useRef(true);
   const setOverlay = useCallback((o: Overlay | null) => {
     overlayOpen.current = o !== null;
-    setOverlayState(o);
+    if (!o) {
+      closedSinceOpen.current = true;
+      setOverlayState(null);
+      return;
+    }
+    // A fresh key for each opening, so an overlay opened right after another
+    // closes (one confirm after another) does not inherit its selection.
+    // Calls that update an open overlay (results arriving) keep the key, and
+    // with it the search text and selection.
+    if (closedSinceOpen.current) {
+      overlayId.current++;
+      closedSinceOpen.current = false;
+    }
+    setOverlayState({ ...o, id: overlayId.current });
   }, []);
   const closeOverlay = useCallback(() => setOverlay(null), [setOverlay]);
 
@@ -589,7 +604,7 @@ export function App(props: AppProps): React.ReactElement {
   );
 
   const confirm = useCallback(
-    (question: string, onYes: () => void) => {
+    (question: string, onYes: () => void, onNo?: () => void) => {
       setOverlay({
         type: 'picker',
         props: {
@@ -602,8 +617,12 @@ export function App(props: AppProps): React.ReactElement {
           onSelect: (item) => {
             closeOverlay();
             if (item.value === true) onYes();
+            else onNo?.();
           },
-          onCancel: closeOverlay,
+          onCancel: () => {
+            closeOverlay();
+            onNo?.();
+          },
         },
       });
     },
@@ -689,6 +708,7 @@ export function App(props: AppProps): React.ReactElement {
     openPersonaPicker,
     prompt,
     confirm,
+    keyboard: () => ({ kitty }),
     setInput: (t) => setEd(E.editorWith(t)),
     submitPrompt: (t) => void submitText(t, true),
     copy,
@@ -1087,9 +1107,9 @@ export function App(props: AppProps): React.ReactElement {
             ))}
           </Box>
         ) : null}
-        {overlay?.type === 'picker' ? <Picker {...overlay.props} cols={cols} maxRows={overlayRows} /> : null}
-        {overlay?.type === 'prompt' ? <Prompt {...overlay.props} cols={cols} /> : null}
-        {overlay?.type === 'node' ? overlay.render(cols, overlayRows) : null}
+        {overlay?.type === 'picker' ? <Picker key={overlay.id} {...overlay.props} cols={cols} maxRows={overlayRows} /> : null}
+        {overlay?.type === 'prompt' ? <Prompt key={overlay.id} {...overlay.props} cols={cols} /> : null}
+        {overlay?.type === 'node' ? <React.Fragment key={overlay.id}>{overlay.render(cols, overlayRows)}</React.Fragment> : null}
         {menu === 'slash' ? <SlashMenu items={slashItems} sel={sel} rows={menuRows} cols={cols} /> : null}
         {menu === 'file' ? <FileMenu items={fileItems} sel={sel} rows={menuRows} cols={cols} /> : null}
         <Box borderStyle="round" borderColor={overlay ? dim : themeHex('border')} flexDirection="column" width={cols} marginTop={1} paddingLeft={1}>

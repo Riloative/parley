@@ -53,6 +53,8 @@ export interface SpawnOptions {
   background?: string;
   /** ...after this many milliseconds (a slow link). */
   backgroundDelayMs?: number;
+  /** Also answer DA2 and XTVERSION as xterm does (tmux asks, to pick features). */
+  identifyAsXterm?: boolean;
 }
 
 export const DEFAULT_CONFIG = `default_model: mock/echo
@@ -140,6 +142,8 @@ export function spawnParley(opts: SpawnOptions = {}): Session {
       if (opts.backgroundDelayMs) setTimeout(() => proc.write(reply), opts.backgroundDelayMs);
       else proc.write(reply);
     }
+    if (opts.identifyAsXterm && d.includes('\x1b[>c')) proc.write('\x1b[>41;370;0c');
+    if (opts.identifyAsXterm && d.includes('\x1b[>q')) proc.write('\x1bP>|XTerm(370)\x1b\\');
     if (opts.kitty && d.includes('\x1b[?u')) proc.write('\x1b[?0u');
     if (d.includes('\x1b[c')) proc.write('\x1b[?62;22c');
   });

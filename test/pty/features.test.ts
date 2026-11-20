@@ -311,6 +311,35 @@ describe('appearance and editor', () => {
   }, 30_000);
 });
 
+describe('/terminal-setup', () => {
+  it('shows the snippets, and writes only what the user confirms', async () => {
+    const home = makeHome();
+    const userDir =
+      process.platform === 'darwin' ? join(home, 'Library', 'Application Support', 'Code', 'User') : join(home, 'config', 'Code', 'User');
+    mkdirSync(userDir, { recursive: true });
+    const keybindings = join(userDir, 'keybindings.json');
+    writeFileSync(keybindings, '// my bindings\n[\n  { "key": "ctrl+k", "command": "x" }\n]\n');
+    await start({ home, env: { TERM_PROGRAM: 'vscode', TMUX: '/tmp/tmux-0/default,1,0' } });
+    s!.write('/terminal-setup');
+    await sleep(100);
+    s!.write('\r');
+    await s!.waitFor('extended-keys on');
+    await s!.waitFor('Add the Shift+Enter keybinding to VS Code');
+    s!.write('\x1b[B\r'); // No → Yes
+    await s!.waitFor(/Updated .*keybindings\.json/);
+    const text = readFileSync(keybindings, 'utf8');
+    expect(text.startsWith('// my bindings\n')).toBe(true);
+    expect(text).toContain('"key": "shift+enter"');
+    expect(text).toContain('"text": "\\u001b\\r"');
+    expect(existsSync(`${keybindings}.parley-backup`)).toBe(true);
+    // The tmux offer comes next; Enter takes the default, No.
+    await s!.waitFor('Add extended-keys to');
+    s!.write('\r');
+    await sleep(300);
+    expect(existsSync(join(home, '.tmux.conf'))).toBe(false);
+  }, 30_000);
+});
+
 describe('reasoning', () => {
   it('collapses thinking to "Thought for Ns"; Ctrl+O expands it; Shift+Tab cycles effort', async () => {
     await start({ args: ['-m', 'mock/reasoning?tps=400'] });
