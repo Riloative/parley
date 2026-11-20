@@ -2,7 +2,7 @@
 // parts, and recognising file paths dropped into the terminal.
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, extname, join, relative, resolve } from 'node:path';
 
@@ -90,7 +90,22 @@ export function readAttachment(path: string): FileAttachment {
   const img = sniffImage(buf);
   if (img) return { kind: 'image', name, data: buf, mediaType: img };
   if (buf.subarray(0, 8000).includes(0)) throw new AttachError(`${name} looks like a binary file; only text files and images can be attached.`);
-  return { kind: 'text', name: relative(process.cwd(), p).startsWith('..') ? p : relative(process.cwd(), p), text: buf.toString('utf8') };
+  return { kind: 'text', name: displayName(p), text: buf.toString('utf8') };
+}
+
+/** Path relative to the working directory when inside it, else absolute.
+ * Resolves symlinks on both sides (macOS: /var → /private/var, /tmp → /private/tmp). */
+function displayName(p: string): string {
+  let real = p;
+  let cwd = process.cwd();
+  try {
+    real = realpathSync(p);
+    cwd = realpathSync(cwd);
+  } catch {
+    /* keep as is */
+  }
+  const rel = relative(cwd, real);
+  return rel.startsWith('..') ? p : rel;
 }
 
 /**
