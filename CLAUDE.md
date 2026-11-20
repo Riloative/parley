@@ -104,11 +104,12 @@ src/config/              config.ts (YAML + validation with line numbers), creden
 
 ## How rendering stays flicker-free
 
-- Finished content goes through Ink's `<Static>` exactly once. Each item is pre-rendered to an ANSI string no wider than the terminal, so Ink never re-wraps it.
+- Finished content is printed exactly once: through Ink's `<Static>` while streaming, or directly on a reprint (below). Each item is pre-rendered to an ANSI string no wider than the terminal, so Ink never re-wraps it.
 - `StreamingMarkdown.update(text)` lexes only the uncommitted tail, commits every block that can no longer change (and complete lines of an open code fence), and returns the rest as the live tail. Invariant (tested with random chunkings): concatenated commits == one-shot render.
 - The dynamic area is clamped so it is always shorter than the terminal (Ink falls back to clearing the viewport otherwise). The live tail shows its last lines if it is taller.
 - Session frames are batched to ~30 fps; Ink runs with `maxFps: 30`, `incrementalRendering`, and DEC 2026 synchronized output.
-- Ink gets a proxy stdout (`InkStdout`). On a width change the app clears screen + scrollback and remounts `<Static>` (new key) to reprint the conversation at the new width, then forwards the resize to Ink. The same "reprint" path handles Ctrl+O, rewind, retry, resume and theme changes.
+- Ink gets a proxy stdout (`InkStdout`). On a width change the app clears screen + scrollback, reprints the conversation at the new width, then forwards the resize to Ink. The same "reprint" path handles Ctrl+O, rewind, retry, resume and theme changes.
+- A reprint (and the first render) writes the transcript's items directly to stdout, after `ink.clear()`, and remounts `<Static>` (new key) with only the items added afterwards. Through `<Static>`, Ink would take every character of the history through its cell grid: about 0.7 s for a 300-turn conversation, against about 0.2 s written directly. This is safe because Ink never replays static output on the primary screen.
 - Keys can arrive faster than React renders (a paste plus Enter in one chunk). Three layers deal with it:
   - `TerminalController` delivers the events of a chunk one at a time, yielding to the event loop in between, so React commits each key's effect before the next.
   - State that key handlers read (editor, search, picker, prompt) lives in refs that are updated synchronously.

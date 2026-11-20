@@ -20,6 +20,9 @@ const SHOW_CURSOR = '\x1b[?25h';
 const TITLE_PUSH = '\x1b[22;0t';
 const TITLE_POP = '\x1b[23;0t';
 export const CLEAR_SCREEN = '\x1b[2J\x1b[3J\x1b[H';
+/** DEC 2026 synchronized output; terminals without it ignore both. */
+export const SYNC_BEGIN = '\x1b[?2026h';
+export const SYNC_END = '\x1b[?2026l';
 
 /** The stdout Ink renders to. Resize events are forwarded only after the
  * app has cleared the screen, so Ink never redraws over reflowed text. */

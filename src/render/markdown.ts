@@ -442,3 +442,52 @@ export class StreamingMarkdown {
     return this.blocks > 0 && lines.length ? [[], ...lines] : lines;
   }
 }
+
+const WARM_SAMPLE = `# Title
+
+Some **bold**, *italic*, \`code\` and a [link](https://example.com).
+
+- one
+- two
+
+> quote
+
+| a | b |
+| - | - |
+| 1 | 2 |
+`;
+
+const WARM_LANGUAGES = ['javascript', 'typescript', 'python', 'bash', 'json'];
+
+/**
+ * Do the renderer's one-time work while the user is still typing their first
+ * message, a few milliseconds per step: the emoji width table, the
+ * highlighter module, marked's first lex, and the grammars of the most common
+ * languages (highlight.js compiles each on first use). Otherwise each costs
+ * 15–30 ms in the middle of the first reply that needs it.
+ */
+export function warmRenderer(): () => void {
+  const steps: (() => unknown)[] = [
+    () => textWidth('\u{1F44D}'),
+    () => loadHighlighter(),
+    () => renderMarkdown(WARM_SAMPLE, { width: 80 }),
+    ...WARM_LANGUAGES.map((lang) => () => highlight('const x = { "a": [1, "b"] } // c', lang)),
+  ];
+  let timer: NodeJS.Timeout | undefined;
+  let cancelled = false;
+  const next = async () => {
+    const step = steps.shift();
+    if (!step || cancelled) return;
+    try {
+      await step();
+    } catch {
+      /* warming is best-effort */
+    }
+    if (!cancelled) timer = setTimeout(() => void next(), 5);
+  };
+  timer = setTimeout(() => void next(), 30);
+  return () => {
+    cancelled = true;
+    clearTimeout(timer);
+  };
+}

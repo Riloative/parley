@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { spawnParley, sleep, type Session } from './harness.js';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { makeHome, spawnParley, sleep, type Session } from './harness.js';
 import { mockScriptText } from '../../src/providers/mock.js';
 import { renderMarkdown } from '../../src/render/markdown.js';
 import { plainText } from '../../src/render/style.js';
@@ -100,6 +102,46 @@ describe('rendering core', () => {
     expect(all.filter((l) => l.trim() === 'Section 7').length).toBe(1);
     expect(answerLines(all)).toEqual(expectedAnswer('mock/long?lines=120&tps=6000', 60));
     for (const l of all) expect(l.length).toBeLessThanOrEqual(60);
+  }, 60_000);
+
+  it('resumes a long conversation and reprints it on resize: every message once, in order, rendered as when it streamed', async () => {
+    // Resumes and reprints write the history directly instead of through
+    // <Static>; the result must look exactly like the streamed original.
+    const home = makeHome();
+    const dir = join(home, 'data', 'parley', 'conversations');
+    mkdirSync(dir, { recursive: true });
+    const id = '20260101-000000-resume';
+    const reply = (t: number) => `## Part ${t}\n\nSome **bold** text and \`code\` that is long enough to wrap at narrow widths, part ${t}.\n\n\`\`\`js\nconst v${t} = [${t}];\n\`\`\`\n`;
+    const lines: object[] = [{ type: 'meta', v: 1, id, createdAt: 1, app: 'parley' }];
+    let parent: string | null = null;
+    for (let t = 0; t < 40; t++) {
+      lines.push({ type: 'message', id: `u${t}`, parentId: parent, role: 'user', content: [{ type: 'text', text: `question ${t}` }], ts: t });
+      lines.push({ type: 'message', id: `a${t}`, parentId: `u${t}`, role: 'assistant', content: [{ type: 'text', text: reply(t) }], ts: t, model: 'mock/echo' });
+      parent = `a${t}`;
+    }
+    writeFileSync(join(dir, `${id}.jsonl`), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+
+    const check = (cols: number) => {
+      const all = s!.all().map((l) => l.trimEnd());
+      expect(all.filter((l) => l.includes('Welcome to parley')).length).toBe(1);
+      const order = all.flatMap((l) => (/^> question (\d+)$/.exec(l) ? [Number(RegExp.$1)] : []));
+      expect(order).toEqual([...Array(40).keys()]);
+      for (const l of all) expect(l.length).toBeLessThanOrEqual(cols);
+      // The last reply is rendered exactly as the Markdown renderer renders it.
+      const start = all.indexOf('> question 39');
+      const expected = renderMarkdown(reply(39), { width: cols - 2 }).map((l, i) => ((i === 0 ? '● ' : '  ') + plainText(l)).trimEnd());
+      expect(all.slice(start + 2, start + 2 + expected.length)).toEqual(expected);
+    };
+
+    setColorLevel(0);
+    s = spawnParley({ cols: 80, rows: 24, home, args: ['-r', id] });
+    await s.waitFor('Send a message');
+    await sleep(300);
+    check(80);
+    s.resize(64, 24);
+    await sleep(600);
+    await s.waitFor('Send a message');
+    check(64);
   }, 60_000);
 
   it('resizing mid-stream still produces one clean copy of the answer', async () => {
