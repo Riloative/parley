@@ -1,0 +1,8 @@
+data: {"id":"a1","object":"chat.completion.chunk","created":1,"model":"mistral-medium","choices":[{"index":0,"delta":{"role":"assistant","content":[{"type":"thinking","thinking":[{"type":"text","text":"Reasoning step."}]}]},"finish_reason":null}]}
+
+data: {"id":"a1","object":"chat.completion.chunk","created":1,"model":"mistral-medium","choices":[{"index":0,"delta":{"content":[{"type":"thinking","thinking":[{"type":"text","text":" More."}]},{"type":"text","text":"Bonjour"}]},"finish_reason":null}]}
+
+data: {"id":"a1","object":"chat.completion.chunk","created":1,"model":"mistral-medium","choices":[{"index":0,"delta":{"content":" !"},"finish_reason":"stop"}],"usage":{"prompt_tokens":8,"total_tokens":20,"completion_tokens":12}}
+
+data: [DONE]
+
