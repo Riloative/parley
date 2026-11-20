@@ -3,10 +3,10 @@
 //   - VS Code's integrated terminal (and its forks) sends a plain Enter for
 //     Shift+Enter. A keybinding that sends ESC + CR instead (what Alt+Enter
 //     sends) makes it insert a new line.
-//   - tmux may pass Shift+Enter on as a plain Enter: older versions, or an
-//     outer terminal it does not recognise. Turning extended keys on is
-//     tmux's documented fix (tmux 3.2+). tmux 3.4 with an xterm-compatible
-//     terminal passes it through without this (tested).
+//   - tmux may pass Shift+Enter on as a plain Enter. Turning extended keys
+//     on is tmux's documented fix (tmux 3.2+); a PTY test checks Shift+Enter
+//     with these lines. Without them, tmux 3.4 passed it through in one
+//     environment and not in another (CI), so it is offered, not assumed.
 // Files are only written after the user confirms, atomically, keeping a
 // backup of a file that existed, and only when the result still parses.
 
