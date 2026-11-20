@@ -410,7 +410,9 @@ export class StreamingMarkdown {
     const firstIsOpenFence = !!first && isOpenFence(first);
     // Commit the complete lines of an open code fence progressively, so a
     // long code block never has to fit in the live area.
-    if (first && firstIsOpenFence) {
+    // Only once the opening fence line itself is complete: until then the
+    // language label may still be arriving (```py… → ```python).
+    if (first && firstIsOpenFence && first.raw.includes('\n')) {
       const code = first as Tokens.Code;
       const lang = code.lang?.trim() || undefined;
       if (isHighlighterReady() || !normalizeLang(lang)) {

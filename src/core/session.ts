@@ -19,6 +19,7 @@ import {
   type Usage,
 } from '../providers/types.js';
 import { debug } from '../debug.js';
+import { redact } from '../config/credentials.js';
 
 export type StreamStatus = 'connecting' | 'waiting' | 'streaming' | 'retrying';
 
@@ -70,6 +71,14 @@ export interface OutgoingMessage {
 const FRAME_MS = 33;
 const PERSIST_MS = 400;
 const MAX_ATTEMPTS = 6;
+const MAX_RETRY_WAIT_MS = 60_000;
+
+function scrubbed(e: ProviderError): ProviderError {
+  const message = redact(e.message);
+  const providerMessage = e.providerMessage === undefined ? undefined : redact(e.providerMessage);
+  if (message === e.message && providerMessage === e.providerMessage) return e;
+  return new ProviderError(e.kind, message, { status: e.status, retryable: e.retryable, retryAfterMs: e.retryAfterMs, providerMessage });
+}
 
 export interface SessionOptions {
   config: Config;
@@ -521,10 +530,14 @@ export class Session extends EventEmitter {
         } catch (e) {
           const err = e instanceof ProviderError ? e : new ProviderError('unknown', (e as Error)?.message ?? String(e));
           const nothingYet = !state.text && !state.reasoning;
-          if (err.kind !== 'aborted' && err.retryable && nothingYet && attempt < MAX_ATTEMPTS && !abort.signal.aborted) {
-            const delay = Math.min(60_000, err.retryAfterMs ?? Math.min(30_000, 1000 * 2 ** (attempt - 1)) + Math.floor(Math.random() * 400));
+          // Honour Retry-After; if the provider wants a longer wait than we
+          // are willing to sit through, stop and say how long instead of
+          // retrying early (which would only be refused again).
+          const tooLong = err.retryAfterMs !== undefined && err.retryAfterMs > MAX_RETRY_WAIT_MS;
+          if (err.kind !== 'aborted' && err.retryable && !tooLong && nothingYet && attempt < MAX_ATTEMPTS && !abort.signal.aborted) {
+            const delay = err.retryAfterMs ?? Math.min(30_000, 1000 * 2 ** (attempt - 1)) + Math.floor(Math.random() * 400);
             state.status = 'retrying';
-            state.retry = { attempt: attempt + 1, max: MAX_ATTEMPTS, until: Date.now() + delay, reason: err.message };
+            state.retry = { attempt: attempt + 1, max: MAX_ATTEMPTS, until: Date.now() + delay, reason: redact(err.message) };
             debug('retrying', { attempt, delay, reason: err.message });
             this.send_({ type: 'frame' });
             await new Promise<void>((resolve) => {
@@ -545,6 +558,9 @@ export class Session extends EventEmitter {
       }
     } catch (e) {
       error = e instanceof ProviderError ? e : new ProviderError('unknown', (e as Error)?.message ?? String(e));
+      // Errors can quote request details back at us; whatever path they took,
+      // scrub known keys before the text reaches a notice or the transcript.
+      error = scrubbed(error);
     }
 
     if (this.frameTimer) {
@@ -620,6 +636,10 @@ export class Session extends EventEmitter {
   }
 
   describeError(e: ProviderError, endpoint: string): string {
+    if (e.retryAfterMs !== undefined && e.retryAfterMs > MAX_RETRY_WAIT_MS) {
+      const mins = Math.ceil(e.retryAfterMs / 60_000);
+      return `${e.message}\nThe provider asks to wait before retrying: try again in ${mins} minute${mins === 1 ? '' : 's'} (/retry).`;
+    }
     switch (e.kind) {
       case 'context_overflow':
         return `${e.message}\nRun /compact to summarise the conversation and free up context, then /retry.`;
@@ -741,7 +761,7 @@ export class Session extends EventEmitter {
     } catch (e) {
       this.send_({ type: 'busy', busy: false });
       if (ac.signal.aborted) this.notice('Compaction cancelled.', 'dim');
-      else this.notice(`Compaction failed: ${(e as Error).message}`, 'error');
+      else this.notice(`Compaction failed: ${redact((e as Error).message)}`, 'error');
     } finally {
       this.busy = false;
       this.abort = null;

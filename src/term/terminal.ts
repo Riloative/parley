@@ -6,6 +6,7 @@ import { EventEmitter } from 'node:events';
 import { writeSync } from 'node:fs';
 import { KeyDecoder, type InputEvent } from './keys.js';
 import { inTmux } from './caps.js';
+import { redact } from '../config/credentials.js';
 
 const BRACKETED_PASTE_ON = '\x1b[?2004h';
 const BRACKETED_PASTE_OFF = '\x1b[?2004l';
@@ -136,6 +137,9 @@ export class TerminalController extends EventEmitter {
     }
   };
 
+  private queue: InputEvent[] = [];
+  private draining = false;
+
   private dispatch(events: InputEvent[]): void {
     for (const e of events) {
       if (e.type === 'kitty-flags') {
@@ -147,7 +151,32 @@ export class TerminalController extends EventEmitter {
         setTimeout(() => this.finishProbe(false), 0);
         continue;
       }
-      this.emit('input', e);
+      this.queue.push(e);
+    }
+    if (!this.draining) void this.drain();
+  }
+
+  /**
+   * Deliver input events one at a time, yielding to the event loop between
+   * them. Several keys often arrive in one chunk (type-ahead, pasted control
+   * sequences, slow SSH links); yielding lets React commit each key's effect —
+   * a screen change, a new key handler — before the next key is handled, so
+   * every key lands where it would have if typed slowly. Printable runs are
+   * already a single event, so this costs one yield per control key.
+   */
+  private async drain(): Promise<void> {
+    this.draining = true;
+    try {
+      while (this.queue.length) {
+        const e = this.queue.shift()!;
+        this.emit('input', e);
+        if (this.queue.length) {
+          await new Promise((r) => setImmediate(r));
+          await new Promise((r) => setImmediate(r));
+        }
+      }
+    } finally {
+      this.draining = false;
     }
   }
 
@@ -196,22 +225,38 @@ export class TerminalController extends EventEmitter {
   }
 }
 
+let interruptsHeld = false;
+
+/** While an external program (e.g. $EDITOR) owns the terminal, Ctrl+C there
+ * sends SIGINT to the whole process group; parley must not quit because of it. */
+export function holdInterrupts(on: boolean): void {
+  interruptsHeld = on;
+}
+
 /** Install handlers so the terminal is restored after crashes and signals. */
-export function installExitHandlers(onExit: (code: number, reason: string) => void): void {
+export function installExitHandlers(onExit: (code: number, reason: string, report?: string) => void): void {
   const handle = (code: number, reason: string) => () => onExit(code, reason);
   process.on('SIGTERM', handle(143, 'SIGTERM'));
   process.on('SIGHUP', handle(129, 'SIGHUP'));
-  process.on('SIGINT', handle(130, 'SIGINT'));
-  process.on('SIGQUIT', handle(131, 'SIGQUIT'));
+  process.on('SIGINT', () => {
+    if (!interruptsHeld) onExit(130, 'SIGINT');
+  });
+  process.on('SIGQUIT', () => {
+    if (!interruptsHeld) onExit(131, 'SIGQUIT');
+  });
   process.on('exit', () => restoreTerminal());
-  process.on('uncaughtException', (err) => {
-    restoreTerminal();
-    process.stderr.write(`\nparley crashed: ${err?.stack ?? err}\n`);
-    onExit(1, 'crash');
-  });
-  process.on('unhandledRejection', (err) => {
-    restoreTerminal();
-    process.stderr.write(`\nparley crashed (unhandled rejection): ${(err as Error)?.stack ?? err}\n`);
-    onExit(1, 'crash');
-  });
+  const crash = (label: string, err: unknown) => {
+    const report = `\nparley crashed${label}: ${redact(String((err as Error)?.stack ?? err))}\n`;
+    try {
+      // Clean up first (save, unlock, unmount, restore), then report, so
+      // nothing redraws over the message.
+      onExit(1, 'crash', report);
+    } catch {
+      restoreTerminal();
+      process.stderr.write(report);
+      process.exit(1);
+    }
+  };
+  process.on('uncaughtException', (err) => crash('', err));
+  process.on('unhandledRejection', (err) => crash(' (unhandled rejection)', err));
 }

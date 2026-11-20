@@ -23,6 +23,31 @@ function streamAll(src: string, width: number, chunk: (i: number) => number) {
   return { committed, lives };
 }
 
+const NASTY = [
+  // nested lists with code
+  '- one\n  - nested\n\n    ```js\n    const x = 1;\n    ```\n  - after code\n- two\n\nend\n',
+  // table inside a block quote
+  '> | a | b |\n> |---|---|\n> | 1 | 2 |\n\nafter\n',
+  // raw HTML blocks and inline HTML
+  '<details>\n<summary>Click</summary>\n\nhidden *text*\n\n</details>\n\nInline <b>bold</b> tag.\n',
+  // CRLF line endings
+  '# Title\r\n\r\nPara one\r\nline two\r\n\r\n```py\r\nx = 1\r\n```\r\n',
+  // tabs
+  '- item\n\tcontinued\n\n```\n\tindented\twith\ttabs\n```\n\n\tindented code block\n',
+  // very long words and URLs
+  'Supercalifragilisticexpialidocious'.repeat(8) + ' and https://example.com/' + 'a'.repeat(150) + '\n',
+  // emoji and CJK
+  '日本語のテキストと絵文字 👩‍👩‍👧‍👦 と 🇯🇵 が混ざった段落。\n\n| 名前 | 値 |\n|---|---|\n| テスト | 👍 |\n',
+  // tilde fences, longer fences, fence inside fence
+  '~~~python\nprint(1)\n~~~\n\n````md\n```js\ninner\n```\n````\n',
+  // setext headings
+  'Heading one\n===========\n\nHeading two\n-----------\n\nNot a heading\n',
+  // links split in awkward places
+  'See [the docs](https://example.com/path?query=1&b=2) and [another\nlink](http://x.y) and <https://auto.link>.\n',
+  // empty list items, hr variations, escaped chars
+  '-\n- \n* * *\n___\n\\*not emphasis\\* and \\`not code\\`\n',
+];
+
 const DOCS = [
   MARKDOWN_SAMPLE,
   '# Title\n\nSome text\nwith two lines\n\n```js\nconst a = 1;\n\nconst b = 2;\n```\n\nAfter code.\n',
@@ -70,6 +95,21 @@ describe('markdown rendering', () => {
       }
     }
   }
+
+  it('handles nasty inputs: streamed output equals a one-shot render and fits the width', () => {
+    let seed = 7;
+    const rand = () => ((seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31);
+    for (const doc of NASTY) {
+      for (const width of [12, 30, 80]) {
+        for (let round = 0; round < 6; round++) {
+          const { committed } = streamAll(doc, width, () => 1 + Math.floor(rand() * (round < 3 ? 4 : 40)));
+          const once = renderMarkdown(doc, { width });
+          expect(plain(committed)).toEqual(plain(once));
+          for (const l of committed) expect(lineWidth(l)).toBeLessThanOrEqual(width);
+        }
+      }
+    }
+  });
 
   it('streams with random chunk sizes identically (property)', () => {
     let seed = 42;

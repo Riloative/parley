@@ -41,6 +41,35 @@ describe('conversation store', () => {
     reopened.releaseLock();
   });
 
+  it('skips malformed and unknown lines instead of crashing later', () => {
+    const store = new Store(tmp());
+    const f = store.create();
+    f.append({ type: 'message', id: 'u1', parentId: null, role: 'user', content: [{ type: 'text', text: 'ok' }], ts: 1 });
+    for (const line of [
+      '{"type":"message","id":"a1","parentId":"u1","role":"assistant"}',
+      '{"type":"message","id":"a2","parentId":"u1","role":"wizard","content":[]}',
+      '{"type":"message","id":"a3","parentId":"u1","role":"assistant","content":"just a string"}',
+      '{"type":"message","parentId":"u1","role":"assistant","content":[]}',
+      '{"type":"message","id":"a4","parentId":"u1","role":"assistant","content":[{"type":"text"},{"type":"mystery","x":1},null]}',
+      '{"type":"from-the-future","id":"z"}',
+      'null',
+      '[]',
+      '"text"',
+      '{"type":"title","title":42}',
+      '{"type":"head","id":"does-not-exist","ts":5}',
+    ])
+      appendFileSync(f.file, line + '\n');
+    f.releaseLock();
+    const { conv } = store.open(f.id, { lock: false });
+    // The dangling head falls back to the newest valid message.
+    const path = conv.path();
+    expect(path.map((m) => m.id)).toEqual(['u1', 'a4']);
+    expect(path[1]!.content).toEqual([]);
+    expect(conv.title).toBeUndefined();
+    expect(toChatMessages(path, { provider: 'p', model: 'm' })).toEqual([{ role: 'user', content: [{ type: 'text', text: 'ok' }] }]);
+    expect(store.list()[0]!.messageCount).toBe(2);
+  });
+
   it('branches on rewind without deleting anything', () => {
     const store = new Store(tmp());
     const f = store.create();
@@ -95,9 +124,33 @@ describe('conversation store', () => {
     // A dead pid's lock is stale.
     writeFileSync(`${f.file}.lock`, '999999');
     const g = store.open(f.id);
-    expect(readFileSync(`${f.file}.lock`, 'utf8')).toBe(String(process.pid));
+    const lock = JSON.parse(readFileSync(`${f.file}.lock`, 'utf8')) as { pid: number; started: number };
+    expect(lock.pid).toBe(process.pid);
+    expect(Math.abs(lock.started - (Date.now() - process.uptime() * 1000))).toBeLessThan(2000);
     g.releaseLock();
     expect(existsSync(`${f.file}.lock`)).toBe(false);
+  });
+
+  it('treats a lock whose PID now belongs to a different process as stale', async () => {
+    const { spawn } = await import('node:child_process');
+    const store = new Store(tmp());
+    const f = store.create();
+    f.append({ type: 'message', id: 'u', parentId: null, role: 'user', content: [{ type: 'text', text: 'x' }], ts: 1 });
+    f.releaseLock();
+    const child = spawn('sleep', ['30']);
+    await new Promise((r) => setTimeout(r, 200));
+    try {
+      // The recorded holder started an hour before this unrelated process
+      // did, so the PID has been reused: the lock is stale.
+      writeFileSync(`${f.file}.lock`, JSON.stringify({ pid: child.pid, started: Date.now() - 3_600_000 }));
+      const g = store.open(f.id);
+      g.releaseLock();
+      // A matching start time means the holder is still running.
+      writeFileSync(`${f.file}.lock`, JSON.stringify({ pid: child.pid, started: Date.now() - 200 }));
+      expect(() => store.open(f.id)).toThrow(ConversationLockedError);
+    } finally {
+      child.kill();
+    }
   });
 
   it('two processes appending to the shared history never corrupt it', async () => {

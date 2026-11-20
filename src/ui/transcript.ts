@@ -34,6 +34,9 @@ export class TranscriptModel extends EventEmitter {
   private bulletPending = true;
   private thoughtCommitted = false;
   private welcome: () => Item;
+  /** After Ctrl+L: messages on the path before this count stay cleared when
+   * the transcript is reprinted (e.g. on resize). */
+  private clearedBefore = 0;
 
   constructor(
     private readonly session: Session,
@@ -85,6 +88,8 @@ export class TranscriptModel extends EventEmitter {
         this.push({ kind: 'notice', key: key('n'), text: e.text, tone: e.tone });
         break;
       case 'reset':
+        // A different conversation or branch: show it from the top.
+        this.clearedBefore = 0;
         this.reprint(true);
         return;
       default:
@@ -128,9 +133,9 @@ export class TranscriptModel extends EventEmitter {
    * resize, Ctrl+O, rewind, resume...). */
   reprint(includeHistory: boolean): void {
     this.epoch++;
-    const items: Item[] = [this.welcome()];
+    const items: Item[] = this.clearedBefore > 0 ? [{ kind: 'spacer', key: key('x') }] : [this.welcome()];
     if (includeHistory) {
-      for (const m of this.session.conv.path()) items.push(...this.messageItems(m));
+      for (const m of this.session.conv.path().slice(this.clearedBefore)) items.push(...this.messageItems(m));
     }
     this.items = items;
     if (this.current) {
@@ -153,6 +158,9 @@ export class TranscriptModel extends EventEmitter {
 
   /** Ctrl+L: clear the screen but keep the conversation. */
   clearScreen(): void {
+    // Messages so far stay cleared; a reply still streaming is not on the
+    // path yet, so it is shown when it finishes.
+    this.clearedBefore = this.session.conv.path().length;
     this.epoch++;
     this.items = [{ kind: 'spacer', key: key('x') }];
     if (this.current) {
