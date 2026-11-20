@@ -3,6 +3,7 @@
 
 import React from 'react';
 import { PassThrough } from 'node:stream';
+import { appendFileSync } from 'node:fs';
 import type { Args } from './cli.js';
 import { boot, chooseModel, resolveTheme } from './bootstrap.js';
 import { Session } from './core/session.js';
@@ -106,6 +107,12 @@ export async function runInteractive(args: Args): Promise<void> {
     },
   );
   ink.clear = () => instance.clear();
+  if (process.env.PARLEY_STARTUP_TRACE) {
+    // Time from process start to the first rendered frame (for profiling).
+    void instance.waitUntilRenderFlush().then(() => {
+      appendFileSync(process.env.PARLEY_STARTUP_TRACE!, `${performance.now().toFixed(1)}\n`);
+    });
+  }
 
   if (args.prompt) {
     const p = args.prompt;

@@ -2,6 +2,8 @@
 // (environment inspection only); the kitty keyboard protocol is probed
 // asynchronously by the input layer.
 
+import { setColorsEnabled } from '../render/theme.js';
+
 export type ColorLevel = 0 | 1 | 2 | 3;
 
 let levelOverride: ColorLevel | undefined;
@@ -38,6 +40,8 @@ export function detectColorLevel(env: NodeJS.ProcessEnv = process.env, isTTY = !
 export function colorLevel(): ColorLevel {
   return levelOverride ?? (levelOverride = detectColorLevel());
 }
+
+setColorsEnabled(() => colorLevel() > 0);
 
 export function inTmux(env: NodeJS.ProcessEnv = process.env): boolean {
   return !!env.TMUX || (env.TERM ?? '').startsWith('tmux') || (env.TERM ?? '').startsWith('screen');

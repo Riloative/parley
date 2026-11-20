@@ -128,7 +128,8 @@ describe('conversations', () => {
   }, 30_000);
 
   it('/copy and /copy code use the clipboard (OSC 52 without a helper)', async () => {
-    await start({ args: ['-m', 'mock/code'], env: { DISPLAY: '', WAYLAND_DISPLAY: '' } });
+    // Simulate SSH so the OSC 52 path is used on every platform.
+    await start({ args: ['-m', 'mock/code'], env: { SSH_TTY: '/dev/pts/9', DISPLAY: '', WAYLAND_DISPLAY: '' } });
     s!.write('x\r');
     await s!.waitFor('sys.exit(main(sys.argv))');
     s!.write('/copy code\r');
@@ -228,6 +229,42 @@ describe('input', () => {
     await s!.waitFor(/mock\/echo\s+│\s+1/);
     s!.write('\x04');
     expect(await s!.exited).toBe(0);
+  }, 30_000);
+});
+
+describe('appearance and editor', () => {
+  it('Ctrl+G edits the input in $EDITOR', async () => {
+    await start({ env: { EDITOR: 'perl -pi -e s/hello/goodbye/', VISUAL: '' } });
+    s!.write('hello editor');
+    await s!.waitFor('│ > hello editor');
+    s!.write('\x07');
+    await s!.waitFor('│ > goodbye editor');
+  }, 30_000);
+
+  it('NO_COLOR removes colour from the whole interface', async () => {
+    await start({ env: { NO_COLOR: '1' } });
+    await say('plain');
+    expect(s!.raw).not.toMatch(/\x1b\[(3[0-7]|9[0-7]|38;[25];)[0-9;]*m/);
+  }, 30_000);
+
+  it('the ANSI theme uses only the 16 terminal colours', async () => {
+    await start({ args: ['--theme', 'ansi', '-m', 'mock/code'] });
+    s!.write('x\r');
+    await s!.waitFor('sys.exit');
+    expect(s!.raw).not.toMatch(/\x1b\[[0-9;]*38;[25];/);
+    expect(s!.raw).toMatch(/\x1b\[(3[1-6]|9[0-7])m/);
+  }, 30_000);
+
+  it('/theme switches to the light palette and reprints', async () => {
+    await start();
+    await say('colourful');
+    s!.write('/theme\r');
+    await s!.waitFor('follow the terminal background');
+    s!.write('\x1b[B\r'); // dark → light
+    await s!.waitFor(() => /theme: light/.test(readFileSync(join(s!.home, 'config', 'parley', 'config.yaml'), 'utf8')));
+    // Light accent (#C15F3C) is used for the welcome border after the reprint.
+    await s!.waitFor(() => s!.raw.includes('38;2;193;95;60'));
+    await s!.waitFor('You said: colourful');
   }, 30_000);
 });
 

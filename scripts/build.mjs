@@ -16,7 +16,8 @@ await build({
   platform: 'node',
   target: 'node22',
   sourcemap: 'linked',
-  minify: false,
+  minify: true,
+  keepNames: false,
   legalComments: 'none',
   jsx: 'automatic',
   define: {

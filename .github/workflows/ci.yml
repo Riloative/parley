@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    name: ${{ matrix.os }} · Node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node: [22, lts/*]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install tmux (for the tmux rendering test)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y tmux
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
+        env:
+          # Ink renders differently when it thinks it is in CI; the PTY tests
+          # strip this from the child environment, but keep the runner tidy.
+          FORCE_COLOR: ''
+
+      - name: Global install smoke test
+        run: |
+          npm pack
+          npm install -g ./parley-*.tgz
+          parley --version
+          parley --help > /dev/null
+          echo "hi" | parley -p -m mock/echo "say"

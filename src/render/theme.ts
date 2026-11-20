@@ -122,8 +122,37 @@ export function setTheme(name: ThemeName): void {
   current = THEMES[name];
 }
 
-/** Hex value of a token for components that need a raw colour (Ink props). */
+const ANSI_NAMES: Record<number, string> = {
+  30: 'black',
+  31: 'red',
+  32: 'green',
+  33: 'yellow',
+  34: 'blue',
+  35: 'magenta',
+  36: 'cyan',
+  37: 'white',
+  90: 'gray',
+  91: 'redBright',
+  92: 'greenBright',
+  93: 'yellowBright',
+  94: 'blueBright',
+  95: 'magentaBright',
+  96: 'cyanBright',
+  97: 'whiteBright',
+};
+
+let colorsEnabled = () => true;
+
+/** Lets the terminal layer switch colour off (NO_COLOR, non-TTY). */
+export function setColorsEnabled(fn: () => boolean): void {
+  colorsEnabled = fn;
+}
+
+/** Colour of a token for Ink's `color` props: a hex value, an ANSI colour
+ * name for the 16-colour theme, or undefined when colour is disabled. */
 export function themeHex(token: ColorToken): string | undefined {
+  if (!colorsEnabled()) return undefined;
   const v = current.colors[token];
-  return typeof v === 'string' ? v : undefined;
+  if (typeof v === 'number') return ANSI_NAMES[v];
+  return v;
 }
