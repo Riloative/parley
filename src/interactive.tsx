@@ -18,6 +18,16 @@ import { lineToAnsi } from './render/style.js';
 import { mark, startupMarks } from './trace.js';
 import { redact } from './config/credentials.js';
 
+/** Write before process.exit(): synchronously, so nothing is dropped, with an
+ * async fallback if the descriptor is non-blocking and full (EAGAIN). */
+function writeNow(fd: 1 | 2, text: string): void {
+  try {
+    writeSync(fd, text);
+  } catch {
+    (fd === 1 ? process.stdout : process.stderr).write(text);
+  }
+}
+
 export async function runInteractive(args: Args): Promise<void> {
   mark('boot-start');
   const b = boot(args.theme);
@@ -60,7 +70,7 @@ export async function runInteractive(args: Args): Promise<void> {
   const shutdown = (code: number, report?: string) => {
     if (exiting) {
       // A crash during shutdown: the terminal is already being restored.
-      if (report) writeSync(2, report);
+      if (report) writeNow(2, report);
       return;
     }
     exiting = true;
@@ -77,11 +87,11 @@ export async function runInteractive(args: Args): Promise<void> {
     }
     terminal.stop();
     restoreTerminal();
-    if (report) writeSync(2, report);
+    if (report) writeNow(2, report);
     if (code === 0 && session.file) {
       // Synchronous: process.exit() follows, and an async write to a pipe or
       // (on macOS) a pty could be dropped.
-      writeSync(1, lineToAnsi([{ text: `\nResume this conversation with: parley -r ${session.file.id}\n`, style: { fg: 'dim' } }]));
+      writeNow(1, lineToAnsi([{ text: `\nResume this conversation with: parley -r ${session.file.id}\n`, style: { fg: 'dim' } }]));
     }
     process.exit(code);
   };
