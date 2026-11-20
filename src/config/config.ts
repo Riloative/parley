@@ -51,6 +51,9 @@ export interface Config {
   bell: boolean;
   bellAfterSeconds: number;
   terminalTitle: boolean;
+  /** A single newline inside a Markdown paragraph: keep it as a line break
+   * (default), or join the lines as CommonMark does. */
+  softLineBreaks: 'keep' | 'join';
   systemPrompt?: string;
   reasoningEffort?: string;
   providers: Record<string, ProviderConfig>;
@@ -75,6 +78,7 @@ export const defaultConfig = (): Config => ({
   bell: true,
   bellAfterSeconds: 10,
   terminalTitle: true,
+  softLineBreaks: 'keep',
   providers: {},
   personas: {},
   prices: {},
@@ -88,6 +92,7 @@ const TOP_KEYS = [
   'bell',
   'bell_after_seconds',
   'terminal_title',
+  'soft_line_breaks',
   'system_prompt',
   'reasoning_effort',
   'providers',
@@ -260,6 +265,11 @@ export function parseConfig(text: string): { config: Config; issues: ConfigIssue
   config.bell = v.bool(['bell'], r.bell, 'bell') ?? config.bell;
   config.bellAfterSeconds = v.num(['bell_after_seconds'], r.bell_after_seconds, 'bell_after_seconds', 0) ?? config.bellAfterSeconds;
   config.terminalTitle = v.bool(['terminal_title'], r.terminal_title, 'terminal_title') ?? config.terminalTitle;
+  const slb = v.str(['soft_line_breaks'], r.soft_line_breaks, 'soft_line_breaks');
+  if (slb !== undefined) {
+    if (slb === 'keep' || slb === 'join') config.softLineBreaks = slb;
+    else v.err(v.keyNode(['soft_line_breaks']), `soft_line_breaks must be keep or join (got "${slb}").`);
+  }
   config.systemPrompt = v.str(['system_prompt'], r.system_prompt, 'system_prompt');
   const effort = v.str(['reasoning_effort'], r.reasoning_effort, 'reasoning_effort');
   if (effort !== undefined) {

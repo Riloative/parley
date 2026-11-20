@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { makeHome, spawnParley, sleep, type Session } from './harness.js';
+import { TMUX_LINES } from '../../src/term/setup.js';
 import { mockScriptText } from '../../src/providers/mock.js';
 import { renderMarkdown } from '../../src/render/markdown.js';
 import { plainText } from '../../src/render/style.js';
@@ -248,6 +249,30 @@ describe.runIf(hasTmux)('inside tmux', () => {
       // that each section appears exactly once.
       const hist = spawnSync('tmux', ['-L', sock, 'capture-pane', '-p', '-S', '-2000'], { encoding: 'utf8', env: testEnv(s.home) }).stdout;
       for (const n of [1, 5, 9]) expect(hist.split('\n').filter((l) => l.trim() === `Section ${n}`).length).toBe(1);
+    } finally {
+      spawnSync('tmux', ['-L', sock, 'kill-server'], { stdio: 'ignore' });
+    }
+  }, 60_000);
+
+  it('with the /terminal-setup tmux lines, Shift+Enter from an xterm-compatible terminal reaches parley as a new line', async () => {
+    const sock = `parley-keys-${process.pid}`;
+    const conf = join(makeHome(), 'tmux.conf');
+    writeFileSync(conf, TMUX_LINES.join('\n') + '\n');
+    s = spawnParley({
+      cols: 80,
+      rows: 24,
+      identifyAsXterm: true,
+      command: 'tmux',
+      commandArgs: ['-L', sock, '-f', conf, 'new-session', '-x', '80', '-y', '24', parleyCommand().shell],
+    });
+    try {
+      await s.waitFor('Send a message', 15_000);
+      await sleep(800); // parley asks tmux for modified keys once its terminal probe finishes
+      s.write('one');
+      s.write('\x1b[27;2;13~'); // Shift+Enter, xterm modifyOtherKeys form
+      s.write('two');
+      await s.waitFor(() => /│ > one\s*│\n│\s+two/.test(s!.screen().join('\n')));
+      expect(s.screen().join('\n')).not.toContain('You said');
     } finally {
       spawnSync('tmux', ['-L', sock, 'kill-server'], { stdio: 'ignore' });
     }

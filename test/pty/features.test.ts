@@ -255,6 +255,56 @@ describe('appearance and editor', () => {
     expect(s!.raw).toMatch(/\x1b\[(3[1-6]|9[0-7])m/);
   }, 30_000);
 
+  describe('theme: auto follows the terminal background (OSC 11)', () => {
+    const AUTO = DEFAULT_CONFIG.replace('theme: dark', 'theme: auto');
+    const LIGHT_ACCENT = '38;2;193;95;60';
+    const DARK_ACCENT = '38;2;217;119;87';
+
+    it('uses the light palette when the terminal reports a light background', async () => {
+      await start({ home: makeHome(AUTO), background: 'rgb:ffff/ffff/fafa' });
+      // Usually the answer arrives before the first frame and the welcome box
+      // is light too; on a loaded machine it can arrive just after, and then
+      // applies from the next thing drawn (the spinner, in the accent colour).
+      await say('hello');
+      expect(s!.raw).toContain(LIGHT_ACCENT);
+    }, 30_000);
+
+    it('keeps the dark palette for a dark background, or when the terminal does not answer', async () => {
+      await start({ home: makeHome(AUTO), background: 'rgb:1e1e/1e1e/2e2e' });
+      await s!.waitFor('Send a message');
+      expect(s!.raw).toContain(DARK_ACCENT);
+      await s!.close();
+      await start({ home: makeHome(AUTO) });
+      await s!.waitFor('Send a message');
+      expect(s!.raw).toContain(DARK_ACCENT);
+    }, 30_000);
+
+    it('a late answer (slow link) applies from then on, without reprinting, and never reaches the input box', async () => {
+      await start({ home: makeHome(AUTO), background: 'rgb:ffff/ffff/ffff', backgroundDelayMs: 700 });
+      await s!.waitFor('Send a message');
+      expect(s!.raw).not.toContain(LIGHT_ACCENT); // the welcome box was drawn before the answer
+      await sleep(900);
+      s!.write('abc');
+      await s!.waitFor('│ > abc');
+      expect(s!.screen().join('\n')).not.toMatch(/rgb:|11;/);
+      s!.write('\x15');
+      await say('later');
+      expect(s!.raw).toContain(LIGHT_ACCENT);
+      // Nothing was reprinted: the scrollback was never cleared.
+      expect(s!.raw).not.toContain('\x1b[3J');
+      expect(s!.all().filter((l) => l.includes('Welcome to parley')).length).toBe(1);
+    }, 30_000);
+
+    it('keys typed while parley starts are kept, in order', async () => {
+      s = spawnParley({ home: makeHome(AUTO), background: 'rgb:ffff/ffff/ffff' });
+      // Once the background query is out, parley owns the keyboard (raw
+      // mode) while the interface loads.
+      await s.waitFor(() => s!.raw.includes('\x1b]11;?'));
+      s.write('typed early');
+      await s.waitFor('│ > typed early');
+    }, 30_000);
+  });
+
   it('/theme switches to the light palette and reprints', async () => {
     await start();
     await say('colourful');
@@ -265,6 +315,39 @@ describe('appearance and editor', () => {
     // Light accent (#C15F3C) is used for the welcome border after the reprint.
     await s!.waitFor(() => s!.raw.includes('38;2;193;95;60'));
     await s!.waitFor('You said: colourful');
+  }, 30_000);
+});
+
+describe('/terminal-setup', () => {
+  it('shows the snippets, and writes only what the user confirms', async () => {
+    const home = makeHome();
+    const userDir =
+      process.platform === 'darwin' ? join(home, 'Library', 'Application Support', 'Code', 'User') : join(home, 'config', 'Code', 'User');
+    mkdirSync(userDir, { recursive: true });
+    const keybindings = join(userDir, 'keybindings.json');
+    writeFileSync(keybindings, '// my bindings\n[\n  { "key": "ctrl+k", "command": "x" }\n]\n');
+    await start({ home, env: { TERM_PROGRAM: 'vscode', TMUX: '/tmp/tmux-0/default,1,0' } });
+    s!.write('/terminal-setup');
+    await sleep(100);
+    s!.write('\r');
+    await s!.waitFor('extended-keys on');
+    await s!.waitFor('Add the Shift+Enter keybinding to VS Code');
+    s!.write('\x1b[B\r'); // No → Yes
+    // Wait for the write itself (the message naming the file wraps with long
+    // paths). The backup is made first and the new file renamed into place
+    // after it, so wait for the new content.
+    await s!.waitFor(() => readFileSync(keybindings, 'utf8').includes('shift+enter'));
+    expect(existsSync(`${keybindings}.parley-backup`)).toBe(true);
+    const text = readFileSync(keybindings, 'utf8');
+    expect(text.startsWith('// my bindings\n')).toBe(true);
+    expect(text).toContain('"key": "shift+enter"');
+    expect(text).toContain('"text": "\\u001b\\r"');
+    await s!.waitFor(/Updated/);
+    // The tmux offer comes next; Enter takes the default, No.
+    await s!.waitFor('Add extended-keys to');
+    s!.write('\r');
+    await sleep(300);
+    expect(existsSync(join(home, '.tmux.conf'))).toBe(false);
   }, 30_000);
 });
 

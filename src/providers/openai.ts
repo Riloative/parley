@@ -21,10 +21,45 @@ export function guessOpenAICaps(id: string): ModelCapabilities {
   };
 }
 
+/**
+ * With `store: false` the API keeps nothing, so reasoning can only carry over
+ * to the next turn if the client sends it back. A reasoning output item is
+ * kept whole (id, encrypted content, summary) as the reasoning part's opaque
+ * signature, and replayed as it came.
+ */
+interface EncryptedReasoning {
+  id: string;
+  encrypted_content: string;
+  summary: unknown[];
+}
+
+export function reasoningSignature(item: Record<string, unknown> | undefined): string | undefined {
+  if (!item || item.type !== 'reasoning' || typeof item.encrypted_content !== 'string' || typeof item.id !== 'string') return undefined;
+  const kept: EncryptedReasoning = { id: item.id, encrypted_content: item.encrypted_content, summary: Array.isArray(item.summary) ? item.summary : [] };
+  return JSON.stringify(kept);
+}
+
+function reasoningItem(signature: string | undefined): Record<string, unknown> | undefined {
+  if (!signature) return undefined;
+  try {
+    const j = JSON.parse(signature) as Partial<EncryptedReasoning>;
+    if (typeof j.id !== 'string' || typeof j.encrypted_content !== 'string') return undefined;
+    return { type: 'reasoning', id: j.id, summary: Array.isArray(j.summary) ? j.summary : [], encrypted_content: j.encrypted_content };
+  } catch {
+    return undefined;
+  }
+}
+
 export function toResponsesInput(msgs: ChatMessage[]): unknown[] {
   const out: unknown[] = [];
   for (const m of msgs) {
     if (m.role === 'assistant') {
+      // Encrypted reasoning from this model goes back verbatim, ahead of the
+      // reply it led to (toChatMessages keeps it only for the same model).
+      for (const p of m.content) {
+        const item = p.type === 'reasoning' ? reasoningItem(p.signature) : undefined;
+        if (item) out.push(item);
+      }
       const text = m.content.map((p) => (p.type === 'text' ? p.text : '')).join('');
       if (text) out.push({ role: 'assistant', content: text });
       continue;
@@ -85,6 +120,11 @@ export async function* parseResponsesStream(body: AsyncIterable<Uint8Array>, pro
       case 'response.reasoning_text.delta':
         yield { type: 'reasoning', text: String(j.delta ?? '') };
         break;
+      case 'response.output_item.done': {
+        const signature = reasoningSignature(j.item as Record<string, unknown> | undefined);
+        if (signature) yield { type: 'reasoning_block', signature };
+        break;
+      }
       case 'response.completed':
       case 'response.incomplete': {
         const r = j.response as { usage?: ResponsesUsage; incomplete_details?: { reason?: string }; status?: string } | undefined;
@@ -173,6 +213,9 @@ export class OpenAIProvider implements Provider {
         if (req.reasoningEffort && req.reasoningEffort !== 'off') reasoning.effort = req.reasoningEffort;
         if (summaries) reasoning.summary = 'auto';
         if (Object.keys(reasoning).length) body.reasoning = reasoning;
+        // Stateless (store: false): ask for the encrypted reasoning so it can
+        // be sent back next turn. Newer models include it by default.
+        body.include = ['reasoning.encrypted_content'];
       }
       if (s.extraBody) Object.assign(body, s.extraBody);
       return body;

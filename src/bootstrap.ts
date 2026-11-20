@@ -5,6 +5,7 @@ import { formatIssues, loadConfig, type Config, type ConfigIssue } from './confi
 import { paths } from './config/paths.js';
 import { Registry } from './providers/registry.js';
 import { Store } from './core/store.js';
+import { setSoftLineBreaks } from './render/markdown.js';
 import { setTheme, type ThemeName } from './render/theme.js';
 import { colorLevel } from './term/caps.js';
 import { loadState } from './core/state.js';
@@ -20,9 +21,12 @@ export interface Boot {
   store: Store;
 }
 
-export function resolveTheme(t: Config['theme'] | string | undefined, env = process.env): ThemeName {
+/** `auto` follows the terminal: its answer to the OSC 11 background query
+ * when there is one, then COLORFGBG, then dark. */
+export function resolveTheme(t: Config['theme'] | string | undefined, env = process.env, background?: 'light' | 'dark'): ThemeName {
   if (colorLevel() <= 1 && t !== 'dark' && t !== 'light') return 'ansi';
   if (t === 'dark' || t === 'light' || t === 'ansi') return t;
+  if (background) return background;
   // COLORFGBG="15;0" → light foreground on dark background.
   const fgbg = env.COLORFGBG?.split(';');
   const bg = fgbg ? Number(fgbg[fgbg.length - 1]) : NaN;
@@ -30,11 +34,12 @@ export function resolveTheme(t: Config['theme'] | string | undefined, env = proc
   return 'dark';
 }
 
-export function boot(themeOverride?: string): Boot {
+export function boot(themeOverride?: string, background?: 'light' | 'dark'): Boot {
   const loaded = loadConfig();
   const registry = new Registry(loaded.config);
   const store = new Store(paths.dataDir);
-  setTheme(resolveTheme(themeOverride ?? loaded.config.theme));
+  setTheme(resolveTheme(themeOverride ?? loaded.config.theme, process.env, background));
+  setSoftLineBreaks(loaded.config.softLineBreaks);
   return {
     config: loaded.config,
     configFile: loaded.file,

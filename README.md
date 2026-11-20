@@ -304,6 +304,7 @@ Large pastes collapse to `[Pasted text #1 +42 lines]` and are expanded when sent
 | `/config` | Settings screen (edits the config file in place, keeping comments) |
 | `/providers` | Providers with a live connectivity check; add or remove one |
 | `/theme` | Dark, light, ANSI-16 or auto |
+| `/terminal-setup` | Make Shift+Enter insert a new line in VS Code (and forks) and tmux: shows the settings, and writes them only if you confirm |
 | `/help`, `/exit` | |
 
 ### Custom commands
@@ -332,6 +333,7 @@ theme: auto                          # auto | dark | light | ansi
 bell: true                           # bell when a reply took longer than…
 bell_after_seconds: 10
 terminal_title: true                 # show the conversation title in the terminal title
+soft_line_breaks: keep               # keep | join: a single newline inside a paragraph stays a line break, or joins the lines
 system_prompt: "You are concise."    # default for new conversations
 reasoning_effort: medium             # default effort where supported
 
@@ -360,7 +362,7 @@ prices:                              # USD per million tokens, for /cost
   local/*: { input: 0, output: 0 }
 ```
 
-`theme: auto` uses `COLORFGBG` when the terminal sets it and otherwise assumes a dark background; set `light` explicitly for light terminals. `NO_COLOR` turns colour off everywhere.
+`theme: auto` asks the terminal for its background colour at start-up (OSC 11), and otherwise uses `COLORFGBG`, then assumes a dark background. The question never delays start-up: an answer that arrives after the first frame applies to everything drawn after it, and a terminal that doesn't answer gets the fallback, so set `light` explicitly if detection misses. `NO_COLOR` turns colour off everywhere.
 
 ## Non-interactive use
 
@@ -403,7 +405,7 @@ All honour the `XDG_*` variables (the same layout is used on macOS). Conversatio
 
 ## Troubleshooting
 
-**Shift+Enter inserts nothing / sends the message.** Your terminal doesn't report Shift+Enter distinctly. `Ctrl+J`, `Alt+Enter` and `\` then `Enter` always work, and the hint line shows which one to use. Shift+Enter works natively in kitty, WezTerm, Ghostty, iTerm2 and recent Alacritty. In VS Code, add a keybinding that sends `\u001b\r` for `shift+enter` when `terminalFocus` (`parley doctor` prints it). In tmux add `set -g extended-keys on` to `~/.tmux.conf`. In Terminal.app, enable *Use Option as Meta key* for Option+Enter.
+**Shift+Enter inserts nothing / sends the message.** Your terminal doesn't report Shift+Enter distinctly. `Ctrl+J`, `Alt+Enter` and `\` then `Enter` always work, and the hint line shows which one to use. Shift+Enter works natively in kitty, WezTerm, Ghostty, iTerm2 and recent Alacritty. In VS Code and its forks, and in tmux, run `/terminal-setup`: it shows the keybinding (Shift+Enter sends `\u001b\r` when `terminalFocus`) and the tmux lines (`set -s extended-keys on`), and adds them to the right file if you confirm. In Terminal.app, enable *Use Option as Meta key* for Option+Enter.
 
 **"Nothing is listening at http://localhost:8080".** The local server isn't running, or it's on another port (newer llama.cpp uses 9931). Fix `base_url` and check with `parley doctor`.
 

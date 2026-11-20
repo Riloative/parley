@@ -6,10 +6,12 @@ import { PassThrough } from 'node:stream';
 import { appendFileSync, writeSync } from 'node:fs';
 import type { Args } from './cli.js';
 import { boot, chooseModel, resolveTheme } from './bootstrap.js';
+import { getTheme, setTheme } from './render/theme.js';
 import { Session } from './core/session.js';
 import { InputHistory } from './core/history.js';
 import { paths } from './config/paths.js';
 import { TerminalController, installExitHandlers, restoreTerminal } from './term/terminal.js';
+import type { Background, EarlyProbe } from './term/probe.js';
 import { TranscriptModel } from './ui/transcript.js';
 import { App } from './ui/App.js';
 import type { Item } from './ui/blocks.js';
@@ -53,9 +55,9 @@ function writeNow(fd: 1 | 2, text: string): void {
   }
 }
 
-export async function runInteractive(args: Args): Promise<void> {
+export async function runInteractive(args: Args, probe?: EarlyProbe): Promise<void> {
   mark('boot-start');
-  const b = boot(args.theme);
+  const b = boot(args.theme, probe?.background());
   mark('booted');
   const history = new InputHistory(paths.historyFile);
   history.load();
@@ -74,7 +76,7 @@ export async function runInteractive(args: Args): Promise<void> {
   if (args.model) session.setModel(args.model);
   if (!session.model && b.configExists) notes.push({ text: 'No model selected yet. Pick one with /model (or set default_model in the config).', tone: 'warning' });
 
-  const terminal = new TerminalController({ setTitle: b.config.terminalTitle });
+  const terminal = new TerminalController({ setTitle: b.config.terminalTitle, probe });
   const welcome = (): Item => ({
     kind: 'welcome',
     key: `w${Math.random()}`,
@@ -122,6 +124,26 @@ export async function runInteractive(args: Args): Promise<void> {
   };
   installExitHandlers((code, _reason, report) => shutdown(code, report));
 
+  // The terminal's background answer may have arrived since boot(). Loading
+  // the interface is synchronous, so a reply already sitting in the input
+  // buffer has not been read yet: give the event loop one turn to read it
+  // (well under a millisecond; this never waits for the terminal). Nothing
+  // has been drawn yet and the probe still owns stdin, so the answer can
+  // still choose the palette.
+  if (probe && !probe.background()) await new Promise((r) => setImmediate(r));
+  let background = probe?.background();
+  if (background) setTheme(resolveTheme(args.theme ?? b.config.theme, process.env, background));
+  // A later answer (a slow link) still applies to everything drawn from then
+  // on. What is already printed keeps its colours: reprinting would clear
+  // the scrollback, including the shell history above parley.
+  terminal.on('background', (bg: Background) => {
+    if (background) return;
+    background = bg;
+    const t = resolveTheme(args.theme ?? session.config.theme, process.env, bg);
+    if (t === getTheme().name) return;
+    setTheme(t);
+    transcript.emit('change');
+  });
   terminal.start();
   if (session.conv.title && b.config.terminalTitle) terminal.setTitle(session.conv.title);
   else if (b.config.terminalTitle) terminal.setTitle('parley');
@@ -142,7 +164,7 @@ export async function runInteractive(args: Args): Promise<void> {
         reloadConfig={() => loadConfig(b.configFile).config}
         onExit={() => setTimeout(() => shutdown(0), 0)}
         initial={!b.configExists && !args.model ? 'setup' : args.resume && !args.resumeId ? 'resume' : undefined}
-        resolveTheme={(t) => resolveTheme(t)}
+        resolveTheme={(t) => resolveTheme(t, process.env, background)}
         ink={ink}
       />
     </CrashBoundary>,

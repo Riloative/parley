@@ -13,6 +13,14 @@ export interface MdOptions {
 
 const DIM: Style = { fg: 'dim' };
 
+let joinSoftBreaks = false;
+
+/** `soft_line_breaks: join` renders a single newline inside a paragraph as a
+ * space (CommonMark); the default keeps it as a line break. */
+export function setSoftLineBreaks(mode: 'keep' | 'join'): void {
+  joinSoftBreaks = mode === 'join';
+}
+
 export function lex(src: string): Token[] {
   return Lexer.lex(src, { gfm: true, breaks: false });
 }
@@ -27,7 +35,7 @@ export function inlineSpans(tokens: Token[] | undefined, base: Style = {}): Span
       case 'text': {
         const tt = t as Tokens.Text;
         if (tt.tokens?.length) out.push(...inlineSpans(tt.tokens, base));
-        else out.push({ text: tt.text, style: base });
+        else out.push({ text: joinSoftBreaks ? tt.text.replace(/ *\n */g, ' ') : tt.text, style: base });
         break;
       }
       case 'escape':

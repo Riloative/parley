@@ -62,16 +62,33 @@ jobs:
 
       - name: Runs on the oldest supported glibc (AlmaLinux 8, glibc 2.28), not older (Ubuntu 18.04, glibc 2.27)
         if: runner.os == 'Linux'
+        timeout-minutes: 10
         run: |
           # The Node runtime also needs libatomic, which minimal images lack.
-          docker run --rm -v "$PWD/build/bin:/b:ro" almalinux:8 sh -c 'ldd --version | head -1; /b/parley --version 2>&1 | grep -q libatomic && echo "libatomic missing, as expected; installing"; dnf install -y -q libatomic >/dev/null && /b/parley --version && echo hi | /b/parley -p -m mock/echo say'
-          # Install libatomic there too, so the failure that remains is glibc's.
-          if docker run --rm -v "$PWD/build/bin:/b:ro" ubuntu:18.04 sh -c 'apt-get update -qq >/dev/null && apt-get install -y -qq libatomic1 >/dev/null && /b/parley --version' > old.txt 2>&1; then
+          # Rather than install it from distribution mirrors inside the
+          # containers (an AlmaLinux mirror outage once failed this step after
+          # half an hour), mount the runner's own copy. It needs only glibc
+          # 2.14, so the checks still measure parley's own glibc floor.
+          lib="$(ldconfig -p | awk '/libatomic.so.1 /{print $NF; exit}')"
+          if [ -z "$lib" ]; then
+            sudo apt-get install -y -qq libatomic1
+            lib="$(ldconfig -p | awk '/libatomic.so.1 /{print $NF; exit}')"
+          fi
+          echo "libatomic: $lib needs $(objdump -T "$lib" | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1)"
+          mkdir -p "$RUNNER_TEMP/atomic"
+          cp -L "$lib" "$RUNNER_TEMP/atomic/libatomic.so.1"
+          bin=(-v "$PWD/build/bin:/b:ro")
+          atomic=(-v "$RUNNER_TEMP/atomic:/atomic:ro" -e LD_LIBRARY_PATH=/atomic)
+          if docker run --rm "${bin[@]}" almalinux:8 /b/parley --version 2>&1 | grep -q libatomic; then
+            echo "AlmaLinux 8 without libatomic: fails naming libatomic, as documented"
+          fi
+          docker run --rm "${bin[@]}" "${atomic[@]}" almalinux:8 sh -c 'ldd --version | head -1; /b/parley --version && echo hi | /b/parley -p -m mock/echo say'
+          if docker run --rm "${bin[@]}" "${atomic[@]}" ubuntu:18.04 /b/parley --version > old.txt 2>&1; then
             echo "Unexpectedly ran on glibc 2.27; update the documented minimum" >&2
             exit 1
           fi
           cat old.txt
-          grep -q 'GLIBC_2.2[0-9]' old.txt
+          grep -q 'GLIBC_2.2[0-9].*required by /b/parley' old.txt
 
       - name: Signature (macOS)
         if: runner.os == 'macOS'

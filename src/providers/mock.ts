@@ -151,10 +151,13 @@ export class MockProvider implements Provider {
     await sleep(firstDelay, signal);
 
     if (script === 'reasoning') {
-      const thought = REASONING_SAMPLE;
-      for (const t of tokens(thought, chunk)) {
-        await sleep(interval, signal);
-        yield { type: 'reasoning', text: t };
+      // hidden=1: a signed block with no visible text, as OpenAI sends
+      // encrypted reasoning when summaries are unavailable.
+      if (opts.get('hidden') !== '1') {
+        for (const t of tokens(REASONING_SAMPLE, chunk)) {
+          await sleep(interval, signal);
+          yield { type: 'reasoning', text: t };
+        }
       }
       yield { type: 'reasoning_block', signature: 'mock-signature' };
     }
