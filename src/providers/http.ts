@@ -192,6 +192,9 @@ export function networkError(err: unknown, url: string, providerName: string, si
   if (code === 'ECONNRESET' || code === 'UND_ERR_SOCKET' || code === 'EPIPE' || code === 'UND_ERR_CLOSED') {
     return new ProviderError('network', `The connection to ${origin} was lost.`, { retryable: true });
   }
+  if (/bad port/i.test(`${e?.cause?.message ?? ''} ${e?.message ?? ''}`)) {
+    return new ProviderError('bad_request', `${origin} uses a port that fetch refuses to connect to; use a different port.`);
+  }
   if (/certificate|SSL|TLS/i.test(`${code} ${e?.message ?? ''} ${e?.cause?.message ?? ''}`)) {
     return new ProviderError('network', `TLS error talking to ${origin}: ${e?.cause?.message ?? e?.message}`);
   }

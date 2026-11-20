@@ -80,9 +80,12 @@ describe('rendering core', () => {
     s.write('go\r');
     for (let i = 0; i < 10; i++) {
       await sleep(150);
+      // Sample between frames: a real terminal never shows a half-received
+      // synchronized update.
+      await s.waitFor(() => s!.raw.lastIndexOf('\x1b[?2026h') < s!.raw.lastIndexOf('\x1b[?2026l'));
       const screen = s.screen();
       // The input box bottom border and the status line are always visible.
-      expect(screen.some((l) => l.startsWith('╰'))).toBe(true);
+      if (!screen.some((l) => l.startsWith('╰'))) throw new Error(`input box not visible:\n${screen.join('\n')}`);
     }
     s.write('\x1b');
     await s.waitFor('Interrupted');

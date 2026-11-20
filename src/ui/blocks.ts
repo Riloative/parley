@@ -64,7 +64,7 @@ export function userBlock(m: StoredMessage, cols: number): string {
   const text = m.display ?? m.content.map((p) => (p.type === 'text' ? p.text : '')).join('');
   const lines = wrapSpans([{ text: text.replace(/\s+$/, ''), style: DIM }], cols, { firstPrefix: [{ text: '> ', style: DIM }], restPrefix: [{ text: '  ' }] });
   const att = m.content.filter((p) => p.type === 'image' || p.type === 'file');
-  if (att.length && !m.display) {
+  if (att.length && !/\[(Image|File) #\d+/.test(text)) {
     let i = 0;
     for (const p of att) {
       i++;

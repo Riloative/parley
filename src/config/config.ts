@@ -237,7 +237,7 @@ export function parseConfig(text: string): { config: Config; issues: ConfigIssue
   const config = defaultConfig();
   const v = new Validator(doc, lc);
   for (const e of doc.errors) {
-    v.issues.push({ line: e.linePos?.[0]?.line, message: `The file is not valid YAML: ${e.message.split('\n')[0]}` });
+    v.issues.push({ line: e.linePos?.[0]?.line ?? lc.linePos(e.pos[0]).line, message: `The file is not valid YAML: ${e.message.split('\n')[0]}` });
   }
   if (doc.errors.length) return { config, issues: v.issues };
   const raw = doc.toJS() as unknown;

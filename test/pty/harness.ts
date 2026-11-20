@@ -26,7 +26,7 @@ export interface Session {
   waitFor(pred: string | RegExp | (() => boolean), timeoutMs?: number): Promise<void>;
   resize(cols: number, rows: number): void;
   exited: Promise<number>;
-  close(): Promise<void>;
+  close(keepHome?: boolean): Promise<void>;
   rawSince(mark: number): string;
 }
 
@@ -38,6 +38,14 @@ export interface SpawnOptions {
   env?: Record<string, string>;
   command?: string;
   commandArgs?: string[];
+  /** Reuse an existing home directory (to test resuming). */
+  home?: string;
+  /** Pretend to be a terminal that supports the kitty keyboard protocol. */
+  kitty?: boolean;
+  /** Working directory (defaults to the temporary home). */
+  cwd?: string;
+  /** Write no config file (first-run). */
+  noConfig?: boolean;
 }
 
 export const DEFAULT_CONFIG = `default_model: mock/echo
@@ -82,13 +90,13 @@ export function spawnParley(opts: SpawnOptions = {}): Session {
   ensureBuilt();
   const cols = opts.cols ?? 80;
   const rows = opts.rows ?? 24;
-  const home = makeHome(opts.config ?? DEFAULT_CONFIG);
+  const home = opts.home ?? makeHome(opts.noConfig ? '' : (opts.config ?? DEFAULT_CONFIG));
   const term = new Terminal({ cols, rows, scrollback: 5000, allowProposedApi: true });
   const proc = pty.spawn(opts.command ?? process.execPath, opts.commandArgs ?? [join(ROOT, 'bin', 'parley.js'), ...(opts.args ?? [])], {
     name: 'xterm-256color',
     cols,
     rows,
-    cwd: home,
+    cwd: opts.cwd ?? home,
     env: testEnv(home, opts.env),
   });
   let raw = '';
@@ -98,6 +106,7 @@ export function spawnParley(opts: SpawnOptions = {}): Session {
     pending = pending.then(() => new Promise<void>((r) => term.write(d, r)));
     // Answer the terminal queries the way a basic xterm does (DA1 only, no
     // kitty keyboard protocol) so behaviour is deterministic.
+    if (opts.kitty && d.includes('\x1b[?u')) proc.write('\x1b[?0u');
     if (d.includes('\x1b[c')) proc.write('\x1b[?62;22c');
   });
   const exited = new Promise<number>((resolve) => proc.onExit((e) => resolve(e.exitCode)));
@@ -139,14 +148,14 @@ export function spawnParley(opts: SpawnOptions = {}): Session {
       term.resize(c, r);
     },
     exited,
-    async close() {
+    async close(keepHome = false) {
       try {
         proc.kill();
       } catch {
         /* already gone */
       }
       await Promise.race([exited, new Promise((r) => setTimeout(r, 2000))]);
-      rmSync(home, { recursive: true, force: true });
+      if (!keepHome) rmSync(home, { recursive: true, force: true });
     },
     rawSince: (mark) => raw.slice(mark),
   };

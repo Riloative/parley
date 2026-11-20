@@ -64,68 +64,73 @@ export interface PickerProps<T> {
 }
 
 export function Picker<T>(props: PickerProps<T>): React.ReactElement {
-  const [query, setQuery] = useState('');
-  const [index, setIndex] = useState(props.initialIndex ?? 0);
   const searchable = props.searchable !== false;
-  const visible = useMemo(() => {
-    const items = props.filter === 'none' || !searchable ? props.items : fuzzyFilter(props.items, query, (i) => i.search ?? `${i.group ?? ''} ${i.label} ${i.detail ?? ''}`);
-    return items;
-  }, [props.items, query, props.filter, searchable]);
-  const sel = Math.min(index, Math.max(0, visible.length - 1));
+  // Several keys can arrive in one input chunk (e.g. ↓ then Enter), faster
+  // than React re-renders, so the authoritative state lives in refs.
+  const [, rerender] = useState(0);
+  const queryRef = useRef('');
+  const indexRef = useRef(props.initialIndex ?? 0);
+  const filterItems = (q: string) =>
+    props.filter === 'none' || !searchable ? props.items : fuzzyFilter(props.items, q, (i) => i.search ?? `${i.group ?? ''} ${i.label} ${i.detail ?? ''}`);
+  const query = queryRef.current;
+  const visible = useMemo(() => filterItems(query), [props.items, query, props.filter, searchable]); 
+  const sel = Math.min(indexRef.current, Math.max(0, visible.length - 1));
+
+  const setQuery = (q: string) => {
+    queryRef.current = q;
+    indexRef.current = 0;
+    props.onQuery?.(q);
+    rerender((n) => n + 1);
+  };
+  const setIndex = (i: number) => {
+    indexRef.current = i;
+    rerender((n) => n + 1);
+  };
 
   useKeys((key) => {
+    const vis = filterItems(queryRef.current);
+    const cur = Math.min(indexRef.current, Math.max(0, vis.length - 1));
     if (key.name === 'paste') {
-      if (!searchable) return true;
-      const q = query + (key.text ?? '').replace(/\n/g, ' ');
-      setQuery(q);
-      setIndex(0);
-      props.onQuery?.(q);
+      if (searchable) setQuery(queryRef.current + (key.text ?? '').replace(/\n/g, ' '));
       return true;
     }
-    if (props.onKey?.(key, visible[sel])) return true;
+    if (props.onKey?.(key, vis[cur])) return true;
     if (key.name === 'escape' || (key.ctrl && (key.name === 'c' || key.name === 'g'))) {
       props.onCancel();
       return true;
     }
     if (key.name === 'enter') {
-      const item = visible[sel];
-      if (item && !item.disabled) props.onSelect(item, query);
+      const item = vis[cur];
+      if (item && !item.disabled) props.onSelect(item, queryRef.current);
       return true;
     }
     if (key.name === 'up' || (key.ctrl && key.name === 'p')) {
-      setIndex(Math.max(0, sel - 1));
+      setIndex(Math.max(0, cur - 1));
       return true;
     }
     if (key.name === 'down' || (key.ctrl && key.name === 'n') || key.name === 'tab') {
-      setIndex(Math.min(visible.length - 1, sel + 1));
+      setIndex(Math.min(vis.length - 1, cur + 1));
       return true;
     }
     if (key.name === 'pageup') {
-      setIndex(Math.max(0, sel - props.maxRows));
+      setIndex(Math.max(0, cur - props.maxRows));
       return true;
     }
     if (key.name === 'pagedown') {
-      setIndex(Math.min(visible.length - 1, sel + props.maxRows));
+      setIndex(Math.min(vis.length - 1, cur + props.maxRows));
       return true;
     }
     if (!searchable) return true;
     if (key.name === 'backspace') {
-      const q = query.slice(0, -1);
-      setQuery(q);
-      setIndex(0);
-      props.onQuery?.(q);
+      setQuery(queryRef.current.slice(0, -1));
       return true;
     }
     if (key.ctrl && key.name === 'u') {
       setQuery('');
-      props.onQuery?.('');
       return true;
     }
     if (isText(key)) {
-      const q = query + key.text;
-      setQuery(q);
-      setIndex(0);
-      props.onQuery?.(q);
+      setQuery(queryRef.current + key.text);
       return true;
     }
     return true; // swallow everything else while open

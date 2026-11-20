@@ -88,7 +88,12 @@ export function App(props: AppProps): React.ReactElement {
     setEdState(v);
   }, []);
   const [overlay, setOverlayState] = useState<Overlay | null>(null);
-  const [search, setSearch] = useState<SearchState | null>(null);
+  const [search, setSearchState] = useState<SearchState | null>(null);
+  const searchRef = useRef<SearchState | null>(null);
+  const setSearch = useCallback((v: SearchState | null) => {
+    searchRef.current = v;
+    setSearchState(v);
+  }, []);
   const [hint, setHint] = useState<{ text: string; until: number } | null>(null);
   const [menuIndex, setMenuIndex] = useState(0);
   const [busyLabel, setBusyLabel] = useState<string | undefined>();
@@ -728,7 +733,7 @@ export function App(props: AppProps): React.ReactElement {
     (key: Key) => {
       const s = edRef.current;
       const w = inputWidth;
-      const { menu, sel, menuLen, slashItems, slashQuery, atMatch, fileItems } = menus(s);
+      const { menu, sel, menuLen, slashItems, atMatch, fileItems } = menus(s);
       // Completion menus take arrows / tab / enter.
       if (menu) {
         if (key.name === 'up') return setMenuSel(Math.max(0, sel - 1));
@@ -740,7 +745,9 @@ export function App(props: AppProps): React.ReactElement {
         }
         if (menu === 'slash' && (key.name === 'tab' || (key.name === 'enter' && !key.shift && !key.alt))) {
           const c = slashItems[sel]!;
-          if (key.name === 'enter' && (c.noArgs || slashQuery === c.name)) {
+          // Enter runs the command (arguments are optional for most); Tab
+          // completes it so arguments can be typed.
+          if (key.name === 'enter' && !c.argHint?.startsWith('<')) {
             runCommand(`/${c.name}`);
           } else {
             setEd(E.editorWith(`/${c.name} `));
@@ -884,7 +891,7 @@ export function App(props: AppProps): React.ReactElement {
 
   const handleSearchKey = useCallback(
     (k: Key) => {
-      const st = search!;
+      const st = searchRef.current!;
       const matches = history.search(st.query);
       if (k.name === 'paste') return setSearch({ query: st.query + (k.text ?? '').replace(/\n/g, ' '), index: 0 });
       if (k.ctrl && k.name === 'r') return setSearch({ ...st, index: Math.min(st.index + 1, Math.max(0, matches.length - 1)) });
@@ -905,7 +912,7 @@ export function App(props: AppProps): React.ReactElement {
       if (k.name === 'backspace') return setSearch({ query: st.query.slice(0, -1), index: 0 });
       if (isText(k)) return setSearch({ query: st.query + k.text, index: 0 });
     },
-    [search, history, runCommand, submitText],
+    [history, runCommand, submitText, setSearch, setEd],
   );
 
   useEffect(() => {
@@ -916,7 +923,7 @@ export function App(props: AppProps): React.ReactElement {
         top(e.type === 'paste' ? pasteKey(e.text) : e.key);
         return;
       }
-      if (search) {
+      if (searchRef.current) {
         handleSearchKey(e.type === 'paste' ? pasteKey(e.text) : e.key);
         return;
       }
@@ -927,7 +934,7 @@ export function App(props: AppProps): React.ReactElement {
     return () => {
       terminal.off('input', onInput);
     };
-  }, [terminal, handleInputKey, handlePaste, handleSearchKey, search]);
+  }, [terminal, handleInputKey, handlePaste, handleSearchKey]);
 
   // --------------------------------------------------------------- layout
   const dim = themeHex('dim');
@@ -1087,7 +1094,7 @@ function SlashMenu({ items, sel, rows, cols }: { items: CommandDef[]; sel: numbe
   const dim = themeHex('dim');
   const accent = themeHex('suggestion');
   const start = Math.max(0, Math.min(sel - Math.floor(rows / 2), items.length - rows));
-  const nameW = Math.min(24, Math.max(...items.map((c) => c.name.length + (c.argHint ? c.argHint.length + 1 : 0))) + 3);
+  const nameW = Math.min(Math.floor(cols / 2), Math.max(...items.map((c) => c.name.length + (c.argHint ? c.argHint.length + 1 : 0))) + 4);
   return (
     <Box flexDirection="column" marginTop={1}>
       {items.slice(start, start + rows).map((c, i) => {

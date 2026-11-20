@@ -10,9 +10,7 @@ import { debug } from '../debug.js';
 import type { ChatMessage, ChatRequest, ContentPart, ModelCapabilities, ModelInfo, Provider, ReasoningEffort, StreamEvent, Usage } from './types.js';
 import { ProviderError, UNKNOWN_CAPS } from './types.js';
 
-type AnthropicModule = typeof import('@anthropic-ai/sdk');
-
-let sdk: Promise<AnthropicModule> | undefined;
+let sdk: Promise<{ default: typeof Anthropic }> | undefined;
 const loadSdk = () => (sdk ??= import('@anthropic-ai/sdk'));
 
 const EFFORTS: ReasoningEffort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
