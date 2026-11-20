@@ -1,4 +1,7 @@
-// Bundles src/ into dist/ with esbuild. The entry (cli.js) stays tiny so that
+// Bundles src/ into dist/ with esbuild. dist/ is committed so that
+// `npm install -g .` works from a fresh clone without a build step (npm packs
+// a folder before installing any dependencies). Everything parley needs at
+// runtime is bundled, so the installed package has no dependencies. The entry (cli.js) stays tiny so that
 // --help/--version and cold start stay fast; the interface, providers and the
 // syntax highlighter are split into chunks that are loaded on demand.
 import { build } from 'esbuild';
@@ -15,7 +18,7 @@ await build({
   format: 'esm',
   platform: 'node',
   target: 'node22',
-  sourcemap: 'linked',
+  sourcemap: process.env.PARLEY_SOURCEMAP ? 'linked' : false,
   minify: true,
   keepNames: false,
   legalComments: 'none',
