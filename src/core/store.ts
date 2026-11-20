@@ -261,7 +261,7 @@ export class Store {
         /* unreadable file: skip */
       }
     }
-    return out.sort((a, b) => b.updatedAt - a.updatedAt);
+    return out.sort((a, b) => b.updatedAt - a.updatedAt || (a.id < b.id ? 1 : -1));
   }
 
   /** Full-text search across all conversations (case-insensitive). */

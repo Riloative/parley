@@ -72,7 +72,7 @@ describe('conversation store', () => {
     a.releaseLock();
     const b = store.create();
     b.append({ type: 'message', id: 'u', parentId: null, role: 'user', content: [{ type: 'text', text: 'first line\nsecond' }], ts: 2 });
-    b.append({ type: 'message', id: 'a', parentId: 'u', role: 'assistant', content: [{ type: 'text', text: 'the zebra answer' }], ts: 3 });
+    b.append({ type: 'message', id: 'a', parentId: 'u', role: 'assistant', content: [{ type: 'text', text: 'the zebra answer' }], ts: Date.now() + 60_000 });
     b.releaseLock();
     const empty = store.create();
     empty.releaseLock();
