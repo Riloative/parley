@@ -497,7 +497,9 @@ export class Session extends EventEmitter {
                 break;
               case 'reasoning_block':
                 reasoningSig = { signature: ev.signature, redacted: ev.redacted };
-                if (state.reasoning || ev.redacted) {
+                // A signed block is kept even without visible text: OpenAI
+                // sends encrypted reasoning when summaries are unavailable.
+                if (state.reasoning || ev.redacted || ev.signature) {
                   reasoningParts.push({ type: 'reasoning', text: state.reasoning.slice(reasoningParts.reduce((a, p) => a + (p.type === 'reasoning' ? p.text.length : 0), 0)), provider: ref.provider, model: ref.model, ...reasoningSig });
                 }
                 break;

@@ -149,6 +149,17 @@ describe('session', () => {
     expect(other[1]!.content.some((p) => p.type === 'reasoning')).toBe(false);
   });
 
+  it('keeps a signed reasoning block that has no visible text, and replays it to the same model only', async () => {
+    const { session } = make('mock/reasoning?tps=5000&hidden=1');
+    await session.submit({ text: 'first' });
+    const a = session.conv.path()[1]!;
+    expect(a.content[0]).toMatchObject({ type: 'reasoning', text: '', signature: 'mock-signature' });
+    const same = toChatMessages(session.conv.context(), { provider: 'mock', model: 'reasoning?tps=5000&hidden=1' });
+    expect(same[1]!.content[0]).toMatchObject({ type: 'reasoning', signature: 'mock-signature' });
+    const other = toChatMessages(session.conv.context(), { provider: 'mock', model: 'echo' });
+    expect(other[1]!.content.some((p) => p.type === 'reasoning')).toBe(false);
+  });
+
   it('refuses to send a message that would overflow the context window and suggests /compact', async () => {
     const config: Partial<Config> = { providers: { tiny: { name: 'tiny', type: 'mock', headers: {}, models: {}, contextWindow: 300 } } };
     const { session, events } = make('tiny/echo', config);

@@ -203,6 +203,65 @@ describe('OpenAI adapter (Responses API)', () => {
     expect(seen[0]!.headers.authorization).toBe('Bearer sk-test-openai-0123456789');
   });
 
+  it('keeps encrypted reasoning (store: false) and sends it back, before the reply it led to', async () => {
+    routes = { 'POST /v1/responses': { body: fixture('openai-responses-encrypted.sse') } };
+    seen.length = 0;
+    const r = await collect(make().stream(req({ model: 'gpt-5-test' })));
+    expect(seen[0]!.body.store).toBe(false);
+    expect(seen[0]!.body.include).toEqual(['reasoning.encrypted_content']);
+    const block = r.events.find((e) => e.type === 'reasoning_block') as { signature: string } | undefined;
+    expect(block).toBeDefined();
+    expect(r.text).toBe('Hi there.');
+
+    // Next turn: the reasoning goes back verbatim, ahead of the assistant text.
+    seen.length = 0;
+    await collect(
+      make().stream(
+        req({
+          model: 'gpt-5-test',
+          messages: [
+            { role: 'user', content: [{ type: 'text', text: 'q' }] },
+            { role: 'assistant', content: [{ type: 'reasoning', text: '**Planning** the answer.', provider: 'openai', model: 'gpt-5-test', signature: block!.signature }, { type: 'text', text: 'Hi there.' }] },
+            { role: 'user', content: [{ type: 'text', text: 'q2' }] },
+          ],
+        }),
+      ),
+    );
+    expect(seen[0]!.body.input).toEqual([
+      { role: 'user', content: [{ type: 'input_text', text: 'q' }] },
+      {
+        type: 'reasoning',
+        id: 'rs_1',
+        summary: [
+          { type: 'summary_text', text: '**Planning** the answer.' },
+          { type: 'summary_text', text: 'Second part.' },
+        ],
+        encrypted_content: 'gAAAAABencryptedreasoningblob==',
+      },
+      { role: 'assistant', content: 'Hi there.' },
+      { role: 'user', content: [{ type: 'input_text', text: 'q2' }] },
+    ]);
+  });
+
+  it('does not ask a non-reasoning model for encrypted reasoning, and ignores unusable signatures', async () => {
+    routes = { 'POST /v1/responses': { body: fixture('openai-responses.sse') } };
+    seen.length = 0;
+    await collect(
+      make().stream(
+        req({
+          model: 'gpt-4.1',
+          messages: [
+            { role: 'user', content: [{ type: 'text', text: 'q' }] },
+            { role: 'assistant', content: [{ type: 'reasoning', text: 't', provider: 'openai', model: 'gpt-4.1', signature: 'not json' }, { type: 'text', text: 'a' }] },
+            { role: 'user', content: [{ type: 'text', text: 'q2' }] },
+          ],
+        }),
+      ),
+    );
+    expect(seen[0]!.body.include).toBeUndefined();
+    expect((seen[0]!.body.input as unknown[]).length).toBe(3);
+  });
+
   it('retries without reasoning summaries when the organisation cannot receive them', async () => {
     let calls = 0;
     routes = {
