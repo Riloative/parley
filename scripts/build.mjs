@@ -5,6 +5,7 @@
 // --help/--version and cold start stay fast; the interface, providers and the
 // syntax highlighter are split into chunks that are loaded on demand.
 import { build } from 'esbuild';
+import { sharedPlugins } from './esbuild-plugins.mjs';
 import { readFileSync, rmSync } from 'node:fs';
 
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
@@ -34,4 +35,5 @@ await build({
     js: "import { createRequire as __parleyCreateRequire } from 'node:module'; const require = __parleyCreateRequire(import.meta.url);",
   },
   logLevel: 'warning',
+  plugins: sharedPlugins,
 });

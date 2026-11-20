@@ -8,6 +8,13 @@
 - **`install.sh`:** `curl -fsSL …/install.sh | sh` installs the binary to `~/.local/bin` after verifying its checksum. `PARLEY_VERSION` and `PARLEY_INSTALL_DIR` choose the version and directory.
 - **Build details:** `parley --version` shows the build kind (standalone binary or node package), the Node runtime and the platform. `parley doctor` shows the install method and location.
 
+### Performance
+
+- **Faster start-up.** Two dependencies did avoidable work before the first frame: Ink's layout engine loaded Node's whole HTTP stack to decode its embedded WebAssembly, and the text-width library built a large emoji table. Both are now avoided or deferred (measured on a Linux dev container, median first frame: npm build 179 → 146 ms, standalone binary 231 → 140 ms).
+- **Long conversations reprint about 3–4× faster.** Resuming, resizing, Ctrl+O, rewind and theme changes now write the already-rendered history straight to the terminal (300-turn conversation: resume 859 → 302 ms, resize 704 → 186 ms).
+- **`-c` and `/resume` with a long history.** Conversation summaries are cached, so only conversations that changed are read again (1,000 conversations: `-p -c` 324 → 141 ms, opening `/resume` 170 → 35 ms).
+- **No stalls in the first reply.** One-time renderer work (Markdown, the first code block of common languages) now happens while you type your first message instead of mid-reply.
+
 ### Fixed
 
 - **Keys typed ahead across screens.** Several keys arriving at once (fast typing, slow SSH links) could land on the previous screen of a multi-step dialog. In the provider wizard, the name you typed could even be saved as the API key. Input is now delivered one key at a time, letting the interface catch up in between; held keys are replayed to the next screen; and each wizard step has its own text field.

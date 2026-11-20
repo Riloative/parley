@@ -13,7 +13,7 @@ import type { Session, SessionEvent } from '../core/session.js';
 import type { InputHistory } from '../core/history.js';
 import type { Store } from '../core/store.js';
 import type { TerminalController } from '../term/terminal.js';
-import { CLEAR_SCREEN, holdInterrupts } from '../term/terminal.js';
+import { CLEAR_SCREEN, SYNC_BEGIN, SYNC_END, holdInterrupts } from '../term/terminal.js';
 import type { InputEvent, Key } from '../term/keys.js';
 import { isText } from '../term/keys.js';
 import { BULLET, renderItem } from './blocks.js';
@@ -34,7 +34,7 @@ import { listFiles, parseDroppedPaths, readAttachment, AttachError } from './att
 import { loadState, rememberModel } from '../core/state.js';
 import { ProvidersScreen, ConfigScreen, SetupScreen } from './screens.js';
 import type { Config } from '../config/config.js';
-import { loadHighlighter } from '../render/highlight.js';
+import { warmRenderer } from '../render/markdown.js';
 import { parseDocument, type Document } from 'yaml';
 
 export interface AppProps {
@@ -186,10 +186,17 @@ export function App(props: AppProps): React.ReactElement {
     };
     const onTranscript = () => force();
     const onReprint = () => {
-      // Erase the live frame, clear screen and scrollback, then let <Static>
-      // (remounted with a new key) print the transcript from the top.
+      // Erase the live frame, clear screen and scrollback, and print the
+      // transcript from the top. The items are already ANSI strings that fit
+      // the width, so they are written directly: through <Static>, Ink would
+      // take every character through its cell grid, which takes about a
+      // second for a 300-turn conversation. <Static> (remounted with a new
+      // key) then prints only the items added after this point.
       inkClear.current?.();
-      process.stdout.write(CLEAR_SCREEN);
+      const items = transcript.items;
+      const text = items.map((item) => renderItem(item, transcript.cols)).join('\n');
+      process.stdout.write(SYNC_BEGIN + CLEAR_SCREEN + (text ? text + '\n' : '') + SYNC_END);
+      reprinted.current = { epoch: transcript.epoch, count: items.length };
     };
     session.on('event', onEvent);
     transcript.on('change', onTranscript);
@@ -202,6 +209,16 @@ export function App(props: AppProps): React.ReactElement {
   }, [session, transcript, terminal, force]);
 
   const inkClear = useRef<(() => void) | null>(null);
+  /** Items the last reprint wrote directly, which <Static> must skip. */
+  const reprinted = useRef({ epoch: -1, count: 0 });
+  if (reprinted.current.epoch === -1) {
+    // First render: print what the transcript already holds (the welcome box,
+    // or a whole resumed conversation) the same direct way, before Ink draws
+    // its first frame.
+    reprinted.current = { epoch: transcript.epoch, count: transcript.items.length };
+    const text = transcript.items.map((item) => renderItem(item, transcript.cols)).join('\n');
+    if (text) process.stdout.write(SYNC_BEGIN + text + '\n' + SYNC_END);
+  }
   inkClear.current = () => props.ink.clear?.();
 
   useEffect(() => {
@@ -226,9 +243,9 @@ export function App(props: AppProps): React.ReactElement {
   }, [terminal, transcript]);
 
   useEffect(() => {
-    // Warm the syntax highlighter while the user is typing.
-    const t = setTimeout(() => void loadHighlighter(), 30);
-    return () => clearTimeout(t);
+    // After the first frame, warm what the first reply will need, so none of
+    // it stalls streaming later.
+    return warmRenderer();
   }, []);
 
   // --------------------------------------------------------------- helpers
@@ -1035,7 +1052,10 @@ export function App(props: AppProps): React.ReactElement {
   const theme = getTheme().name;
   return (
     <KeyRouterContext.Provider value={router}>
-      <Static key={`${transcript.epoch}-${theme}`} items={transcript.items}>
+      <Static
+        key={`${transcript.epoch}-${theme}`}
+        items={reprinted.current.epoch === transcript.epoch ? transcript.items.slice(reprinted.current.count) : transcript.items}
+      >
         {(item) => {
           const str = renderItem(item, cols);
           const lead = /^\n*/.exec(str)![0].length;

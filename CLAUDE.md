@@ -55,7 +55,9 @@ Why dist/ is committed: `npm install -g .` packs the folder *before* installing 
 bin/parley.js            enables Node's compile cache, imports dist/cli.js
 src/version.ts           version, build kind (node package vs standalone binary)
 src/trace.ts             start-up phase marks for PARLEY_STARTUP_TRACE
-scripts/build-binary.mjs standalone executable (Node SEA); scripts/bench-startup.mjs start-up benchmark
+scripts/build-binary.mjs standalone executable (Node SEA)
+scripts/esbuild-plugins.mjs build-time patches to dependencies (shared by both builds; equivalence-tested)
+scripts/bench-*.mjs      start-up, streaming and long-history benchmarks (see Gotchas)
 install.sh               curl | sh installer for the release binaries
 src/cli.ts               arg parsing; --help/--version without loading anything else; dispatch
 src/interactive.tsx      wires terminal + session + transcript + Ink; exit/signal handling
@@ -104,11 +106,12 @@ src/config/              config.ts (YAML + validation with line numbers), creden
 
 ## How rendering stays flicker-free
 
-- Finished content goes through Ink's `<Static>` exactly once. Each item is pre-rendered to an ANSI string no wider than the terminal, so Ink never re-wraps it.
+- Finished content is printed exactly once: through Ink's `<Static>` while streaming, or directly on a reprint (below). Each item is pre-rendered to an ANSI string no wider than the terminal, so Ink never re-wraps it.
 - `StreamingMarkdown.update(text)` lexes only the uncommitted tail, commits every block that can no longer change (and complete lines of an open code fence), and returns the rest as the live tail. Invariant (tested with random chunkings): concatenated commits == one-shot render.
 - The dynamic area is clamped so it is always shorter than the terminal (Ink falls back to clearing the viewport otherwise). The live tail shows its last lines if it is taller.
 - Session frames are batched to ~30 fps; Ink runs with `maxFps: 30`, `incrementalRendering`, and DEC 2026 synchronized output.
-- Ink gets a proxy stdout (`InkStdout`). On a width change the app clears screen + scrollback and remounts `<Static>` (new key) to reprint the conversation at the new width, then forwards the resize to Ink. The same "reprint" path handles Ctrl+O, rewind, retry, resume and theme changes.
+- Ink gets a proxy stdout (`InkStdout`). On a width change the app clears screen + scrollback, reprints the conversation at the new width, then forwards the resize to Ink. The same "reprint" path handles Ctrl+O, rewind, retry, resume and theme changes.
+- A reprint (and the first render) writes the transcript's items directly to stdout, after `ink.clear()`, and remounts `<Static>` (new key) with only the items added afterwards. Through `<Static>`, Ink would take every character of the history through its cell grid: about 0.7 s for a 300-turn conversation, against about 0.2 s written directly. This is safe because Ink never replays static output on the primary screen.
 - Keys can arrive faster than React renders (a paste plus Enter in one chunk). Three layers deal with it:
   - `TerminalController` delivers the events of a chunk one at a time, yielding to the event loop in between, so React commits each key's effect before the next.
   - State that key handlers read (editor, search, picker, prompt) lives in refs that are updated synchronously.
@@ -133,7 +136,10 @@ src/config/              config.ts (YAML + validation with line numbers), creden
 - The Anthropic SDK (1.x) sends `Authorization: Bearer` and API version 2026-10-21, which rejects sampling parameters.
 - Fetch refuses some ports ("bad port", e.g. 1, 9); tests pick free ephemeral ports instead.
 - `listFiles()` refuses to crawl `$HOME` itself (the @ picker would be enormous); PTY tests that use @ run in a subdirectory.
-- `PARLEY_STARTUP_TRACE=<file>` appends the time (ms since process start) of the first rendered frame, then a JSON line of phase marks (`src/trace.ts`). `node scripts/bench-startup.mjs [--bin path] [--runs 20]` reports median and p95 over many runs (`BENCH_MARKS=1` prints the marks). Node's compile cache (enabled in bin/parley.js) roughly halves module compile time after the first run.
+- `PARLEY_STARTUP_TRACE=<file>` appends the time (ms since process start) of the first rendered frame, then a JSON line of phase marks (`src/trace.ts`). `node scripts/bench-startup.mjs [--bin path] [--runs 20]` reports median and p95 over many runs (`BENCH_MARKS=1` prints the marks). Node's compile cache (enabled in bin/parley.js) roughly halves module compile time after the first run. Repeat `--bin` (a `.js` path runs with Node) to compare builds; runs alternate, so machine noise hits all alike.
+- `node scripts/bench-stream.mjs [--lines 2000 --tps 20000]` measures CPU, frames, bytes per frame, typing latency and RSS while a reply streams. `node scripts/bench-history.mjs [--conversations 1000 --long-turns 300]` measures `-p -c`, opening `/resume`, resuming a long conversation and a resize reprint. Both take `--bin` like bench-startup.
+- Typing latency must be measured on a parsed screen (xterm headless), not by searching raw output: with incremental rendering Ink writes only the cells that changed.
+- `scripts/esbuild-plugins.mjs` patches yoga-layout (no `fetch()` for its embedded WASM) and string-width (lazy RGI_Emoji regex). Each plugin fails the build if its pattern disappears after an upgrade; `test/unit/build-plugins.test.ts` proves the patched code matches the original.
 - `PARLEY_BIN=/path/to/parley` makes the PTY and print-mode tests run against that executable instead of `node bin/parley.js`.
 - node-pty's macOS prebuilt `spawn-helper` can lose its execute bit on install; the harness chmods it.
 - The PTY harness answers the terminal's DA1 query; `kitty: true` also answers the kitty keyboard query (xterm.js itself doesn't implement the protocol).

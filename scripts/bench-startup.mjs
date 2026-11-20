@@ -2,8 +2,10 @@
 //   trace — the program's own PARLEY_STARTUP_TRACE (ms since process start)
 //   wall  — from spawn until the prompt is visible in the output
 //
-// Usage: node scripts/bench-startup.mjs [--runs 20] [--bin path/to/parley]
-// Without --bin it measures the Node build (node bin/parley.js).
+// Usage: node scripts/bench-startup.mjs [--runs 20] [--bin path/to/parley]...
+// Without --bin it measures the Node build (node bin/parley.js). A --bin that
+// ends in .js is run with this Node. Repeat --bin to compare builds: their
+// runs alternate, so a busy machine slows them all alike.
 // Requires the dev dependencies (node-pty).
 
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -16,11 +18,13 @@ const arg = (name, def) => {
   return i > 0 ? process.argv[i + 1] : def;
 };
 const runs = Number(arg('runs', 20));
-const binArg = arg('bin', undefined);
-const bin = binArg ? resolve(binArg) : undefined;
 const root = new URL('..', import.meta.url).pathname;
-const command = bin ?? process.execPath;
-const baseArgs = bin ? [] : [join(root, 'bin', 'parley.js')];
+const bins = process.argv.flatMap((a, i) => (a === '--bin' ? [resolve(process.argv[i + 1])] : []));
+const targets = (bins.length ? bins : [join(root, 'bin', 'parley.js')]).map((b) =>
+  b.endsWith('.js')
+    ? { label: `node build ${b} (${process.version})`, command: process.execPath, args: [b] }
+    : { label: `binary ${b}`, command: b, args: [] },
+);
 
 const home = mkdtempSync(join(tmpdir(), 'parley-bench-'));
 mkdirSync(join(home, 'config', 'parley'), { recursive: true });
@@ -29,11 +33,11 @@ writeFileSync(join(home, 'config', 'parley', 'config.yaml'), 'default_model: moc
 const env = { ...process.env, HOME: home, XDG_CONFIG_HOME: join(home, 'config'), XDG_DATA_HOME: join(home, 'data'), XDG_STATE_HOME: join(home, 'state'), TERM: 'xterm-256color', COLORTERM: 'truecolor', PARLEY_NO_KEYCHAIN: '1' };
 for (const k of ['CI', 'GITHUB_ACTIONS']) delete env[k];
 
-function once(i) {
+function once(target, i, k = 0) {
   return new Promise((resolve, reject) => {
-    const trace = join(home, `trace-${i}`);
+    const trace = join(home, `trace-${k}-${i}`);
     const started = performance.now();
-    const p = pty.spawn(command, baseArgs, { name: 'xterm-256color', cols: 100, rows: 30, cwd: home, env: { ...env, PARLEY_STARTUP_TRACE: trace } });
+    const p = pty.spawn(target.command, target.args, { name: 'xterm-256color', cols: 100, rows: 30, cwd: home, env: { ...env, PARLEY_STARTUP_TRACE: trace } });
     let out = '';
     let wall;
     const timer = setTimeout(() => reject(new Error('timed out waiting for the prompt')), 15_000);
@@ -65,16 +69,18 @@ const pct = (xs, p) => {
   return s[Math.min(s.length - 1, Math.ceil((p / 100) * s.length) - 1)];
 };
 
-// One warm-up run fills the compile cache, like any real second start.
-await once(-1);
-const results = [];
-for (let i = 0; i < runs; i++) results.push(await once(i));
-if (process.env.BENCH_DEBUG) console.log(JSON.stringify(results.slice(0, 3)));
+// One warm-up run each fills the compile cache, like any real second start.
+for (const [k, t] of targets.entries()) await once(t, -1, k);
+const results = targets.map(() => []);
+for (let i = 0; i < runs; i++) for (const [k, t] of targets.entries()) results[k].push(await once(t, i, k));
+if (process.env.BENCH_DEBUG) console.log(JSON.stringify(results[0].slice(0, 3)));
 rmSync(home, { recursive: true, force: true });
 
-const trace = results.map((r) => r.trace).filter(Number.isFinite);
-const wall = results.map((r) => r.wall).filter(Number.isFinite);
 const fmt = (xs) => `median ${pct(xs, 50).toFixed(0)} ms, p95 ${pct(xs, 95).toFixed(0)} ms (n=${xs.length})`;
-console.log(`${bin ? `binary ${bin}` : `node build (${process.version})`}`);
-console.log(`  first frame (trace): ${fmt(trace)}`);
-console.log(`  prompt visible (wall): ${fmt(wall)}`);
+for (const [k, t] of targets.entries()) {
+  const trace = results[k].map((r) => r.trace).filter(Number.isFinite);
+  const wall = results[k].map((r) => r.wall).filter(Number.isFinite);
+  console.log(t.label);
+  console.log(`  first frame (trace): ${fmt(trace)}`);
+  console.log(`  prompt visible (wall): ${fmt(wall)}`);
+}
