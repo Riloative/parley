@@ -6,6 +6,7 @@ import { PassThrough } from 'node:stream';
 import { appendFileSync, writeSync } from 'node:fs';
 import type { Args } from './cli.js';
 import { boot, chooseModel, resolveTheme } from './bootstrap.js';
+import { setTheme } from './render/theme.js';
 import { Session } from './core/session.js';
 import { InputHistory } from './core/history.js';
 import { paths } from './config/paths.js';
@@ -130,6 +131,9 @@ export async function runInteractive(args: Args, probe?: EarlyProbe): Promise<vo
   mark('terminal-started');
   const { render } = await import('ink');
   mark('ink-loaded');
+  // The terminal's background answer may have arrived since boot(). Nothing
+  // has been drawn yet, so it can still choose the palette.
+  if (probe?.background()) setTheme(resolveTheme(args.theme ?? b.config.theme, process.env, probe.background()));
   const instance = render(
     <CrashBoundary onCrash={(e) => setImmediate(() => shutdown(1, crashReport(e)))}>
       <App

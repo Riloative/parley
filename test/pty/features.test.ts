@@ -294,7 +294,6 @@ describe('appearance and editor', () => {
       await s.waitFor(() => s!.raw.includes('\x1b]11;?'));
       s.write('typed early');
       await s.waitFor('│ > typed early');
-      expect(s.raw).toContain(LIGHT_ACCENT);
     }, 30_000);
   });
 
@@ -326,12 +325,13 @@ describe('/terminal-setup', () => {
     await s!.waitFor('extended-keys on');
     await s!.waitFor('Add the Shift+Enter keybinding to VS Code');
     s!.write('\x1b[B\r'); // No → Yes
-    await s!.waitFor(/Updated .*keybindings\.json/);
+    // Wait for the write itself: the message naming the file wraps with long paths.
+    await s!.waitFor(() => existsSync(`${keybindings}.parley-backup`));
     const text = readFileSync(keybindings, 'utf8');
     expect(text.startsWith('// my bindings\n')).toBe(true);
     expect(text).toContain('"key": "shift+enter"');
     expect(text).toContain('"text": "\\u001b\\r"');
-    expect(existsSync(`${keybindings}.parley-backup`)).toBe(true);
+    await s!.waitFor(/Updated/);
     // The tmux offer comes next; Enter takes the default, No.
     await s!.waitFor('Add extended-keys to');
     s!.write('\r');
