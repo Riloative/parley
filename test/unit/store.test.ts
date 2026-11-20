@@ -112,6 +112,52 @@ describe('conversation store', () => {
     expect(store.search('penguin').map((c) => c.id)).toEqual([a.id]);
   });
 
+  it('caches list summaries by file size and mtime, and rereads only what changed', () => {
+    const root = tmp();
+    const store = new Store(root);
+    const a = store.create();
+    a.append({ type: 'message', id: 'u', parentId: null, role: 'user', content: [{ type: 'text', text: 'apples' }], ts: 1 });
+    const b = store.create();
+    b.append({ type: 'message', id: 'u', parentId: null, role: 'user', content: [{ type: 'text', text: 'bananas' }], ts: 2 });
+    expect(store.list().map((c) => c.title).sort()).toEqual(['apples', 'bananas']);
+    const cachePath = join(root, 'summary-cache.json');
+    const cache = JSON.parse(readFileSync(cachePath, 'utf8'));
+    expect(Object.keys(cache.entries).sort()).toEqual([a.id, b.id].sort());
+
+    // A listing trusts an entry whose file is unchanged: proven by planting a
+    // different title in the cache.
+    cache.entries[a.id].title = 'from the cache';
+    writeFileSync(cachePath, JSON.stringify(cache));
+    expect(store.list().map((c) => c.title)).toContain('from the cache');
+
+    // Appending changes the size, so the file is read again.
+    a.append({ type: 'title', title: 'Apples, renamed' });
+    const after = store.list();
+    expect(after.find((c) => c.id === a.id)!.title).toBe('Apples, renamed');
+    expect(after.find((c) => c.id === b.id)!.title).toBe('bananas');
+
+    // A deleted conversation leaves the cache.
+    a.releaseLock();
+    store.trash(a.id);
+    expect(store.list().map((c) => c.id)).toEqual([b.id]);
+    expect(Object.keys(JSON.parse(readFileSync(cachePath, 'utf8')).entries)).toEqual([b.id]);
+    b.releaseLock();
+  });
+
+  it('rebuilds a damaged or foreign summary cache instead of trusting it', () => {
+    const root = tmp();
+    const store = new Store(root);
+    const a = store.create();
+    a.append({ type: 'message', id: 'u', parentId: null, role: 'user', content: [{ type: 'text', text: 'cherries' }], ts: 1 });
+    a.releaseLock();
+    const cachePath = join(root, 'summary-cache.json');
+    for (const junk of ['{"v":1,"entr', 'null', '{"v":99,"entries":{}}', JSON.stringify({ v: 1, entries: { [a.id]: { size: 'x' } } })]) {
+      writeFileSync(cachePath, junk);
+      expect(store.list().map((c) => c.title)).toEqual(['cherries']);
+      expect(JSON.parse(readFileSync(cachePath, 'utf8')).entries[a.id].title).toBe('cherries');
+    }
+  });
+
   it('locks a conversation against a second live instance but takes over stale locks', () => {
     const store = new Store(tmp());
     const f = store.create();
