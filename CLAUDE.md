@@ -96,4 +96,6 @@ src/config/              config.ts (YAML + validation with line numbers), creden
 - The Anthropic SDK (1.x) sends `Authorization: Bearer` and API version 2026-10-21, which rejects sampling parameters.
 - Fetch refuses some ports ("bad port", e.g. 1, 9); tests pick free ephemeral ports instead.
 - `listFiles()` refuses to crawl `$HOME` itself (the @ picker would be enormous); PTY tests that use @ run in a subdirectory.
+- `PARLEY_STARTUP_TRACE=<file>` appends the time (ms since process start) of the first rendered frame — use it to check cold start. Node's compile cache (enabled in bin/parley.js) roughly halves module compile time after the first run.
+- node-pty's macOS prebuilt `spawn-helper` can lose its execute bit on install; the harness chmods it.
 - The PTY harness answers the terminal's DA1 query; `kitty: true` also answers the kitty keyboard query (xterm.js itself doesn't implement the protocol).
