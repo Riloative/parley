@@ -55,7 +55,9 @@ Why dist/ is committed: `npm install -g .` packs the folder *before* installing 
 bin/parley.js            enables Node's compile cache, imports dist/cli.js
 src/version.ts           version, build kind (node package vs standalone binary)
 src/trace.ts             start-up phase marks for PARLEY_STARTUP_TRACE
-scripts/build-binary.mjs standalone executable (Node SEA); scripts/bench-startup.mjs start-up benchmark
+scripts/build-binary.mjs standalone executable (Node SEA)
+scripts/esbuild-plugins.mjs build-time patches to dependencies (shared by both builds; equivalence-tested)
+scripts/bench-*.mjs      start-up, streaming and long-history benchmarks (see Gotchas)
 install.sh               curl | sh installer for the release binaries
 src/cli.ts               arg parsing; --help/--version without loading anything else; dispatch
 src/interactive.tsx      wires terminal + session + transcript + Ink; exit/signal handling
@@ -134,7 +136,10 @@ src/config/              config.ts (YAML + validation with line numbers), creden
 - The Anthropic SDK (1.x) sends `Authorization: Bearer` and API version 2026-10-21, which rejects sampling parameters.
 - Fetch refuses some ports ("bad port", e.g. 1, 9); tests pick free ephemeral ports instead.
 - `listFiles()` refuses to crawl `$HOME` itself (the @ picker would be enormous); PTY tests that use @ run in a subdirectory.
-- `PARLEY_STARTUP_TRACE=<file>` appends the time (ms since process start) of the first rendered frame, then a JSON line of phase marks (`src/trace.ts`). `node scripts/bench-startup.mjs [--bin path] [--runs 20]` reports median and p95 over many runs (`BENCH_MARKS=1` prints the marks). Node's compile cache (enabled in bin/parley.js) roughly halves module compile time after the first run.
+- `PARLEY_STARTUP_TRACE=<file>` appends the time (ms since process start) of the first rendered frame, then a JSON line of phase marks (`src/trace.ts`). `node scripts/bench-startup.mjs [--bin path] [--runs 20]` reports median and p95 over many runs (`BENCH_MARKS=1` prints the marks). Node's compile cache (enabled in bin/parley.js) roughly halves module compile time after the first run. Repeat `--bin` (a `.js` path runs with Node) to compare builds; runs alternate, so machine noise hits all alike.
+- `node scripts/bench-stream.mjs [--lines 2000 --tps 20000]` measures CPU, frames, bytes per frame, typing latency and RSS while a reply streams. `node scripts/bench-history.mjs [--conversations 1000 --long-turns 300]` measures `-p -c`, opening `/resume`, resuming a long conversation and a resize reprint. Both take `--bin` like bench-startup.
+- Typing latency must be measured on a parsed screen (xterm headless), not by searching raw output: with incremental rendering Ink writes only the cells that changed.
+- `scripts/esbuild-plugins.mjs` patches yoga-layout (no `fetch()` for its embedded WASM) and string-width (lazy RGI_Emoji regex). Each plugin fails the build if its pattern disappears after an upgrade; `test/unit/build-plugins.test.ts` proves the patched code matches the original.
 - `PARLEY_BIN=/path/to/parley` makes the PTY and print-mode tests run against that executable instead of `node bin/parley.js`.
 - node-pty's macOS prebuilt `spawn-helper` can lose its execute bit on install; the harness chmods it.
 - The PTY harness answers the terminal's DA1 query; `kitty: true` also answers the kitty keyboard query (xterm.js itself doesn't implement the protocol).
