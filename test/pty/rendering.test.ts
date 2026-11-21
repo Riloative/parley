@@ -139,9 +139,17 @@ describe('rendering core', () => {
     await s.waitFor('Send a message');
     await sleep(300);
     check(80);
+    const mark = s.parsed.length;
     s.resize(64, 24);
-    await sleep(600);
-    await s.waitFor('Send a message');
+    // Wait for the reprint itself: it starts by clearing screen and
+    // scrollback (ESC[3J), then writes the conversation and a fresh frame.
+    // Neither "Send a message" (the old frame shows it too) nor the content
+    // (the emulator re-wraps the old text on resize) proves it happened.
+    await s.waitFor(() => {
+      const after = s!.parsed.slice(mark);
+      const cleared = after.lastIndexOf('\x1b[3J');
+      return cleared >= 0 && after.slice(cleared).includes('question 39') && after.slice(cleared).includes('Send a message');
+    }, 20_000);
     check(64);
   }, 60_000);
 
