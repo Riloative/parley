@@ -1,7 +1,9 @@
 name: CI
 
 on:
+  # Branches only: a version tag runs the same checks in release.yml.
   push:
+    branches: ['**']
   pull_request:
 
 jobs:
