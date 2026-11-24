@@ -39,9 +39,15 @@ describe('unsent draft', () => {
     const home = makeHome();
     s = spawnParley({ home });
     await s.waitFor('Send a message');
-    s.write('first\r');
+    s.write('first');
+    await sleep(50); // typed, then sent: the draft write is still pending
+    s.write('\r');
     await s.waitFor('You said: first');
     await s.waitFor(() => /Send a message/.test(s!.screen().join('\n')));
+    // A sent message is never a draft: not for this conversation, and not
+    // for the next new one.
+    await sleep(600);
+    expect(drafts(home)).toEqual([]);
     s.write('reply in progress');
     await s.waitFor(input('reply in progress'));
     s.proc.kill('SIGTERM'); // at once: the debounce timer has not fired

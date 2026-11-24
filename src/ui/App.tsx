@@ -130,6 +130,11 @@ export function App(props: AppProps): React.ReactElement {
     const prev = lastDraftKey.current;
     lastDraftKey.current = draftKey;
     if (prev !== draftKey) {
+      // Whatever was pending for the previous conversation is void: its text
+      // was either sent or cleared, or it moves with the user (saved below
+      // under the new key). Without this, sending the first message could
+      // write the just-sent text as the "new conversation" draft.
+      if (prev !== null) scheduleDraft(prev, null);
       if (!edRef.current.text) {
         const d = loadDraft(draftKey);
         if (d) {
@@ -141,9 +146,6 @@ export function App(props: AppProps): React.ReactElement {
           setTimeout(() => setHint((h) => (h && h.until <= Date.now() ? null : h)), 4020);
           return;
         }
-      } else if (prev !== null) {
-        // The text in the box moves with the user to the new conversation.
-        scheduleDraft(prev, null);
       }
     }
     const text = edRef.current.text;
