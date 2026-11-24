@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 — 2026-11-24
 
 **parley is now taria.** The command, the npm package and the release archives are called `taria`. See *Upgrading from parley* below.
 
@@ -35,6 +35,16 @@
 - **`parley doctor`** says which method `/copy` uses and why; **`parley doctor clipboard`** copies a test line and reads it back where a paste tool exists.
 - OSC 52 copies larger than about 73 KB are not sent (terminals drop them silently); parley says so and offers a file.
 - GNU screen: OSC 52 is sent in pieces screen passes through.
+
+### Measured
+
+- **Start-up on macOS**, measured for the first time (GitHub runners, median of 20 runs, first frame): Apple Silicon 120 ms for the standalone binary and 131 ms for the npm build; Intel 425 ms and 394 ms. Linux runners: 98 ms (x64) and 122 ms (arm64). Start-up is unchanged by this release.
+- **Tests:** every PTY assertion now waits for a complete frame, and CI reruns changed PTY tests under CPU load on Ubuntu and macOS (`scripts/stress-pty.mjs`).
+
+### Supply chain
+
+- Release assets carry GitHub build provenance attestations: `gh attestation verify taria-linux-x64.tar.gz --repo Riloative/taria`.
+- CI actions are pinned by commit, and Dependabot proposes updates to them and to the bundled dependencies.
 
 ## 0.2.0 — 2026-11-24
 
