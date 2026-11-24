@@ -91,7 +91,8 @@ export function configTemplate(providers: ProviderSpec[], defaultModel?: string)
         })
         .join('\n\n')
     : '  {}';
-  return `# taria configuration
+  return `# yaml-language-server: $schema=https://raw.githubusercontent.com/Riloative/taria/main/schema/config.schema.json
+# taria configuration
 #
 # Models are addressed as provider/model-id, where "provider" is one of the
 # names under "providers" below. Run /model inside taria to browse them.

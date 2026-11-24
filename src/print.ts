@@ -2,7 +2,7 @@
 // No colour or spinner unless stdout is a terminal; errors go to stderr with
 // a non-zero exit code.
 
-import type { Args } from './cli.js';
+import type { Args } from './args.js';
 import { boot, chooseModel } from './bootstrap.js';
 import { Session, type SessionEvent } from './core/session.js';
 import { StreamingMarkdown } from './render/markdown.js';

@@ -1,0 +1,127 @@
+.TH TARIA 1 "" "taria 0.2.0" "User Commands"
+.SH NAME
+taria \- a terminal chat client for Claude, OpenAI, Mistral and local models
+.SH SYNOPSIS
+.B taria
+[options] [prompt]
+.br
+.B taria
+\-p "question" [options]
+.br
+.B taria
+doctor
+.br
+.B taria
+doctor clipboard
+.br
+.B taria
+doctor repair
+.br
+.B taria
+key set <provider>
+.br
+.B taria
+key remove <provider>
+.br
+.B taria
+key status <provider>
+.br
+.B taria
+key remove\-old <provider>
+.br
+.B taria
+completions <bash|zsh|fish>
+.br
+.B taria
+man
+.br
+.SH DESCRIPTION
+taria streams answers from Claude, OpenAI, Mistral and local models (llama.cpp, Ollama, LM Studio, or any server that speaks the OpenAI chat\-completions protocol) in the terminal. Every conversation is written to disk as it happens. Inside taria, type
+.B /help
+for commands and keys.
+.SH OPTIONS
+.TP
+\fB\-p\fR, \fB\-\-print\fR
+Non\-interactive: stream the answer to stdout and exit.
+.TP
+\fB\-m\fR, \fB\-\-model\fR \fIref\fR
+Model as provider/model\-id.
+.TP
+\fB\-s\fR, \fB\-\-system\fR \fItext\fR
+System prompt.
+.TP
+\fB\-c\fR, \fB\-\-continue\fR
+Continue the most recent conversation.
+.TP
+\fB\-r\fR, \fB\-\-resume\fR [\fIid\fR]
+Resume a conversation (opens a picker without an id).
+.TP
+\fB\-\-json\fR
+With \-p: print one JSON object instead of text.
+.TP
+\fB\-\-theme\fR \fIname\fR
+Dark, light, ansi or auto.
+.TP
+\fB\-\-no\-color\fR
+Disable colour (NO_COLOR is honoured too).
+.TP
+\fB\-\-debug\fR [\fIfile\fR]
+Log requests, responses and timings (keys redacted).
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Show this help.
+.TP
+\fB\-v\fR, \fB\-\-version\fR
+Show the version.
+.SH COMMANDS
+.TP
+\fBtaria doctor\fR
+Check terminal, clipboard, keychain and providers.
+.TP
+\fBtaria doctor clipboard\fR
+Try a copy the way /copy does it.
+.TP
+\fBtaria doctor repair\fR
+Repair conversations a crash in parley < 0.2.0 cut short.
+.TP
+\fBtaria key set <provider>\fR
+Store an API key in the keychain.
+.TP
+\fBtaria key remove <provider>\fR
+Remove a stored key.
+.TP
+\fBtaria key status <provider>\fR
+Show where the key for a provider comes from.
+.TP
+\fBtaria key remove\-old <provider>\fR
+Remove parley's old keychain entry for a provider.
+.TP
+\fBtaria completions <bash|zsh|fish>\fR
+Print a shell completion script.
+.TP
+\fBtaria man\fR
+Print the man page (installed with the npm package).
+.SH FILES
+.TP
+\fI$XDG_CONFIG_HOME/taria/config.yaml\fR
+Configuration (default \fI~/.config/taria/config.yaml\fR).
+.TP
+\fI$XDG_DATA_HOME/taria\fR
+Conversations, input history, attachments (default \fI~/.local/share/taria\fR).
+.SH ENVIRONMENT
+.TP
+\fBANTHROPIC_API_KEY\fR, \fBOPENAI_API_KEY\fR, ...
+API keys, read before the keychain and the credentials file.
+.TP
+\fBNO_COLOR\fR
+Disable colour.
+.TP
+\fBTARIA_NO_KEYCHAIN\fR
+Do not use the system keychain.
+.TP
+\fBPARLEY_*\fR
+Names from before the rename from parley; each works as the matching \fBTARIA_*\fR until 0.4.0.
+.SH EXIT STATUS
+0 on success, 1 on an error, 2 for a usage error, 130 when interrupted.
+.SH SEE ALSO
+https://github.com/Riloative/taria

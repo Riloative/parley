@@ -9,6 +9,9 @@
     "taria": "bin/taria.js",
     "parley": "bin/parley.js"
   },
+  "man": [
+    "./dist/taria.1"
+  ],
   "files": [
     "bin",
     "dist"

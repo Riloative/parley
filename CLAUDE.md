@@ -61,7 +61,10 @@ scripts/build-binary.mjs standalone executable (Node SEA)
 scripts/esbuild-plugins.mjs build-time patches to dependencies (shared by both builds; equivalence-tested)
 scripts/bench-*.mjs      start-up, streaming and long-history benchmarks (see Gotchas)
 install.sh               curl | sh installer for the release binaries
-src/cli.ts               arg parsing; --help/--version without loading anything else; dispatch
+src/cli.ts               --help/--version without loading anything else; migration; dispatch (importing it runs the program)
+src/args.ts              parseArgs (no side effects; tests import this, never cli.ts)
+src/cliSpec.ts           the command line described once: --help, completions.ts and manpage.ts are generated from it
+schema/config.schema.json JSON Schema of the config file; test/unit/cli-spec.test.ts keeps it equal to config.ts's key lists and enums
 src/interactive.tsx      wires terminal + session + transcript + Ink; exit/signal handling
 src/print.ts             -p mode (pipes, --json, exit codes)
 src/doctor.ts, keycmd.ts `taria doctor`, `taria key …`

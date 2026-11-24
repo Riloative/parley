@@ -27,6 +27,9 @@
 
 ### Added
 
+- **Shell completions:** `taria completions bash|zsh|fish`.
+- **Man page:** `man taria` for npm installs; `taria man` prints it. `--help`, the completions and the man page come from one description of the command line.
+- **JSON Schema for the config file** (`schema/config.schema.json`), referenced from the first line of new config files, so editors check and complete it.
 - **WSL:** `/copy` uses `clip.exe`, sending UTF-16 so non-ASCII text survives.
 - **`clipboard: auto | native | osc52 | off`** and **`clipboard_command:`** in the config (also in `/config`).
 - **`parley doctor`** says which method `/copy` uses and why; **`parley doctor clipboard`** copies a test line and reads it back where a paste tool exists.

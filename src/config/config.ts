@@ -101,7 +101,7 @@ export const defaultConfig = (): Config => ({
   prices: {},
 });
 
-const TOP_KEYS = [
+export const TOP_KEYS = [
   'default_model',
   'title_model',
   'compact_model',
@@ -122,10 +122,10 @@ const TOP_KEYS = [
   'prices',
 ] as const;
 
-const PROVIDER_KEYS = ['type', 'base_url', 'api_key_env', 'no_key', 'headers', 'context_window', 'sampling', 'models', 'timeout_ms'];
-const SAMPLING_KEYS = ['temperature', 'top_p', 'top_k', 'max_tokens', 'extra_body'];
-const MODEL_KEYS = ['sampling', 'context_window', 'images', 'reasoning'];
-const PROVIDER_TYPES: ProviderType[] = ['anthropic', 'openai', 'openai-compatible', 'mock'];
+export const PROVIDER_KEYS = ['type', 'base_url', 'api_key_env', 'no_key', 'headers', 'context_window', 'sampling', 'models', 'timeout_ms'];
+export const SAMPLING_KEYS = ['temperature', 'top_p', 'top_k', 'max_tokens', 'extra_body'];
+export const MODEL_KEYS = ['sampling', 'context_window', 'images', 'reasoning'];
+export const PROVIDER_TYPES: ProviderType[] = ['anthropic', 'openai', 'openai-compatible', 'mock'];
 const SECRET_KEYS = /^(api_?key|key|token|secret|password|authorization)$/i;
 
 function suggest(word: string, options: readonly string[]): string {
