@@ -79,6 +79,7 @@ src/core/
   conversation.ts        message tree + head pointer; toChatMessages() (provider-neutral history, reasoning filtering)
   store.ts               append-only JSONL per conversation, replay/crash recovery, locks, list/search, attachments
   session.ts             turns, frame batching (33ms), delta persistence (400ms), retries, queue, rewind/retry, compaction, titles
+  drafts.ts              the unsent input text per conversation (debounced, atomic, flushed on shutdown)
   history.ts, state.ts, usage.ts
 
 src/render/
@@ -118,6 +119,7 @@ src/config/              config.ts (YAML + validation with line numbers), creden
   - A picker or prompt that has just acted answers `'hold'`, and the router replays held keys to whatever handles input next.
 
   Keep all three.
+- Terminal modes are switched on only when used and are always in `restoreSequence`: focus reporting (DEC 1004) is on only if a notification protocol is configured or detected (`src/ui/notify.ts`), and its reports are decoded to `focus` events, never keys.
 - `PARLEY_DEBUG_CRASH=render|uncaught[:ms]` forces a crash, for the terminal-restore tests in `test/pty/bugs.test.ts`.
 
 ## Conventions

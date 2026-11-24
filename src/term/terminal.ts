@@ -5,7 +5,7 @@
 import { EventEmitter } from 'node:events';
 import { writeSync } from 'node:fs';
 import { KeyDecoder, type InputEvent } from './keys.js';
-import { inTmux } from './caps.js';
+import { inTmux, notificationSequence, type NotifyProtocol } from './caps.js';
 import { redact } from '../config/credentials.js';
 import type { EarlyProbe } from './probe.js';
 
@@ -18,6 +18,8 @@ const KITTY_POP = '\x1b[<u';
 const MOK_ON = '\x1b[>4;1m'; // xterm modifyOtherKeys level 1
 const MOK_OFF = '\x1b[>4;0m';
 const SHOW_CURSOR = '\x1b[?25h';
+const FOCUS_ON = '\x1b[?1004h'; // focus in/out reports
+const FOCUS_OFF = '\x1b[?1004l';
 const TITLE_PUSH = '\x1b[22;0t';
 const TITLE_POP = '\x1b[23;0t';
 export const CLEAR_SCREEN = '\x1b[2J\x1b[3J\x1b[H';
@@ -75,6 +77,8 @@ export function restoreTerminal(): void {
 
 export interface TerminalOptions {
   setTitle: boolean;
+  /** Ask the terminal to report focus changes (for notifications). */
+  focusReports?: boolean;
   /** The start-up background query, whose stdin this controller takes over. */
   probe?: EarlyProbe;
 }
@@ -83,6 +87,9 @@ export class TerminalController extends EventEmitter {
   readonly decoder = new KeyDecoder();
   readonly inkStdout: InkStdout;
   kitty = false;
+  /** False once the terminal has reported losing focus; undefined until it
+   * reports anything (most terminals only report changes). */
+  focused: boolean | undefined;
   private escTimer: NodeJS.Timeout | null = null;
   private resizeTimer: NodeJS.Timeout | null = null;
   private probeDone!: () => void;
@@ -109,9 +116,11 @@ export class TerminalController extends EventEmitter {
     stdin.resume();
     restored = false;
     restoreSequence = BRACKETED_PASTE_OFF + KITTY_POP + MOK_OFF + SHOW_CURSOR + '\x1b[0m';
+    if (this.opts.focusReports) restoreSequence += FOCUS_OFF;
     if (this.opts.setTitle) restoreSequence += TITLE_POP;
     let init = BRACKETED_PASTE_ON + KITTY_QUERY + DA1_QUERY;
     if (this.opts.setTitle) init += TITLE_PUSH;
+    if (this.opts.focusReports) init += FOCUS_ON;
     process.stdout.write(init);
     // If the terminal answers neither query, give up after a moment.
     setTimeout(() => this.finishProbe(false), 300).unref();
@@ -159,6 +168,11 @@ export class TerminalController extends EventEmitter {
     for (const e of events) {
       if (e.type === 'kitty-flags') {
         this.finishProbe(true);
+        continue;
+      }
+      if (e.type === 'focus') {
+        this.focused = e.focused;
+        this.emit('focus', e.focused);
         continue;
       }
       if (e.type === 'background') {
@@ -223,6 +237,11 @@ export class TerminalController extends EventEmitter {
     process.stdout.write(`\x1b]0;${clean}\x07`);
   }
 
+  /** Show a desktop notification through the terminal. */
+  notify(protocol: NotifyProtocol, title: string, body: string): void {
+    process.stdout.write(notificationSequence(protocol, title, body));
+  }
+
   bell(): void {
     process.stdout.write('\x07');
   }
@@ -231,14 +250,16 @@ export class TerminalController extends EventEmitter {
   suspend(): void {
     process.stdin.off('data', this.onData);
     if (process.stdin.isTTY) process.stdin.setRawMode(false);
-    process.stdout.write(BRACKETED_PASTE_OFF + (this.kitty ? KITTY_POP : MOK_OFF) + SHOW_CURSOR);
+    process.stdout.write(BRACKETED_PASTE_OFF + (this.kitty ? KITTY_POP : MOK_OFF) + SHOW_CURSOR + (this.opts.focusReports ? FOCUS_OFF : ''));
   }
 
   resume(): void {
     if (process.stdin.isTTY) process.stdin.setRawMode(true);
     process.stdin.on('data', this.onData);
     process.stdin.resume();
-    process.stdout.write(BRACKETED_PASTE_ON + (this.kitty ? KITTY_PUSH : MOK_ON));
+    process.stdout.write(BRACKETED_PASTE_ON + (this.kitty ? KITTY_PUSH : MOK_ON) + (this.opts.focusReports ? FOCUS_ON : ''));
+    // Whatever happened to focus while the other program ran, it is back.
+    this.focused = undefined;
   }
 
   stop(): void {

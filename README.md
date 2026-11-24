@@ -275,7 +275,7 @@ parley key remove anthropic
 | `Ctrl+V` | Paste an image from the clipboard |
 | `Ctrl+G` | Edit the input in `$VISUAL`/`$EDITOR` |
 | `@` | Attach a text file or image from the current directory (fuzzy picker) |
-| `Tab` | Complete a `/command` or `@file` |
+| `Tab` | Complete a `/command` or `@file`; on an empty input at 80% context or more, run `/compact` |
 | `Ctrl+A` / `Ctrl+E` | Start / end of line |
 | `Ctrl+B` / `Ctrl+F`, `Alt+B` / `Alt+F`, `Ctrl+←/→` | Move by character / word |
 | `Ctrl+W`, `Alt+Backspace` | Delete the previous word |
@@ -332,6 +332,7 @@ compact_model: anthropic/claude-haiku-5-5   # model for /compact (default: curre
 theme: auto                          # auto | dark | light | ansi
 bell: true                           # bell when a reply took longer than…
 bell_after_seconds: 10
+notifications: auto                  # auto | off | osc9 | osc777 | osc99: desktop notification when a long reply finishes and the terminal is not focused
 terminal_title: true                 # show the conversation title in the terminal title
 soft_line_breaks: keep               # keep | join: a single newline inside a paragraph stays a line break, or joins the lines
 system_prompt: "You are concise."    # default for new conversations

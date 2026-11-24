@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Added
+
+- **Unsent drafts are kept.** Whatever is in the input box is saved as you type and comes back the next time you open that conversation, after a crash, a closed terminal or a killed process. Pasted blocks and attachments come back with it. Sending or clearing the input removes the draft.
+- **Desktop notification** when a reply that took longer than `bell_after_seconds` finishes while the terminal window is not focused. It works in iTerm2, WezTerm, Ghostty, kitty, foot and urxvt; `notifications: off | osc9 | osc777 | osc99` turns it off or forces a protocol. Other terminals, and tmux, are left alone.
+- **`/compact` on one key.** From 80% of the context window, the status line offers "tab to compact" while the input is empty, instead of waiting for a message to be refused.
+
 ### Fixed
 
 - **`/help` table.** The `/system` and `/theme` rows were split in the wrong place and lost their descriptions, because the `|` in their argument hints was read as a column separator. Tables built from dynamic text (`/help`, `/cost`) now escape every cell, so custom commands and model names containing `|` or Markdown are shown literally too.
