@@ -17,7 +17,7 @@ import { CLEAR_SCREEN, SYNC_BEGIN, SYNC_END, holdInterrupts } from '../term/term
 import type { InputEvent, Key } from '../term/keys.js';
 import { isText } from '../term/keys.js';
 import { BULLET, renderItem } from './blocks.js';
-import type { TranscriptModel } from './transcript.js';
+import { COLLAPSE_ABOVE, type TranscriptModel } from './transcript.js';
 import * as E from './editor.js';
 import { Spinner } from './Spinner.js';
 import { KeyRouterContext, Picker, Prompt, editKey, pasteKey, type KeyHandler, type KeyRouter, type PickerItem, type PickerProps, type PromptProps } from './overlays.js';
@@ -34,7 +34,8 @@ import { listFiles, parseDroppedPaths, readAttachment, AttachError } from './att
 import { loadState, rememberModel } from '../core/state.js';
 import { ProvidersScreen, ConfigScreen, SetupScreen } from './screens.js';
 import type { Config } from '../config/config.js';
-import { warmRenderer } from '../render/markdown.js';
+import { mdEscape, warmRenderer } from '../render/markdown.js';
+import type { StoredMessage } from '../core/conversation.js';
 import { loadDraft, scheduleDraft } from '../core/drafts.js';
 import { notifier } from './notify.js';
 import { parseDocument, type Document } from 'yaml';
@@ -545,6 +546,89 @@ export function App(props: AppProps): React.ReactElement {
     });
   }, [session, setOverlay, closeOverlay, flashHint, cols]);
 
+  const openBranchPicker = useCallback(() => {
+    const conv = session.conv;
+    const leaves = conv.leaves();
+    if (leaves.length < 2) {
+      notice('This conversation has one branch. Esc Esc (or /rewind) edits an earlier message and starts another.');
+      return;
+    }
+    const current = new Set(conv.path().map((m) => m.id));
+    const textOf = (m: StoredMessage) => (m.display ?? m.content.map((p) => (p.type === 'text' ? p.text : '')).join('')).replace(/\s+/g, ' ').trim();
+    const items = leaves
+      .map((leaf) => {
+        const path = conv.path(leaf.id);
+        // What makes this branch different: its first message off the current path.
+        const fork = path.find((m) => !current.has(m.id)) ?? leaf;
+        const here = current.has(leaf.id) && leaf.id === conv.path().at(-1)?.id;
+        return {
+          value: leaf.id,
+          label: truncate(`${fork.role === 'user' ? '>' : BULLET} ${textOf(fork) || '(empty)'}`, Math.max(20, cols - 40)),
+          detail: `${path.filter((m) => m.role !== 'summary').length} msgs · ${relativeTime(leaf.ts)}${here ? ' · current' : ''}`,
+          ts: leaf.ts,
+          here,
+        };
+      })
+      .sort((a, b) => b.ts - a.ts);
+    setOverlay({
+      type: 'picker',
+      props: {
+        title: 'Branches (each line is where a branch differs from the one on screen)',
+        items,
+        initialIndex: Math.max(0, items.findIndex((i) => i.here)),
+        searchable: false,
+        onSelect: (item) => {
+          closeOverlay();
+          session.switchBranch(item.value as string);
+        },
+        onCancel: closeOverlay,
+      },
+    });
+  }, [session, setOverlay, closeOverlay, notice, cols]);
+
+  const showFind = useCallback(
+    (query: string) => {
+      const q = query.toLowerCase();
+      const path = session.conv.path();
+      const textOf = (m: StoredMessage) => m.display ?? m.content.map((p) => (p.type === 'text' ? p.text : p.type === 'file' ? `[${p.name}]` : '')).join('');
+      const hits: Array<PickerItem<unknown>> = [];
+      path.forEach((m, i) => {
+        const text = textOf(m);
+        const at = text.toLowerCase().indexOf(q);
+        if (at < 0) return;
+        const from = Math.max(0, at - 24);
+        const snippet = `${from > 0 ? '…' : ''}${text.slice(from, at + q.length + 60).replace(/\s+/g, ' ')}`;
+        hits.push({
+          value: i,
+          label: truncate(`${m.role === 'user' ? '>' : m.role === 'summary' ? '✻' : BULLET} ${snippet}`, Math.max(20, cols - 34)),
+          detail: `message ${i + 1} of ${path.length} · ${relativeTime(m.ts)}`,
+        });
+      });
+      if (!hits.length) {
+        notice(`"${query}" does not appear in this conversation. (/resume searches every conversation.)`);
+        return;
+      }
+      setOverlay({
+        type: 'picker',
+        props: {
+          title: `${hits.length} message${hits.length === 1 ? '' : 's'} containing "${truncate(query, 30)}" (enter shows the message again below)`,
+          items: hits.reverse(),
+          placeholder: 'Type to narrow',
+          onSelect: (item) => {
+            closeOverlay();
+            const i = item.value as number;
+            const m = path[i]!;
+            const who = m.role === 'user' ? 'You' : m.role === 'summary' ? 'Summary' : (m.model ?? 'Assistant');
+            const body = m.role === 'user' ? textOf(m).split('\n').map(mdEscape).join('  \n') : textOf(m);
+            transcript.info(`**Message ${i + 1} of ${path.length} · ${mdEscape(who)} · ${relativeTime(m.ts)}**\n\n${body}`);
+          },
+          onCancel: closeOverlay,
+        },
+      });
+    },
+    [session, transcript, setOverlay, closeOverlay, notice, cols],
+  );
+
   const applyTheme = useCallback(
     (t: Config['theme']) => {
       setTheme(props.resolveTheme(t));
@@ -681,7 +765,7 @@ export function App(props: AppProps): React.ReactElement {
   const copy = useCallback(
     (text: string, what: string) => {
       copyText(text)
-        .then((r) => notice(`Copied the last ${what} (${text.length.toLocaleString()} characters) via ${r.method}.`, 'success'))
+        .then((r) => notice(`Copied ${what} (${text.length.toLocaleString()} characters) via ${r.method}.`, 'success'))
         .catch((e: Error) => notice(`Copy failed: ${e.message}`, 'error'));
     },
     [notice],
@@ -732,6 +816,16 @@ export function App(props: AppProps): React.ReactElement {
     openModelPicker,
     openResumePicker,
     openRewindPicker,
+    openBranchPicker,
+    openFind: (query) => {
+      if (query) return showFind(query);
+      prompt({ title: 'Find in this conversation', placeholder: 'text to look for', onSubmit: (v) => v.trim() && showFind(v.trim()) });
+    },
+    toggleHistory: () => {
+      const total = session.conv.path().length;
+      if (total <= COLLAPSE_ABOVE) return notice(`Nothing is hidden: conversations are shortened on screen only beyond ${COLLAPSE_ABOVE} messages (this one has ${total}).`);
+      transcript.toggleHistory();
+    },
     openConfig: () =>
       setOverlay({
         type: 'node',

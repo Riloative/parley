@@ -120,6 +120,8 @@ src/config/              config.ts (YAML + validation with line numbers), creden
 
   Keep all three.
 - Terminal modes are switched on only when used and are always in `restoreSequence`: focus reporting (DEC 1004) is on only if a notification protocol is configured or detected (`src/ui/notify.ts`), and its reports are decoded to `focus` events, never keys.
+- Code blocks in assistant messages are numbered (`numberCode`), in the order `codeBlockTexts()` returns them; `StreamingMarkdown` carries the count across committed blocks, and the streaming invariant is tested with numbering on. Links are OSC 8 only when `hyperlinksEnabled()` and `linkTarget()` accept the URL.
+- Reprints of conversations longer than `COLLAPSE_ABOVE` messages print the newest `COLLAPSE_KEEP` (`src/ui/transcript.ts`); `/history` toggles.
 - `PARLEY_DEBUG_CRASH=render|uncaught[:ms]` forces a crash, for the terminal-restore tests in `test/pty/bugs.test.ts`.
 
 ## Conventions

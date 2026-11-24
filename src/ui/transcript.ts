@@ -19,6 +19,11 @@ export interface LiveView {
   thinking: Line[];
 }
 
+/** Reprints of conversations longer than this show only the newest
+ * COLLAPSE_KEEP messages (resize, resume, Ctrl+O…); /history shows all. */
+export const COLLAPSE_ABOVE = 240;
+export const COLLAPSE_KEEP = 200;
+
 let seq = 0;
 const key = (p: string) => `${p}${++seq}`;
 
@@ -37,6 +42,8 @@ export class TranscriptModel extends EventEmitter {
   /** After Ctrl+L: messages on the path before this count stay cleared when
    * the transcript is reprinted (e.g. on resize). */
   private clearedBefore = 0;
+  /** /history: print every message even in a very long conversation. */
+  showAllHistory = false;
 
   constructor(
     private readonly session: Session,
@@ -61,7 +68,7 @@ export class TranscriptModel extends EventEmitter {
   onEvent(e: SessionEvent): void {
     switch (e.type) {
       case 'user':
-        this.push({ kind: 'user', key: key('u'), message: e.message });
+        this.push(...this.branchMarker(e.message), { kind: 'user', key: key('u'), message: e.message });
         break;
       case 'assistant-start':
         this.current = e.state;
@@ -90,6 +97,7 @@ export class TranscriptModel extends EventEmitter {
       case 'reset':
         // A different conversation or branch: show it from the top.
         this.clearedBefore = 0;
+        this.showAllHistory = false;
         this.reprint(true);
         return;
       default:
@@ -135,7 +143,16 @@ export class TranscriptModel extends EventEmitter {
     this.epoch++;
     const items: Item[] = this.clearedBefore > 0 ? [{ kind: 'spacer', key: key('x') }] : [this.welcome()];
     if (includeHistory) {
-      for (const m of this.session.conv.path().slice(this.clearedBefore)) items.push(...this.messageItems(m));
+      let msgs = this.session.conv.path().slice(this.clearedBefore);
+      if (!this.showAllHistory && msgs.length > COLLAPSE_ABOVE) {
+        // A very long conversation: print the recent part. Start at a user
+        // message so the first thing shown is a question, not half an answer.
+        let start = msgs.length - COLLAPSE_KEEP;
+        while (start < msgs.length - 1 && msgs[start]!.role !== 'user') start++;
+        items.push({ kind: 'notice', key: key('n'), text: `… ${start} earlier message${start === 1 ? '' : 's'} not shown · /history shows them`, tone: 'dim' });
+        msgs = msgs.slice(start);
+      }
+      for (const m of msgs) items.push(...this.branchMarker(m), ...this.messageItems(m));
     }
     this.items = items;
     if (this.current) {
@@ -175,6 +192,21 @@ export class TranscriptModel extends EventEmitter {
     if (cols === this.cols) return;
     this.cols = cols;
     this.reprint(true);
+  }
+
+  /** /history: switch between the recent part and everything. */
+  toggleHistory(): boolean {
+    this.showAllHistory = !this.showAllHistory;
+    this.reprint(true);
+    return this.showAllHistory;
+  }
+
+  /** A line above a message that is one of several alternatives (after a
+   * rewind or a retry), so it is visible that other branches exist. */
+  private branchMarker(m: StoredMessage): Item[] {
+    const sib = this.session.conv.siblings(m);
+    if (sib.length < 2) return [];
+    return [{ kind: 'notice', key: key('n'), text: `⑂ branch ${sib.findIndex((x) => x.id === m.id) + 1} of ${sib.length} · /branches to switch`, tone: 'dim' }];
   }
 
   toggleThinking(): void {

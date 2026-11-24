@@ -399,6 +399,20 @@ export class Session extends EventEmitter {
     return m.display ?? m.content.map((p) => (p.type === 'text' ? p.text : '')).join('');
   }
 
+  /** Make another branch the active one: `leafId` is its newest message. */
+  switchBranch(leafId: string): boolean {
+    if (!this.conv.messages.has(leafId) || leafId === this.conv.headId) return false;
+    if (this.streaming || this.busy) {
+      this.notice('Wait for the reply to finish (or press Esc) before switching branches.', 'dim');
+      return false;
+    }
+    this.branchFrom = undefined;
+    this.conv.headId = leafId;
+    this.persist({ type: 'head', id: leafId, ts: Date.now() });
+    this.send_({ type: 'reset' });
+    return true;
+  }
+
   private scheduleFrame(): void {
     if (this.frameTimer) return;
     this.frameTimer = setTimeout(() => {

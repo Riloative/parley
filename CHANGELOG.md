@@ -6,10 +6,16 @@
 
 - **Unsent drafts are kept.** Whatever is in the input box is saved as you type and comes back the next time you open that conversation, after a crash, a closed terminal or a killed process. Pasted blocks and attachments come back with it. Sending or clearing the input removes the draft.
 - **Desktop notification** when a reply that took longer than `bell_after_seconds` finishes while the terminal window is not focused. It works in iTerm2, WezTerm, Ghostty, kitty, foot and urxvt; `notifications: off | osc9 | osc777 | osc99` turns it off or forces a protocol. Other terminals, and tmux, are left alone.
+- **Clickable links.** In terminals with hyperlink support (iTerm2, WezTerm, Ghostty, kitty, VS Code, GNOME Terminal, Alacritty), web and mail links are real links and the URL is no longer printed after the text. Elsewhere, including tmux and SSH, links stay as `text (url)`. `FORCE_HYPERLINK=1` or `0` overrides the detection. Links with other schemes always show their URL.
+- **Numbered code blocks.** Each code block in a reply is labelled with its number (`python · 2`), and `/copy code 2` copies that one. `/copy code` still copies the last.
+- **`/find <text>`** searches the current conversation and shows the chosen message again.
+- **Branches are visible.** A `⑂ branch 2 of 3` line marks every point where the conversation was rewound or a reply retried, and `/branches` switches between branches.
+- **Very long conversations** print only their newest 200 messages when the screen is redrawn (resume, resize, Ctrl+O), with a line saying how many are hidden; `/history` shows everything. The model still receives the whole conversation.
 - **`/compact` on one key.** From 80% of the context window, the status line offers "tab to compact" while the input is empty, instead of waiting for a message to be refused.
 
 ### Fixed
 
+- **`/copy code`** now finds code blocks inside lists and quotes, and indented code blocks; it used to see only top-level fenced blocks.
 - **`/help` table.** The `/system` and `/theme` rows were split in the wrong place and lost their descriptions, because the `|` in their argument hints was read as a column separator. Tables built from dynamic text (`/help`, `/cost`) now escape every cell, so custom commands and model names containing `|` or Markdown are shown literally too.
 
 ## 0.1.0 — 2026-11-20

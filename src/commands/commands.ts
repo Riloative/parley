@@ -31,6 +31,11 @@ export interface UiApi {
   openModelPicker(opts?: { onPick?: (model: string) => void; title?: string }): void;
   openResumePicker(): void;
   openRewindPicker(): void;
+  openBranchPicker(): void;
+  /** Search the current conversation; with no query, ask for one. */
+  openFind(query: string): void;
+  /** Show or hide the early part of a very long conversation. */
+  toggleHistory(): void;
   openConfig(): void;
   openProviders(): void;
   openThemePicker(): void;
@@ -226,6 +231,30 @@ export function builtinCommands(): CommandDef[] {
       },
     },
     {
+      name: 'branches',
+      description: 'Switch between branches made by rewinding or retrying',
+      noArgs: true,
+      run(ui) {
+        ui.openBranchPicker();
+      },
+    },
+    {
+      name: 'find',
+      description: 'Search this conversation',
+      argHint: '<text>',
+      run(ui, args) {
+        ui.openFind(args.trim());
+      },
+    },
+    {
+      name: 'history',
+      description: 'Show or hide the early messages of a very long conversation',
+      noArgs: true,
+      run(ui) {
+        ui.toggleHistory();
+      },
+    },
+    {
       name: 'retry',
       description: 'Regenerate the last response, optionally with another model',
       argHint: '[provider/model]',
@@ -294,9 +323,9 @@ export function builtinCommands(): CommandDef[] {
           if (!Number.isInteger(n) || n < 1 || n > blocks.length) {
             return ui.notice(`The last response has ${blocks.length} code block${blocks.length === 1 ? '' : 's'}; use /copy code ${blocks.length === 1 ? '1' : `1 to ${blocks.length}`}.`);
           }
-          return ui.copy(blocks[n - 1]!, blocks.length === 1 ? 'code block' : `code block ${n}`);
+          return ui.copy(blocks[n - 1]!, code[1] === undefined ? 'the last code block' : `code block ${n} of ${blocks.length}`);
         }
-        ui.copy(text, 'response');
+        ui.copy(text, 'the last response');
       },
     },
     {

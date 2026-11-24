@@ -293,11 +293,14 @@ Large pastes collapse to `[Pasted text #1 +42 lines]` and are expanded when sent
 | `/new`, `/clear` | Start a fresh conversation |
 | `/resume` | Pick a past conversation: title, model, time, message count; searches all message text |
 | `/rewind` | Same as `Esc` `Esc` |
+| `/branches` | Switch between the branches that rewinding and retrying create (a `⑂ branch 2 of 3` line marks each branch point) |
+| `/find <text>` | Search this conversation; Enter shows the chosen message again |
+| `/history` | Show or hide the early part of a very long conversation (beyond 240 messages, only the newest 200 are printed) |
 | `/retry [provider/id]` | Regenerate the last response, optionally with another model (a new branch) |
 | `/system [text \| clear]` | View or set this conversation's system prompt |
 | `/persona [name]` | Use a saved system prompt from the config |
 | `/compact [instructions]` | Summarise the conversation so far to free context |
-| `/copy`, `/copy code` | Copy the last response, or its last code block |
+| `/copy`, `/copy code`, `/copy code 2` | Copy the last response, its last code block, or the block with that number (code blocks are labelled `python · 2`) |
 | `/export [file.md]` | Write the conversation to Markdown |
 | `/rename [title]`, `/delete` | Rename, or delete (asks first; moved to the trash directory) |
 | `/cost` | Tokens and estimated cost for this session, per model |
