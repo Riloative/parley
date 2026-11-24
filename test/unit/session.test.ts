@@ -250,3 +250,25 @@ describe('branches', () => {
     reopened.releaseLock();
   });
 });
+
+describe('queue editing', () => {
+  it('holds the queue while a message is edited, then sends the edited text', async () => {
+    const { session } = make('mock/echo?tps=2000');
+    const first = session.submit({ text: 'one' });
+    await new Promise((r) => setTimeout(r, 30));
+    void session.submit({ text: 'two' });
+    void session.submit({ text: 'three' });
+    expect(session.queue.map((q) => q.text)).toEqual(['two', 'three']);
+    session.holdQueue(true);
+    await first;
+    await new Promise((r) => setTimeout(r, 100));
+    expect(session.queue.length).toBe(2);
+    expect(session.conv.path().length).toBe(2);
+    session.replaceQueued(0, { text: 'two, edited' });
+    session.replaceQueued(5, { text: 'ignored' });
+    session.replaceQueued(1, null);
+    session.holdQueue(false);
+    await new Promise((r) => setTimeout(r, 600));
+    expect(textOf(session)).toEqual(['user:one', 'assistant:You said: one', 'user:two, edited', 'assistant:You said: two, edited']);
+  });
+});

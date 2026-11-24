@@ -9,7 +9,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Session, SessionEvent } from '../core/session.js';
+import type { OutgoingMessage, Session, SessionEvent } from '../core/session.js';
 import type { InputHistory } from '../core/history.js';
 import type { Store } from '../core/store.js';
 import type { TerminalController } from '../term/terminal.js';
@@ -37,6 +37,7 @@ import type { Config } from '../config/config.js';
 import { mdEscape, warmRenderer } from '../render/markdown.js';
 import type { StoredMessage } from '../core/conversation.js';
 import { loadDraft, scheduleDraft } from '../core/drafts.js';
+import { UndoStack } from './undo.js';
 import { notifier } from './notify.js';
 import { parseDocument, type Document } from 'yaml';
 
@@ -90,8 +91,10 @@ export function App(props: AppProps): React.ReactElement {
   // plus Enter in one chunk), so the editor state lives in a ref that is
   // updated synchronously; React state only drives rendering.
   const edRef = useRef(ed);
+  const undoRecord = useRef<(prev: E.EditorState, next: E.EditorState) => void>(() => {});
   const setEd = useCallback((next: E.EditorState | ((s: E.EditorState) => E.EditorState)) => {
     const v = typeof next === 'function' ? next(edRef.current) : next;
+    undoRecord.current(edRef.current, v);
     edRef.current = v;
     setEdState(v);
   }, []);
@@ -113,6 +116,11 @@ export function App(props: AppProps): React.ReactElement {
   const attachments = useRef(new Map<string, ContentPart>());
   const counters = useRef({ paste: 0, image: 0, file: 0 });
   const historyPos = useRef<{ index: number; draft: string } | null>(null);
+  const undo = useRef(new UndoStack());
+  /** A queued message being edited in place: its slot, what it was, and
+   * the input text that was set aside for it. */
+  const queueEdit = useRef<{ index: number; original: OutgoingMessage; stash: E.EditorState } | null>(null);
+  const [queueEditIndex, setQueueEditIndex] = useState<number | null>(null);
   const lastEsc = useRef(0);
   const lastCtrlC = useRef(0);
   const imageWarned = useRef(false);
@@ -227,7 +235,14 @@ export function App(props: AppProps): React.ReactElement {
   useEffect(() => {
     const onEvent = (e: SessionEvent) => {
       if (e.type === 'restore-input') {
-        setEd((s) => E.editorWith(s.text ? `${e.text}\n${s.text}` : e.text));
+        const qe = queueEdit.current;
+        if (qe) {
+          // The queue (with the edit in progress) came back: the edit is over.
+          queueEdit.current = null;
+          setQueueEditIndex(null);
+          session.holdQueue(false);
+          setEd(E.editorWith(qe.stash.text ? `${e.text}\n${qe.stash.text}` : e.text));
+        } else setEd((s) => E.editorWith(s.text ? `${e.text}\n${s.text}` : e.text));
       }
       if (e.type === 'busy') setBusyLabel(e.busy ? e.label : undefined);
       if (e.type === 'title' && configRef.current.terminalTitle) terminal.setTitle(e.title);
@@ -799,6 +814,7 @@ export function App(props: AppProps): React.ReactElement {
       history.add(display);
       historyPos.current = null;
       setEd(E.emptyEditor());
+      undo.current.clear();
       pastes.current.clear();
       attachments.current.clear();
       counters.current = { paste: 0, image: 0, file: 0 };
@@ -942,12 +958,95 @@ export function App(props: AppProps): React.ReactElement {
   const { slashItems, fileItems, menuLen, sel } = view;
   void menuIndex;
 
+  // ------------------------------------------------- undo, queued messages
+  undoRecord.current = (prev, next) => {
+    if (!undoing.current) undo.current.record(prev, next);
+  };
+  const undoing = useRef(false);
+  /** Put back an editor state from the undo stack without recording it. */
+  const restoreEd = useCallback(
+    (state: E.EditorState) => {
+      undoing.current = true;
+      setEd(state);
+      undoing.current = false;
+    },
+    [setEd],
+  );
+
+  const beginQueueEdit = useCallback(
+    (index: number, stash: E.EditorState) => {
+      const q = session.queue[index];
+      if (!q) return;
+      queueEdit.current = { index, original: q, stash };
+      setQueueEditIndex(index);
+      session.holdQueue(true);
+      restoreEd(E.editorWith(q.text));
+      undo.current.clear();
+    },
+    [session, restoreEd],
+  );
+  const endQueueEdit = useCallback(
+    (how: 'save' | 'cancel') => {
+      const qe = queueEdit.current;
+      if (!qe) return;
+      queueEdit.current = null;
+      setQueueEditIndex(null);
+      const text = edRef.current.text;
+      if (how === 'cancel') session.replaceQueued(qe.index, qe.original);
+      else if (!text.trim() && !qe.original.attachments?.length) session.replaceQueued(qe.index, null);
+      else if (text !== qe.original.text) session.replaceQueued(qe.index, { ...qe.original, text, display: undefined });
+      restoreEd(qe.stash);
+      undo.current.clear();
+      session.holdQueue(false);
+    },
+    [session, restoreEd],
+  );
+  // While editing, the queue always holds the text as typed so far, so
+  // whatever happens to the queue (an interrupted reply hands it back to the
+  // input) uses the edited text.
+  useEffect(() => {
+    const qe = queueEdit.current;
+    if (!qe) return;
+    if (qe.index >= session.queue.length) {
+      queueEdit.current = null;
+      setQueueEditIndex(null);
+      session.holdQueue(false);
+      return;
+    }
+    const cur = session.queue[qe.index]!;
+    if (cur.text !== ed.text) session.queue[qe.index] = { ...qe.original, text: ed.text, display: undefined };
+  });
+
   // ------------------------------------------------------------- key input
   const handleInputKey = useCallback(
     (key: Key) => {
       const s = edRef.current;
       const w = inputWidth;
-      const { menu, sel, menuLen, slashItems, atMatch, fileItems } = menus(s);
+      // Editing a queued message in place: Enter saves, Ctrl+C puts it back
+      // as it was, Up/Down move to the neighbouring queued messages.
+      const qe = queueEdit.current;
+      if (qe) {
+        const plainEnter = key.name === 'enter' && !key.shift && !key.alt && !(s.cursor > 0 && s.text[s.cursor - 1] === '\\');
+        if (plainEnter) return endQueueEdit('save');
+        if (key.ctrl && key.name === 'c') return endQueueEdit('cancel');
+        if (key.name === 'up' && !key.ctrl && !key.alt && (!s.text || E.layout(s.text, s.cursor, w).cursorRow === 0)) {
+          if (qe.index > 0) {
+            const { index, stash } = qe;
+            endQueueEdit('save');
+            beginQueueEdit(index - 1, stash);
+          }
+          return;
+        }
+        if (key.name === 'down' && !key.ctrl && !key.alt && !E.down(s, w)) {
+          const { index, stash } = qe;
+          const before = session.queue.length;
+          endQueueEdit('save');
+          const next = session.queue.length < before ? index : index + 1;
+          if (next < session.queue.length) beginQueueEdit(next, stash);
+          return;
+        }
+      }
+      const { menu, sel, menuLen, slashItems, atMatch, fileItems } = qe ? menus(E.emptyEditor()) : menus(s);
       // Completion menus take arrows / tab / enter.
       if (menu) {
         if (key.name === 'up') return setMenuSel(Math.max(0, sel - 1));
@@ -1042,8 +1141,9 @@ export function App(props: AppProps): React.ReactElement {
 
       if (key.name === 'up' && !key.ctrl && !key.alt) {
         if (session.queue.length && (!s.text || E.layout(s.text, s.cursor, w).cursorRow === 0)) {
-          const q = session.popQueue();
-          if (q) setEd(E.editorWith(s.text ? `${q.display ?? q.text}\n${s.text}` : (q.display ?? q.text)));
+          // Edit the newest queued message where it is; what was in the
+          // input box is set aside and comes back afterwards.
+          beginQueueEdit(session.queue.length - 1, s);
           return;
         }
         const moved = E.up(s, w);
@@ -1079,13 +1179,27 @@ export function App(props: AppProps): React.ReactElement {
         return;
       }
 
+      // Undo: Ctrl+_ (readline) or Ctrl+Z. Redo: Alt+Z, or Ctrl+Shift+Z
+      // where the terminal reports it.
+      const isZ = key.name === 'z' || key.text === 'z' || key.text === 'Z';
+      if ((key.ctrl && key.name === '_') || (key.ctrl && isZ && !key.shift && !key.alt)) {
+        const prev = undo.current.undo(s);
+        if (prev) restoreEd(prev);
+        return;
+      }
+      if ((key.alt && isZ && !key.ctrl) || (key.ctrl && key.shift && isZ)) {
+        const again = undo.current.redo(s);
+        if (again) restoreEd(again);
+        return;
+      }
+
       const next = editKey(s, key);
       if (next) {
         historyPos.current = null;
         setEd(next);
       }
     },
-    [menus, setMenuSel, setEd, runCommand, submitText, session, history, exit, transcript, pasteImage, openEditor, openRewindPicker, flashHint, attachPath, inputWidth],
+    [menus, setMenuSel, setEd, runCommand, submitText, session, history, exit, transcript, pasteImage, openEditor, openRewindPicker, flashHint, attachPath, inputWidth, beginQueueEdit, endQueueEdit, restoreEd],
   );
 
   const handlePaste = useCallback(
@@ -1208,6 +1322,7 @@ export function App(props: AppProps): React.ReactElement {
   const newlineHint = kitty ? 'shift+⏎ for newline' : '\\⏎ for newline';
   let left: string;
   if (hint && hint.until > Date.now()) left = hint.text;
+  else if (queueEditIndex !== null) left = 'editing queued message · enter to save · ctrl+c to keep it as it was';
   else if (queue.length) left = '↑ to edit queued message';
   else if (stream) left = 'esc to interrupt · enter to queue';
   else if (ed.text.startsWith('/')) left = 'tab to complete · enter to run';
@@ -1248,8 +1363,8 @@ export function App(props: AppProps): React.ReactElement {
         {queue.length ? (
           <Box flexDirection="column" marginTop={1}>
             {queue.map((q, i) => (
-              <Text key={i} color={dim} wrap="truncate-end">
-                {'> '}
+              <Text key={i} color={i === queueEditIndex ? themeHex('accent') : dim} wrap="truncate-end">
+                {i === queueEditIndex ? '✎ ' : '> '}
                 {(q.display ?? q.text).replace(/\s+/g, ' ')}
               </Text>
             ))}
