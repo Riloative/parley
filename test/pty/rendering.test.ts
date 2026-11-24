@@ -245,7 +245,7 @@ describe.runIf(hasTmux)('inside tmux', () => {
       cols: 80,
       rows: 24,
       command: 'tmux',
-      commandArgs: ['-L', sock, '-f', '/dev/null', 'new-session', '-x', '80', '-y', '24', `${tariaCommand().shell} -m mock/long?lines=80\\&tps=3000`],
+      commandArgs: ['-L', sock, '-f', '/dev/null', 'new-session', '-x', '80', '-y', '24', `${tariaCommand().shell} -m 'mock/long?lines=80&tps=3000'`],
     });
     try {
       await s.waitFor('Send a message', 15_000);
