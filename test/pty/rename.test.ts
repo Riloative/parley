@@ -251,3 +251,48 @@ esac
     expect(lstatSync(file).mode & 0o777).toBe(0o600);
   });
 });
+
+describe('both folders exist: `taria doctor` reports it and `taria doctor merge` brings conversations over', () => {
+  const file = (id: string, text: string) => `{"type":"meta","v":1,"id":"${id}","createdAt":1,"app":"parley"}\n{"type":"message","id":"u1","parentId":null,"role":"user","content":[{"type":"text","text":"${text}"}],"ts":1}\n`;
+  function bothHome(): string {
+    const home = parleyHome(); // data/parley holds CONV
+    mkdirSync(join(home, 'config', 'taria'), { recursive: true });
+    writeFileSync(join(home, 'config', 'taria', 'config.yaml'), 'default_model: mock/echo\nproviders:\n  mock:\n    type: mock\n');
+    mkdirSync(join(home, 'data', 'taria', 'conversations'), { recursive: true });
+    writeFileSync(join(home, 'data', 'taria', 'conversations', '20260301-000000-aaaa.jsonl'), file('20260301-000000-aaaa', 'written by taria'));
+    return home;
+  }
+
+  it('doctor says how many conversations are only in the old folder, with the command, and changes nothing', () => {
+    const home = bothHome();
+    const d = run(home, ['doctor'], { NO_COLOR: '1' });
+    expect(d.stdout).toMatch(/Only in the old folder\s+1 conversation .*data\/parley/);
+    expect(d.stdout).toContain('taria doctor merge');
+    expect(readdirSync(join(home, 'data', 'taria', 'conversations'))).toEqual(['20260301-000000-aaaa.jsonl']);
+    // Without a terminal, merge lists and asks to be run in one.
+    const m = run(home, ['doctor', 'merge'], { NO_COLOR: '1' });
+    expect(m.status).toBe(1);
+    expect(m.stdout).toContain(CONV);
+    expect(m.stdout).toMatch(/Run this in a terminal to confirm/);
+    expect(readdirSync(join(home, 'data', 'taria', 'conversations'))).toEqual(['20260301-000000-aaaa.jsonl']);
+  });
+
+  it('merge copies after a yes, leaves the old folder alone, and then has nothing left to do', async () => {
+    const home = bothHome();
+    const before = readFileSync(join(home, 'data', 'parley', 'conversations', `${CONV}.jsonl`), 'utf8');
+    s = spawnTaria({ home, args: ['doctor', 'merge'], noConfig: true });
+    await s.waitFor(/Copy 1 conversation.*\[y\/N\]/);
+    s.write('y\r');
+    await s.waitFor(/copied Old chat/);
+    await s.exited;
+    expect(readFileSync(join(home, 'data', 'taria', 'conversations', `${CONV}.jsonl`), 'utf8')).toBe(before);
+    expect(readFileSync(join(home, 'data', 'parley', 'conversations', `${CONV}.jsonl`), 'utf8')).toBe(before);
+    expect(readdirSync(join(home, 'data', 'taria', 'conversations')).sort()).toEqual([`${CONV}.jsonl`, '20260301-000000-aaaa.jsonl'].sort());
+    const again = run(home, ['doctor', 'merge'], { NO_COLOR: '1' });
+    expect(again.status).toBe(0);
+    expect(again.stdout).toMatch(/Nothing to bring over/);
+    // The merged conversation opens.
+    const p = run(home, ['-p', '-r', CONV, 'after the merge'], {});
+    expect(p.stdout).toBe('You said: after the merge\n');
+  });
+});

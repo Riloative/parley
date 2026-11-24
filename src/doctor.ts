@@ -5,6 +5,7 @@ import { delimiter, dirname, join } from 'node:path';
 import { APP, OLD_APP, OLD_NAMES_REMOVED_IN, legacyEnvNotice, renameNotices } from './brand.js';
 import { DIR_KINDS, dirIsExplicit } from './config/paths.js';
 import { oldFolderReport } from './config/migrate.js';
+import { planMerge, runMerge } from './config/merge.js';
 import { spawnSync } from 'node:child_process';
 import { boot } from './bootstrap.js';
 import { Store, scanForRepairs } from './core/store.js';
@@ -12,7 +13,7 @@ import { paths } from './config/paths.js';
 import { colorLevel, inTmux, likelySupportsSyncOutput, overSsh, terminalName, unicodeOk } from './term/caps.js';
 import { copyText, currentContext, detectClipboardHelper, readBackText } from './term/clipboard.js';
 import { formatIssues, loadConfig } from './config/config.js';
-import { detectKeychain, keychainLabel, resolveKey, setKeychainReadOnly, isLocalUrl, defaultKeyEnv } from './config/credentials.js';
+import { detectKeychain, hasOldKeychainEntry, keychainLabel, resolveKey, setKeychainReadOnly, isLocalUrl, defaultKeyEnv } from './config/credentials.js';
 import { KeyDecoder } from './term/keys.js';
 import { BUILD_KIND, VERSION } from './version.js';
 
@@ -28,6 +29,10 @@ const mark = (l: Level) => {
 
 let failures = 0;
 function line(level: Level, label: string, detail: string, fix?: string): void {
+  plainLine(level, label, detail, fix);
+}
+
+function plainLine(level: Level, label: string, detail: string, fix?: string): void {
   if (level === 'fail') failures++;
   process.stdout.write(`  ${mark(level)} ${label.padEnd(22)} ${detail}\n`);
   if (fix) process.stdout.write(`    ${useColor() ? '\x1b[90m' : ''}→ ${fix}${useColor() ? '\x1b[0m' : ''}\n`);
@@ -115,7 +120,15 @@ async function clipboardTest(): Promise<number> {
 }
 
 /** parley, before the rename: report what is left, change nothing. */
-function oldInstallReport(): void {
+/** What is left of a parley install, each with the command that deals with
+ * it. Reads only. Printed as its own section when there is anything. */
+async function oldInstallReport(): Promise<void> {
+  let headed = false;
+  const line: typeof plainLine = (...a) => {
+    if (!headed) section('Upgrade from parley');
+    headed = true;
+    plainLine(...a);
+  };
   for (const dir of (process.env.PATH ?? '').split(delimiter)) {
     const f = dir && join(dir, OLD_APP);
     if (!f || !existsSync(f)) continue;
@@ -128,7 +141,7 @@ function oldInstallReport(): void {
     if (/parley is now taria/.test(head)) line('info', 'parley command', `${f} is the alias that runs taria (until ${APP} ${OLD_NAMES_REMOVED_IN})`);
     else {
       const npm = /node_modules/.test(realpathSafe(f));
-      line('warn', 'Old parley binary', `${f} is parley from before the rename${npm ? ' (npm)' : ''}`, npm ? 'Remove it once you have switched: npm uninstall -g parley' : `Delete ${f} once you have switched to taria.`);
+      line('warn', 'Old parley binary', `${f} is parley from before the rename${npm ? ' (npm)' : ''}`, npm ? 'Remove it once you have switched: npm uninstall -g parley' : `Remove it once you have switched: rm ${f}`);
     }
     break;
   }
@@ -139,6 +152,67 @@ function oldInstallReport(): void {
     const report = oldFolderReport(old, current);
     if (report) line(report.level, `Old ${kind} folder`, report.text, report.hint);
   }
+  // Both data folders exist: what is only in the old one.
+  const plan = planMerge(paths.legacyDir('data'), paths.dataDir);
+  if (plan?.onlyOld.length) {
+    const n = plan.onlyOld.length;
+    line('warn', 'Only in the old folder', `${n} conversation${n === 1 ? '' : 's'} in ${plan.oldDir} ${n === 1 ? 'is' : 'are'} not in ${plan.newDir}`, 'Bring them over (copies only; nothing is overwritten): taria doctor merge');
+  }
+  if (plan?.differ.length) line('info', 'In both folders', `${plan.differ.length} conversation${plan.differ.length === 1 ? ' differs' : 's differ'} between ${plan.oldDir} and ${plan.newDir}; taria uses its own and leaves the other alone`);
+  // Keys still stored under parley's name.
+  let providers: string[] = [];
+  try {
+    providers = Object.keys(loadConfig(paths.configFile).config.providers);
+  } catch {
+    /* no readable config: nothing to look up */
+  }
+  for (const p of providers) {
+    if (await hasOldKeychainEntry(p)) line('info', 'Old keychain entry', `the key for ${p} is still stored under parley's name too (an old parley uses it)`, `When no parley uses it any more: taria key remove-old ${p}`);
+  }
+  const envNote = legacyEnvNotice();
+  if (envNote) line('warn', 'Old variables', envNote);
+}
+
+/** `taria doctor merge`: copy conversations that are only in parley's data
+ * folder into taria's, after the user agrees. */
+async function mergeFolders(): Promise<number> {
+  process.stdout.write('taria doctor merge\n\n');
+  const plan = planMerge(paths.legacyDir('data'), paths.dataDir);
+  if (!plan || (!plan.onlyOld.length && !plan.attachments.length)) {
+    process.stdout.write(plan ? `Nothing to bring over: every conversation in ${plan.oldDir} is already in ${plan.newDir}${plan.inTrash.length ? ' (or in its trash)' : ''}.\n` : `Nothing to bring over: there is no separate parley data folder (${paths.legacyDir('data')}).\n`);
+    if (plan?.differ.length) process.stdout.write(`${plan.differ.length} conversation${plan.differ.length === 1 ? ' differs' : 's differ'} between the two folders (${plan.differ.join(', ')}); both copies are kept as they are.\n`);
+    return 0;
+  }
+  const titleOf = (id: string): string => {
+    try {
+      return new Store(plan.oldDir).open(id, { lock: false }).conv.title ?? id;
+    } catch {
+      return id;
+    }
+  };
+  process.stdout.write(`From ${plan.oldDir}\n  to ${plan.newDir}\n\n`);
+  for (const id of plan.onlyOld) process.stdout.write(`  ${titleOf(id)} (${id})\n`);
+  if (plan.attachments.length) process.stdout.write(`  and ${plan.attachments.length} attachment file${plan.attachments.length === 1 ? '' : 's'}\n`);
+  if (plan.differ.length) process.stdout.write(`\nNot touched: ${plan.differ.length} conversation${plan.differ.length === 1 ? '' : 's'} that exist${plan.differ.length === 1 ? 's' : ''} in both folders with different content (${plan.differ.join(', ')}).\n`);
+  process.stdout.write('\nMerge copies these files. Nothing in either folder is overwritten, changed or removed.\n');
+  if (!process.stdin.isTTY) {
+    process.stdout.write('Run this in a terminal to confirm.\n');
+    return 1;
+  }
+  const { createInterface } = await import('node:readline/promises');
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const answer = (await rl.question(`Copy ${plan.onlyOld.length} conversation${plan.onlyOld.length === 1 ? '' : 's'}? [y/N] `)).trim().toLowerCase();
+  rl.close();
+  if (answer !== 'y' && answer !== 'yes') {
+    process.stdout.write('Nothing changed.\n');
+    return 0;
+  }
+  const titles = new Map(plan.onlyOld.map((id) => [id, titleOf(id)]));
+  const r = runMerge(plan);
+  for (const id of r.copied) process.stdout.write(`  copied ${titles.get(id)}\n`);
+  for (const s of r.skipped) process.stdout.write(`  skipped ${titles.get(s.id)}: ${s.why}\n`);
+  if (r.attachments) process.stdout.write(`  copied ${r.attachments} attachment file${r.attachments === 1 ? '' : 's'}\n`);
+  return r.skipped.length ? 1 : 0;
 }
 
 function realpathSafe(f: string): string {
@@ -230,6 +304,7 @@ async function repairConversations(): Promise<number> {
 export async function runDoctor(rest: string[] = []): Promise<number> {
   if (rest[0] === 'clipboard') return clipboardTest();
   if (rest[0] === 'repair') return repairConversations();
+  if (rest[0] === 'merge') return mergeFolders();
   failures = 0;
   setKeychainReadOnly();
   process.stdout.write('taria doctor\n');
@@ -246,9 +321,7 @@ export async function runDoctor(rest: string[] = []): Promise<number> {
   line('info', 'Version', `taria ${VERSION}`);
   line('info', 'Install method', method);
   line('info', 'Location', real === where ? where : `${where} → ${real}`);
-  oldInstallReport();
-  const envNote = legacyEnvNotice();
-  if (envNote) line('warn', 'Old variables', envNote);
+  await oldInstallReport();
 
   section('System');
   const major = Number(process.versions.node.split('.')[0]);

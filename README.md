@@ -49,7 +49,8 @@ taria was called parley until 0.2.0. Upgrading keeps everything:
 - **The `parley` command** still works in 0.3.x: it prints one line on stderr and runs taria with the same arguments and exit status. It goes away in 0.4.0.
 - **Binary installs:** run the install command above. It installs `taria`, and replaces an old `parley` binary in the same folder with the alias.
 - **npm installs:** remove the old package first, because it owns the `parley` command: `npm uninstall -g parley`, then install taria as above.
-- `taria doctor` lists what is left of parley (an old binary on your `PATH`, old folders) without changing anything.
+- `taria doctor` has an *Upgrade from parley* section: an old binary on your `PATH`, folders that were not moved or exist twice, conversations that are only in the old folder, keys still stored under parley's name and old variable names, each with the command that deals with it. It changes nothing.
+- If both `~/.local/share/parley` and `~/.local/share/taria` hold files (taria does not move a folder onto one that is in use), `taria doctor merge` lists the conversations that are only in the old folder and, after you agree, copies them over. It never overwrites, changes or removes a file in either folder; conversations that exist in both with different content are listed and left alone.
 
 ### Standalone binary (no Node.js needed)
 
@@ -422,6 +423,7 @@ taria -c -p "and in French?"       # continue the most recent conversation
 | `--theme name`, `--no-color` | Appearance |
 | `--debug [file]` | Log requests, responses and timings, keys redacted |
 | `taria doctor` | Check terminal, clipboard, keychain and each provider |
+| `taria doctor merge` | Copy conversations that are only in parley's old data folder into taria's |
 
 When stdout isn't a terminal there is no colour and no spinner. Failures exit non-zero with the error on stderr (2 for usage errors, 130 when interrupted).
 

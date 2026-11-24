@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Added
+
+- **`taria doctor` has an *Upgrade from parley* section:** an old `parley` binary on `PATH`, folders that were not moved or exist twice, conversations only in the old folder, keys still under parley's name in the keychain, and old variable names, each with the command to run. It changes nothing.
+- **`taria doctor merge`:** when both data folders exist, copies the conversations (and attachments) that are only in parley's folder into taria's, after you agree. It never overwrites, changes or removes anything; conversations that differ between the folders are listed and left alone, and ones you moved to the trash in taria stay there.
+
 ### Fixed
 
 Found by an independent review of the 0.3.0 code and by testing against real tools. Each fix has a test that failed first.
