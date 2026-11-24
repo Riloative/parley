@@ -36,12 +36,22 @@ taria_install() {
   case "$arch" in
     x86_64 | amd64 | x64) arch=x64 ;;
     arm64 | aarch64) arch=arm64 ;;
-    *) die "unsupported architecture: $arch (taria binaries exist for x64 and arm64)" ;;
+    *) die "unsupported architecture: $arch (taria binaries exist for Linux x64 and Apple Silicon Macs)" ;;
   esac
   # An x64 shell under Rosetta on Apple Silicon still wants the arm64 build.
   if [ "$os" = darwin ] && [ "$arch" = x64 ] && [ -z "${TARIA_ARCH:-}${PARLEY_ARCH:-}" ]; then
     if [ "$(sysctl -n sysctl.proc_translated 2>/dev/null || echo 0)" = 1 ]; then arch=arm64; fi
   fi
+  # Binaries are published for the platforms taria is built and tested on.
+  case "$os-$arch" in
+    linux-x64 | darwin-arm64) ;;
+    *)
+      printf 'taria install: there is no taria binary for %s (binaries exist for Linux x64 and Apple Silicon Macs).\n' "$os-$arch" >&2
+      printf 'Install the npm package instead; it runs anywhere Node.js 22 or newer does:\n' >&2
+      printf '  https://github.com/Riloative/taria#npm-nodejs-22-or-newer\n' >&2
+      exit 1
+      ;;
+  esac
   asset="taria-$os-$arch.tar.gz"
 
   if command -v curl >/dev/null 2>&1; then

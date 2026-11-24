@@ -17,12 +17,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # The two platforms taria is used on. Intel Macs and arm64 Linux use
+          # the npm package (install.sh says so).
           - target: linux-x64
             runner: ubuntu-24.04
-          - target: linux-arm64
-            runner: ubuntu-24.04-arm
-          - target: darwin-x64
-            runner: macos-15-intel
           - target: darwin-arm64
             runner: macos-latest
     steps:
@@ -158,7 +156,8 @@ jobs:
       - name: Checksums
         working-directory: assets
         run: |
-          for t in darwin-arm64 darwin-x64 linux-arm64 linux-x64; do test -f "taria-$t.tar.gz"; done
+          for t in darwin-arm64 linux-x64; do test -f "taria-$t.tar.gz"; done
+          [ "$(ls taria-*.tar.gz | wc -l)" -eq 2 ]
           sha256sum taria-*.tar.gz taria-*.tgz > SHA256SUMS
           cat SHA256SUMS
           ls -l
