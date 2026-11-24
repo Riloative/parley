@@ -159,7 +159,7 @@ case "$0" in
   *) [ "$op" = --version ] && exit 0
     while [ $# -gt 0 ]; do case "$1" in service) svc=$2; shift;; account) acc=$2; shift;; esac; shift; done
     case "$op" in
-      lookup) [ -f "$D/$svc.$acc" ] || exit 1; /bin/cat "$D/$svc.$acc";;
+      lookup) [ "$FAKE_SLOW" = "$svc" ] && exec /bin/sleep 20; [ -f "$D/$svc.$acc" ] || exit 1; /bin/cat "$D/$svc.$acc";;
       store) /bin/cat > "$D/$svc.$acc";;
       clear) /bin/rm -f "$D/$svc.$acc";;
     esac;;
@@ -205,5 +205,49 @@ esac
     expect(kc.entries()).toEqual(['taria.acme']);
     expect(readFileSync(join(kc.dir, 'taria.acme'), 'utf8')).toBe(KEY);
     expect(run(home, ['key', 'status', 'acme'], env).stdout).toMatch(/Key source: keychain/);
+  });
+
+  it('a keychain that is slow to answer for taria\'s entry: the old parley key never replaces the newer taria key, and nothing says "none found"', () => {
+    const { home, kc, env } = setup();
+    const NEWER = 'sk-test-FAKE-NEW-fedcba9876543210';
+    writeFileSync(join(kc.dir, 'taria.acme'), NEWER);
+    const slow = { ...env, FAKE_SLOW: 'taria' };
+    // A normal run, which would copy parley's key if taria's entry were missing.
+    const p = run(home, ['-p', '-m', 'acme/m', 'hi'], slow);
+    expect(p.stdout + p.stderr).not.toMatch(/FAKE/);
+    expect(readFileSync(join(kc.dir, 'taria.acme'), 'utf8')).toBe(NEWER);
+    expect(kc.log()).not.toMatch(/^(store|add-generic-password)/m);
+    const st = run(home, ['key', 'status', 'acme'], slow);
+    expect(st.stdout).toMatch(/Key source: unknown: the keychain did not answer \(secret-tool did not answer within 4 s\)/);
+    expect(st.stdout).not.toMatch(/none found|remove-old/);
+    const rm = run(home, ['key', 'remove-old', 'acme'], slow);
+    expect(rm.status).toBe(1);
+    expect(rm.stderr).toMatch(/keychain did not answer.*Nothing was removed/);
+    expect(kc.entries()).toEqual(['parley.acme', 'taria.acme']);
+    expect(readFileSync(join(kc.dir, 'taria.acme'), 'utf8')).toBe(NEWER);
+    // Once it answers, taria's own key is the one found.
+    expect(run(home, ['key', 'status', 'acme'], env).stdout).toMatch(/Key source: keychain \(Secret Service \(libsecret\)\)/);
+  }, 60_000);
+
+  it('`taria key set` refuses input of more than one line, and a provider name the credentials file cannot hold', () => {
+    const { home } = setup();
+    const env = { TARIA_NO_KEYCHAIN: '1', NO_COLOR: '1' };
+    const file = join(home, 'config', 'taria', 'credentials');
+    const two = run(home, ['key', 'set', 'acme'], env, `${KEY}\nmock = injected-FAKE-value-000000\n`);
+    expect(two.status).toBe(1);
+    expect(two.stderr).toMatch(/The key contains a line break.*Nothing was stored/s);
+    expect(two.stdout + two.stderr).not.toMatch(/FAKE|    at /);
+    expect(existsSync(file)).toBe(false);
+    const name = run(home, ['key', 'set', 'two words'], env, `${KEY}\n`);
+    expect(name.status).toBe(1);
+    expect(name.stderr).toMatch(/provider name may only contain/);
+    expect(name.stdout + name.stderr).not.toMatch(/FAKE|    at /);
+    expect(existsSync(file)).toBe(false);
+    // One line, with the newline that echo and printf '%s\n' add, is a key.
+    const one = run(home, ['key', 'set', 'acme'], env, `${KEY}\r\n`);
+    expect(one.status).toBe(0);
+    expect(readFileSync(file, 'utf8')).toMatch(new RegExp(`^acme = ${KEY}\\n$`, 'm'));
+    expect(readFileSync(file, 'utf8')).not.toMatch(/^mock/m);
+    expect(lstatSync(file).mode & 0o777).toBe(0o600);
   });
 });

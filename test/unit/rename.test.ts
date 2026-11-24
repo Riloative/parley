@@ -53,7 +53,7 @@ function fakeKeychain(kind: 'macos' | 'libsecret', store: Record<string, string>
     const account = kind === 'macos' ? args[args.indexOf('-a') + 1] : args[args.indexOf('account') + 1];
     const k = `${service}/${account}`;
     const op = args[0];
-    if (op === 'find-generic-password' || op === 'lookup') return store[k] ? { code: 0, stdout: `${store[k]}\n`, stderr: '' } : { code: 44, stdout: '', stderr: '' };
+    if (op === 'find-generic-password' || op === 'lookup') return store[k] ? { code: 0, stdout: `${store[k]}\n`, stderr: '' } : { code: kind === 'macos' ? 44 : 1, stdout: '', stderr: '' };
     if (op === 'add-generic-password' || op === 'store') {
       if (opts.failWrites) return { code: 1, stdout: '', stderr: 'locked' };
       store[k] = op === 'store' ? input! : args[args.indexOf('-w') + 1]!;
@@ -81,7 +81,7 @@ describe('keychain', () => {
         const account = kind === 'macos' ? args[args.indexOf('-a') + 1] : args[args.indexOf('account') + 1];
         const k = `${service}/${account}`;
         const op = args[0];
-        if (op === 'find-generic-password' || op === 'lookup') return store[k] ? { code: 0, stdout: `${store[k]}\n`, stderr: '' } : { code: 44, stdout: '', stderr: '' };
+        if (op === 'find-generic-password' || op === 'lookup') return store[k] ? { code: 0, stdout: `${store[k]}\n`, stderr: '' } : { code: kind === 'macos' ? 44 : 1, stdout: '', stderr: '' };
         if (op === 'add-generic-password') store[k] = args[args.indexOf('-w') + 1]!;
         if (op === 'store') store[k] = input!;
         return { code: 0, stdout: '', stderr: '' };
@@ -99,7 +99,7 @@ describe('keychain', () => {
       // Next time the taria entry answers directly.
       _setKeychainRunner(async (_c, args) => {
         const service = kind === 'macos' ? args[args.indexOf('-s') + 1] : args[args.indexOf('service') + 1];
-        return service === 'taria' ? { code: 0, stdout: SECRET, stderr: '' } : { code: 44, stdout: '', stderr: '' };
+        return service === 'taria' ? { code: 0, stdout: SECRET, stderr: '' } : { code: kind === 'macos' ? 44 : 1, stdout: '', stderr: '' };
       }, kind);
       expect((await resolveKey(provider)).detail).not.toMatch(/copied/);
     });

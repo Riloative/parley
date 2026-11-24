@@ -23,6 +23,17 @@ export function debugFile(): string | undefined {
   return file;
 }
 
+/** Request headers whose values say nothing secret. Every other header is
+ * logged by name only: a gateway's credential can be called anything
+ * (X-Auth-Token, Ocp-Apim-Subscription-Key, CF-Access-Client-Secret...). */
+const PLAIN_HEADERS = /^(accept|accept-encoding|accept-language|content-type|content-length|user-agent|anthropic-version|anthropic-beta|openai-beta)$/i;
+
+export function headersForLog(headers: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(headers)) out[k] = PLAIN_HEADERS.test(k) ? v : '[redacted]';
+  return out;
+}
+
 /** Shorten long strings (e.g. base64 images) in logged objects. */
 function shrink(v: unknown, depth = 0): unknown {
   if (typeof v === 'string') return v.length > 2000 ? `${v.slice(0, 2000)}…[${v.length - 2000} more chars]` : v;
@@ -30,7 +41,7 @@ function shrink(v: unknown, depth = 0): unknown {
   if (Array.isArray(v)) return v.map((x) => shrink(x, depth + 1));
   const out: Record<string, unknown> = {};
   for (const [k, x] of Object.entries(v)) {
-    out[k] = /^(x-api-key|authorization|api[-_]?key|cookie)$/i.test(k) ? '[redacted]' : shrink(x, depth + 1);
+    out[k] = /^(x-api-key|(proxy-)?authorization|api[-_]?key|(set-)?cookie)$|(^|[-_])(token|secret|password)$/i.test(k) ? '[redacted]' : shrink(x, depth + 1);
   }
   return out;
 }
