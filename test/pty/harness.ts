@@ -234,7 +234,10 @@ export function spawnTaria(opts: SpawnOptions = {}): Session {
         /* already gone */
       }
       await Promise.race([exited, new Promise((r) => setTimeout(r, 2000))]);
-      if (!keepHome) rmSync(home, { recursive: true, force: true });
+      // A child that is still shutting down (tmux's pane after kill-server)
+      // can write its drafts and state while the folder is being removed;
+      // retry rather than fail the test with ENOTEMPTY.
+      if (!keepHome) rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     },
     rawSince: (mark) => raw.slice(mark),
   };
