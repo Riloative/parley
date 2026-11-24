@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { appendFileSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -271,4 +271,61 @@ describe('queue editing', () => {
     await new Promise((r) => setTimeout(r, 600));
     expect(textOf(session)).toEqual(['user:one', 'assistant:You said: one', 'user:two, edited', 'assistant:You said: two, edited']);
   });
+});
+
+describe('continuing after a crash', () => {
+  const crashed = (store: Store, torn = '') => {
+    const f = store.create();
+    f.append({ type: 'message', id: 'u1', parentId: null, role: 'user', content: [{ type: 'text', text: 'first question' }], ts: 1 });
+    f.append({ type: 'partial', id: 'a1', parentId: 'u1', model: 'mock/echo', ts: 2 });
+    f.append({ type: 'delta', id: 'a1', text: 'Hello partial' });
+    if (torn) appendFileSync(f.file, torn);
+    f.releaseLock(); // the process died here
+    return f;
+  };
+  const reopened = (store: Store, id: string) => {
+    const f = store.open(id, { lock: false });
+    return f.conv.path().map((m) => `${m.role}:${m.content.map((p) => (p.type === 'text' ? p.text : '')).join('')}`);
+  };
+  const expected = ['user:first question', 'assistant:Hello partial', 'user:second question', 'assistant:You said: second question'];
+
+  it('keeps the recovered partial reply and everything before it once the conversation continues', async () => {
+    const { session, store } = make();
+    const f = crashed(store);
+    expect(session.resume(f.id)).toBe(true);
+    await session.submit({ text: 'second question' });
+    expect(textOf(session)).toEqual(expected);
+    session.close();
+    expect(reopened(store, f.id)).toEqual(expected);
+    // Still append-only: the original lines are untouched.
+    expect(readFileSync(f.file, 'utf8')).toContain('{"type":"delta","id":"a1","text":"Hello partial"}');
+  });
+
+  it('does not lose the next message when the file ended in a torn line', async () => {
+    const { session, store } = make();
+    const f = crashed(store, '{"type":"delta","id":"a1","te');
+    expect(session.resume(f.id)).toBe(true);
+    await session.submit({ text: 'second question' });
+    session.close();
+    expect(reopened(store, f.id)).toEqual(expected);
+    expect(store.list()[0]!.messageCount).toBe(4);
+  });
+
+  it('opening without the lock (read-only) changes nothing on disk', () => {
+    const { store } = make();
+    const f = crashed(store, '{"type":"delta","id":"a1","te');
+    const before = readFileSync(f.file, 'utf8');
+    store.open(f.id, { lock: false });
+    expect(readFileSync(f.file, 'utf8')).toBe(before);
+  });
+});
+
+describe('retries', () => {
+  it('do not keep reasoning from the attempt that failed', async () => {
+    const { session } = make('mock/retry?failures=1&block=1');
+    await session.submit({ text: 'go' });
+    const reply = session.conv.path().at(-1)!;
+    const reasoning = reply.content.filter((p) => p.type === 'reasoning') as Array<{ signature?: string }>;
+    expect(reasoning.map((p) => p.signature)).toEqual(['attempt-2']);
+  }, 15_000);
 });

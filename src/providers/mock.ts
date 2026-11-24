@@ -142,6 +142,9 @@ export class MockProvider implements Provider {
       const failures = Number(opts.get('failures') ?? 1);
       const attempt = (retryCounter.get(req.signal) ?? 0) + 1;
       retryCounter.set(req.signal, attempt);
+      // `block=1`: every attempt produces a signed reasoning block before
+      // it fails or answers (as a provider with encrypted reasoning does).
+      if (opts.get('block')) yield { type: 'reasoning_block', signature: `attempt-${attempt}` };
       if (attempt <= failures) {
         throw new ProviderError('overloaded', 'Overloaded (mock)', { status: 529, retryable: true, retryAfterMs: 200 });
       }

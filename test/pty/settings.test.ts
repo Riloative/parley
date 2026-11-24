@@ -243,6 +243,24 @@ describe('late background answer', () => {
     expect(all().filter((l) => l.includes('Welcome to parley')).length).toBe(1);
   }, 30_000);
 
+  it('does not print the conversation a second time when the answer arrives after messages', async () => {
+    s = spawnParley({ cols: 80, rows: 24, home: makeHome(AUTO), background: 'rgb:ffff/ffff/ffff', backgroundDelayMs: 2500 });
+    await s.waitFor('Send a message');
+    s.write('hello\r');
+    await s.waitFor('You said: hello');
+    s.write('second\r');
+    await s.waitFor('You said: second');
+    const mark = s.raw.length;
+    await sleep(3000);
+    expect(all().filter((l) => l.includes('You said: hello')).length).toBe(1);
+    expect(all().filter((l) => l === '> second').length).toBe(1);
+    expect(s.raw.slice(mark)).not.toContain('You said: hello');
+    // The new palette still applies to what is drawn from now on.
+    s.write('third\r');
+    await s.waitFor('You said: third');
+    expect(s.raw).toContain(LIGHT_ACCENT);
+  }, 30_000);
+
   it('leaves the box alone once the user has started typing', async () => {
     s = spawnParley({ cols: 80, rows: 24, home: makeHome(AUTO), background: 'rgb:ffff/ffff/ffff', backgroundDelayMs: 1200 });
     await s.waitFor('Send a message');

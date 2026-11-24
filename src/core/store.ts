@@ -403,9 +403,22 @@ export class Store {
 
   open(id: string, opts: { lock?: boolean } = {}): ConversationFile {
     const file = this.fileFor(id);
-    const { conv } = replay(id, readFileSync(file, 'utf8'));
+    const text = readFileSync(file, 'utf8');
+    const { conv, partial } = replay(id, text);
     const cf = new ConversationFile(file, conv);
-    if (opts.lock !== false) cf.acquireLock();
+    if (opts.lock !== false) {
+      cf.acquireLock();
+      // This process will append to the file. Two leftovers of a crash must
+      // be settled first, by appending (nothing is rewritten):
+      // - a torn last line: without a newline after it, the next event
+      //   would be glued to the fragment and lost with it;
+      // - a reply that was streaming: replay recovers only the *last*
+      //   partial, so once the conversation continued it would be dropped,
+      //   and every later message would hang off a parent that no longer
+      //   exists. Recording it as an (interrupted) message keeps it.
+      if (text && !text.endsWith('\n')) appendFileSync(file, '\n', { mode: 0o600 });
+      if (partial?.content.length) cf.append({ type: 'message', ...partial });
+    }
     return cf;
   }
 

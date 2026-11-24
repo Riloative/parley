@@ -10,7 +10,7 @@
 // Files are only written after the user confirms, atomically, keeping a
 // backup of a file that existed, and only when the result still parses.
 
-import { existsSync, readFileSync, renameSync, writeFileSync, copyFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 export const SHIFT_ENTER_BINDING = {
@@ -49,7 +49,8 @@ export function tmuxConfFile(env: NodeJS.ProcessEnv, home: string): string {
 /** JSON with comments and trailing commas (as VS Code writes it) → JSON. */
 export function stripJsonc(text: string): string {
   let out = '';
-  let i = 0;
+  // A byte-order mark (some Windows editors write one) is not JSON.
+  let i = text.charCodeAt(0) === 0xfeff ? 1 : 0;
   while (i < text.length) {
     const c = text[i]!;
     if (c === '"') {
@@ -69,9 +70,19 @@ export function stripJsonc(text: string): string {
   return out.replace(/,(\s*[\]}])/g, '$1');
 }
 
+/** Exactly our binding: same key, command, text sent and condition. A
+ * Shift+Enter binding that sends something else or applies elsewhere is
+ * someone else's; ours is then added after it (later entries win). */
 function isShiftEnterBinding(b: unknown): boolean {
-  const o = b as { key?: unknown; command?: unknown; when?: unknown } | null;
-  return !!o && typeof o.key === 'string' && o.key.replace(/\s/g, '').toLowerCase() === 'shift+enter' && o.command === SHIFT_ENTER_BINDING.command && String(o.when ?? '').includes('terminalFocus');
+  const o = b as { key?: unknown; command?: unknown; when?: unknown; args?: { text?: unknown } | null } | null;
+  return (
+    !!o &&
+    typeof o.key === 'string' &&
+    o.key.replace(/\s/g, '').toLowerCase() === 'shift+enter' &&
+    o.command === SHIFT_ENTER_BINDING.command &&
+    o.args?.text === SHIFT_ENTER_BINDING.args.text &&
+    String(o.when ?? '').trim() === SHIFT_ENTER_BINDING.when
+  );
 }
 
 export type EditResult = { ok: true; text: string; changed: boolean } | { ok: false; reason: string };
@@ -127,7 +138,11 @@ function lastCode(text: string, match: (c: string) => boolean): number {
 }
 
 export function addTmuxLines(text: string | undefined): EditResult {
-  if (text && /^\s*set(-option)?\s.*\bextended-keys\b/m.test(text)) return { ok: true, changed: false, text };
+  // The option itself (not extended-keys-format), wherever it is set: tmux
+  // reads the file top to bottom, so the last setting is the one in force.
+  const settings = [...(text ?? '').matchAll(/^[ \t]*set(?:-option)?[ \t]+(?:-\w+[ \t]+)*extended-keys[ \t]+(\S+)/gm)];
+  const last = settings.at(-1)?.[1]?.replace(/^['"]|['"]$/g, '');
+  if (text && (last === 'on' || last === 'always')) return { ok: true, changed: false, text };
   const base = text ?? '';
   const sep = base && !base.endsWith('\n') ? '\n\n' : base ? '\n' : '';
   return { ok: true, changed: true, text: `${base}${sep}${TMUX_LINES.join('\n')}\n` };
@@ -136,13 +151,28 @@ export function addTmuxLines(text: string | undefined): EditResult {
 /** Write next to the target, then rename over it; back up a file that existed. */
 export function writeConfigFile(file: string, text: string): { backup?: string } {
   let backup: string | undefined;
+  // A symlinked config (dotfiles) is written where it really lives, so the
+  // link stays a link; the file keeps its permissions.
+  let target = file;
+  let mode: number | undefined;
   if (existsSync(file)) {
+    target = realpathSync(file);
+    mode = statSync(target).mode & 0o777;
+    // Never overwrite an earlier backup: it may be the only copy of the
+    // file as it was before parley first touched it.
     backup = `${file}.parley-backup`;
-    copyFileSync(file, backup);
+    for (let n = 2; existsSync(backup); n++) backup = `${file}.parley-backup-${n}`;
+    copyFileSync(target, backup);
   }
-  const tmp = `${file}.parley-${process.pid}.tmp`;
-  writeFileSync(tmp, text);
-  renameSync(tmp, file);
+  const tmp = `${target}.parley-${process.pid}.tmp`;
+  try {
+    writeFileSync(tmp, text, mode === undefined ? {} : { mode });
+    if (mode !== undefined) chmodSync(tmp, mode);
+    renameSync(tmp, target);
+  } catch (e) {
+    rmSync(tmp, { force: true });
+    throw e;
+  }
   return { backup };
 }
 

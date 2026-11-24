@@ -412,3 +412,45 @@ describe('ThinkTagSplitter', () => {
     expect(out.map((o) => o.kind + ':' + o.text).join('|')).toBe('text:  <b>bold</b> text');
   });
 });
+
+describe('openai: replayed reasoning the API refuses', () => {
+  it('is left out and the request sent again, instead of failing every later turn', async () => {
+    const hasReasoning = (body: Record<string, unknown>) => (body.input as Array<{ type?: string }>).some((i) => i.type === 'reasoning');
+    routes = {
+      'POST /v1/responses': (body) =>
+        hasReasoning(body)
+          ? { status: 400, body: { error: { message: 'The encrypted content for item rs_1 could not be verified.', type: 'invalid_request_error' } } }
+          : { body: fixture('openai-responses.sse') },
+    };
+    seen.length = 0;
+    const provider = new OpenAIProvider({ config: pc({ name: 'openai', type: 'openai', baseUrl: `${base}/v1` }), key: { key: 'sk-test-openai-0123456789', source: 'env' } });
+    const signature = JSON.stringify({ id: 'rs_1', encrypted_content: 'blob', summary: [] });
+    const r = await collect(
+      provider.stream(
+        req({
+          model: 'gpt-5-test',
+          messages: [
+            { role: 'user', content: [{ type: 'text', text: 'q' }] },
+            { role: 'assistant', content: [{ type: 'reasoning', text: '', provider: 'openai', model: 'gpt-5-test', signature }, { type: 'text', text: 'a' }] },
+            { role: 'user', content: [{ type: 'text', text: 'q2' }] },
+          ],
+        }),
+      ),
+    );
+    expect(r.text.length).toBeGreaterThan(0);
+    expect(seen.length).toBe(2);
+    expect(hasReasoning(seen[0]!.body)).toBe(true);
+    expect(hasReasoning(seen[1]!.body)).toBe(false);
+    expect(seen[1]!.body.input).toEqual([
+      { role: 'user', content: [{ type: 'input_text', text: 'q' }] },
+      { role: 'assistant', content: 'a' },
+      { role: 'user', content: [{ type: 'input_text', text: 'q2' }] },
+    ]);
+
+    // A 400 that has nothing to do with reasoning is still reported, once.
+    routes = { 'POST /v1/responses': { status: 400, body: { error: { message: 'Unknown parameter: foo', type: 'invalid_request_error' } } } };
+    seen.length = 0;
+    await expect(collect(provider.stream(req({ model: 'gpt-5-test' })))).rejects.toThrow(/Unknown parameter/);
+    expect(seen.length).toBe(1);
+  });
+});

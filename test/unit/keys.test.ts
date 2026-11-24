@@ -44,3 +44,43 @@ describe('KeyDecoder', () => {
     expect(keys(new KeyDecoder().feed('日本👩‍👩‍👧'))).toEqual(['char(日本👩‍👩‍👧)']);
   });
 });
+
+describe('terminal replies split across reads', () => {
+  it('a background-colour reply that arrives in two pieces is still a reply, never typed text', () => {
+    for (const end of ['\x1b\\', '\x07']) {
+      const d = new KeyDecoder();
+      expect(d.feed('\x1b]11;rgb:ffff/ff')).toEqual([]);
+      // The wait for the rest of the sequence runs out before the rest arrives.
+      expect(d.flush()).toEqual([]);
+      const evs = d.feed(`ff/ffff${end}cd`);
+      expect(keys(evs)).toEqual(['background', 'char(cd)']);
+      expect(evs[0]).toMatchObject({ type: 'background', background: 'light' });
+    }
+  });
+
+  it('the same for DCS replies, while Alt+] and Alt+P stay keys', () => {
+    const d = new KeyDecoder();
+    expect(d.feed('\x1bP>|tmux 3')).toEqual([]);
+    expect(d.flush()).toEqual([]);
+    expect(keys(d.feed('.4\x1b\\x'))).toEqual(['char(x)']);
+    expect(d.feed('\x1b]')).toEqual([]);
+    expect(keys(d.flush())).toEqual(['M-]']);
+    expect(d.feed('\x1bP')).toEqual([]);
+    expect(keys(d.flush())).toEqual(['M-p']);
+    expect(keys(d.feed('ok'))).toEqual(['char(ok)']);
+  });
+
+  it('a reply whose end never arrives stops swallowing input after two seconds', () => {
+    let now = 1000;
+    const d = new KeyDecoder(() => now);
+    expect(d.feed('\x1b]11;rgb:ffff/ff')).toEqual([]);
+    expect(d.flush()).toEqual([]);
+    // Typing soon after is still taken for the reply (that is the bug being
+    // avoided the other way round), but the wait is counted from its start.
+    now += 1500;
+    expect(d.feed('a')).toEqual([]);
+    expect(d.flush()).toEqual([]);
+    now += 1000;
+    expect(keys(d.feed('hello'))).toEqual(['char(hello)']);
+  });
+});

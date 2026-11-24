@@ -567,6 +567,11 @@ export class Session extends EventEmitter {
           // retrying early (which would only be refused again).
           const tooLong = err.retryAfterMs !== undefined && err.retryAfterMs > MAX_RETRY_WAIT_MS;
           if (err.kind !== 'aborted' && err.retryable && !tooLong && nothingYet && attempt < MAX_ATTEMPTS && !abort.signal.aborted) {
+            // Nothing of the failed attempt is kept: a reasoning block it
+            // produced belongs to a reply that never existed, and replaying
+            // it next turn could be refused.
+            reasoningParts.length = 0;
+            reasoningSig = undefined;
             const delay = err.retryAfterMs ?? Math.min(30_000, 1000 * 2 ** (attempt - 1)) + Math.floor(Math.random() * 400);
             state.status = 'retrying';
             state.retry = { attempt: attempt + 1, max: MAX_ATTEMPTS, until: Date.now() + delay, reason: redact(err.message) };
