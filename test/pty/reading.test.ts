@@ -41,6 +41,8 @@ describe('links', () => {
     const mark = s.parsed.length;
     s.resize(60, 24);
     await s.waitFor(() => s!.parsed.slice(mark).includes(OPEN) && s!.parsed.slice(mark).includes('Send a message'));
+    // The screen is parsed a moment after the bytes arrive: wait for it.
+    await s.waitFor(() => all().some((l) => l.includes('You said: see the docs now')) && /Send a message/.test(screen()));
     expect(all().filter((l) => l.includes('You said: see the docs now')).length).toBe(1);
     for (const l of all()) expect(l.length).toBeLessThanOrEqual(60);
   }, 30_000);

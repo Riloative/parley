@@ -1,5 +1,0 @@
-import { createRequire as __parleyCreateRequire } from 'node:module'; const require = __parleyCreateRequire(import.meta.url);
-import"./chunk-URYMO42N.js";var l=globalThis;l.window||=globalThis;l.self||=globalThis;l.window.__REACT_DEVTOOLS_COMPONENT_FILTERS__=[{type:1,value:7,isEnabled:!0},{type:2,value:"InternalApp",isEnabled:!0,isValid:!0},{type:2,value:"InternalAppContext",isEnabled:!0,isValid:!0},{type:2,value:"InternalStdoutContext",isEnabled:!0,isValid:!0},{type:2,value:"InternalStderrContext",isEnabled:!0,isValid:!0},{type:2,value:"InternalStdinContext",isEnabled:!0,isValid:!0},{type:2,value:"InternalFocusContext",isEnabled:!0,isValid:!0}];import a from"react-devtools-core";var r=async(i="ws://localhost:8097",s=2e3)=>new Promise(t=>{let e=new WebSocket(i),o=setTimeout(()=>{t(!1),e.close()},s);o.unref(),e.addEventListener("open",()=>{clearTimeout(o),e.close(),t(!0)}),e.addEventListener("error",()=>{clearTimeout(o),t(!1)})}),n=r;await n()?(a.initialize(),a.connectToDevTools()):console.warn(`DEV is set to true, but the React DevTools server is not running. Start it with:
-
-$ npx react-devtools
-`);
