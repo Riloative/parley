@@ -47,7 +47,7 @@ curl -fsSL https://raw.githubusercontent.com/Riloative/parley/main/install.sh | 
 
 The script picks the build for your OS and CPU, downloads it from the latest [release](https://github.com/Riloative/parley/releases), verifies its SHA-256 against the release's `SHA256SUMS`, and installs it to `~/.local/bin/parley` without sudo. It prints a hint if that directory isn't on your `PATH`.
 
-- **Choose a version:** `curl -fsSL …/install.sh | PARLEY_VERSION=v0.1.0 sh`
+- **Choose a version:** `curl -fsSL …/install.sh | PARLEY_VERSION=v0.2.0 sh`
 - **Choose a directory:** `PARLEY_INSTALL_DIR=~/bin`
 
 | Target | Built and tested on | Notes |
@@ -82,7 +82,7 @@ npm install -g .
 Or from a release, without cloning:
 
 ```bash
-npm install -g https://github.com/Riloative/parley/releases/download/v0.1.0/parley-0.1.0.tgz
+npm install -g https://github.com/Riloative/parley/releases/download/v0.2.0/parley-0.2.0.tgz
 ```
 
 The repository ships a prebuilt, self-contained bundle in `dist/`, so the global install has no dependencies and needs no compiler.
