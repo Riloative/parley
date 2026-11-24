@@ -40,7 +40,6 @@ const failures = new Map();
 let failedRuns = 0;
 for (let i = 1; i <= runs; i++) {
   const r = spawnSync(process.execPath, ['node_modules/vitest/vitest.mjs', 'run', ...files], { encoding: 'utf8', env: process.env });
-  // eslint-disable-next-line no-control-regex
   const out = `${r.stdout}\n${r.stderr}`.replace(/\x1b\[[0-9;]*m/g, '');
   const summary = /Tests\s+.*$/m.exec(out)?.[0] ?? `exit ${r.status}`;
   console.log(`run ${i}: ${summary.trim()}`);
