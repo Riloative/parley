@@ -273,6 +273,15 @@ describe('appearance and editor', () => {
       expect(s!.raw).toContain(LIGHT_ACCENT);
     }, 30_000);
 
+    it('understands rgba: and #rrggbb answers too', async () => {
+      for (const answer of ['rgba:ffff/ffff/fafa/ffff', '#fdf6e3']) {
+        await start({ home: makeHome(AUTO), background: answer });
+        await say('hello');
+        expect(s!.raw).toContain(LIGHT_ACCENT);
+        await s!.close();
+      }
+    }, 40_000);
+
     it('keeps the dark palette for a dark background, or when the terminal does not answer', async () => {
       await start({ home: makeHome(AUTO), background: 'rgb:1e1e/1e1e/2e2e' });
       await s!.waitFor('Send a message');

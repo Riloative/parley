@@ -90,6 +90,15 @@ export type EditResult = { ok: true; text: string; changed: boolean } | { ok: fa
 /** Add the Shift+Enter binding to a keybindings.json text (undefined: no file
  * yet), keeping its comments and formatting. */
 export function addShiftEnterBinding(text: string | undefined): EditResult {
+  // A file with Windows line endings keeps them, in the added lines too.
+  if (text && /\r\n/.test(text) && !/(^|[^\r])\n/.test(text)) {
+    const r = addShiftEnterBindingLf(text.replace(/\r\n/g, '\n'));
+    return r.ok ? { ...r, text: r.changed ? r.text.replace(/\n/g, '\r\n') : text } : r;
+  }
+  return addShiftEnterBindingLf(text);
+}
+
+function addShiftEnterBindingLf(text: string | undefined): EditResult {
   const entry = JSON.stringify(SHIFT_ENTER_BINDING, null, 2).replace(/\n/g, '\n  ');
   if (text === undefined || !text.trim()) return { ok: true, changed: true, text: `[\n  ${entry}\n]\n` };
   let parsed: unknown;

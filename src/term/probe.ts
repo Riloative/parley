@@ -16,7 +16,7 @@
 const OSC11_QUERY = '\x1b]11;?\x1b\\';
 const DA1_QUERY = '\x1b[c';
 // rgb:R/G/B with 1-4 hex digits per channel, ended by BEL or ST.
-const OSC11_REPLY = /\x1b\]11;rgb:([0-9a-f]{1,4})\/([0-9a-f]{1,4})\/([0-9a-f]{1,4})(?:\x07|\x1b\\)/i;
+const OSC11_REPLY = /\x1b\]11;([^\x07\x1b]{1,64})(?:\x07|\x1b\\)/;
 const DA1_REPLY = /\x1b\[\?[\d;]*c/;
 
 export type Background = 'light' | 'dark';
@@ -28,6 +28,23 @@ export interface EarlyProbe {
    * typed during start-up), and whether the DA1 reply is still to come, so
    * the controller can ignore it. */
   handOver(): { pending: string; da1Outstanding: boolean };
+}
+
+/**
+ * The background from the body of an OSC 11 answer: `rgb:R/G/B` or
+ * `rgba:R/G/B/A` (1-4 hex digits per channel, as xterm and most terminals
+ * answer), or `#rgb`, `#rrggbb`, `#rrrgggbbb`, `#rrrrggggbbbb` (some
+ * terminals answer in the form they were configured with).
+ */
+export function parseBackgroundReply(body: string): Background | undefined {
+  const x = /^rgba?:([0-9a-f]{1,4})\/([0-9a-f]{1,4})\/([0-9a-f]{1,4})(?:\/[0-9a-f]{1,4})?$/i.exec(body.trim());
+  if (x && (body.startsWith('rgba') ? body.split('/').length === 4 : body.split('/').length === 3)) return backgroundFromRgb(x[1]!, x[2]!, x[3]!);
+  const h = /^#((?:[0-9a-f]{3}){1,4})$/i.exec(body.trim());
+  if (h) {
+    const n = h[1]!.length / 3;
+    return backgroundFromRgb(h[1]!.slice(0, n), h[1]!.slice(n, 2 * n), h[1]!.slice(2 * n));
+  }
+  return undefined;
 }
 
 /** Relative luminance of an `rgb:` reply; above one half is a light background. */
@@ -53,7 +70,7 @@ export function startEarlyProbe(): EarlyProbe | undefined {
     buf += String(d);
     const osc = OSC11_REPLY.exec(buf);
     if (osc) {
-      bg = backgroundFromRgb(osc[1]!, osc[2]!, osc[3]!);
+      bg = parseBackgroundReply(osc[1]!);
       buf = buf.slice(0, osc.index) + buf.slice(osc.index + osc[0].length);
     }
     const da1 = DA1_REPLY.exec(buf);
