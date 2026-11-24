@@ -40,14 +40,15 @@ const failures = new Map();
 let failedRuns = 0;
 for (let i = 1; i <= runs; i++) {
   const r = spawnSync(process.execPath, ['node_modules/vitest/vitest.mjs', 'run', ...files], { encoding: 'utf8', env: process.env });
-  const out = `${r.stdout}\n${r.stderr}`;
+  // eslint-disable-next-line no-control-regex
+  const out = `${r.stdout}\n${r.stderr}`.replace(/\x1b\[[0-9;]*m/g, '');
   const summary = /Tests\s+.*$/m.exec(out)?.[0] ?? `exit ${r.status}`;
   console.log(`run ${i}: ${summary.trim()}`);
   if (r.status !== 0) {
     failedRuns++;
     for (const m of out.matchAll(/^\s*(?:×|FAIL)\s+(.+?)(?:\s+\d+ms)?$/gm)) failures.set(m[1], (failures.get(m[1]) ?? 0) + 1);
     // The first failure's details, for the log.
-    if (failedRuns === 1) console.log(out.split('\n').filter((l) => /Error|Timed out|expected/.test(l)).slice(0, 20).join('\n'));
+    console.log(out.split('\n').filter((l) => /FAIL|Error|Timed out|expected|❯ test\//.test(l)).slice(0, 30).join('\n'));
   }
 }
 stop();

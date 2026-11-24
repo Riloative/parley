@@ -36,7 +36,10 @@ export interface Session {
    */
   waitStable(opts?: { quietMs?: number; lastLine?: string | RegExp; timeoutMs?: number; region?: () => string }): Promise<void>;
   resize(cols: number, rows: number): void;
-  exited: Promise<number>;
+  /** Resolves with the exit code; rejects with the screen if the program has
+   * not exited 15 s after this is read (a hang must fail with something to
+   * look at, not a bare test timeout). */
+  readonly exited: Promise<number>;
   close(keepHome?: boolean): Promise<void>;
   rawSince(mark: number): string;
 }
@@ -216,7 +219,14 @@ export function spawnTaria(opts: SpawnOptions = {}): Session {
       proc.resize(c, r);
       term.resize(c, r);
     },
-    exited,
+    get exited() {
+      return Promise.race([
+        exited,
+        new Promise<number>((_, reject) =>
+          setTimeout(() => reject(new Error(`The program did not exit within 15 s\n--- screen ---\n${s.screen().join('\n')}\n--------------`)), 15_000).unref(),
+        ),
+      ]);
+    },
     async close(keepHome = false) {
       try {
         proc.kill();
