@@ -35,6 +35,8 @@ import { loadState, rememberModel } from '../core/state.js';
 import { ProvidersScreen, ConfigScreen, SetupScreen } from './screens.js';
 import type { Config } from '../config/config.js';
 import { warmRenderer } from '../render/markdown.js';
+import { loadDraft, scheduleDraft } from '../core/drafts.js';
+import { notifier } from './notify.js';
 import { parseDocument, type Document } from 'yaml';
 
 export interface AppProps {
@@ -53,6 +55,10 @@ export interface AppProps {
   /** Erases Ink's live frame (set once Ink has started). */
   ink: { clear?: () => void };
 }
+
+/** From this share of the context window on, an empty input box offers
+ * /compact on Tab, before a message is refused for overflowing. */
+const COMPACT_OFFER_PCT = 80;
 
 type Overlay =
   | { type: 'picker'; props: Omit<PickerProps<unknown>, 'cols' | 'maxRows'> }
@@ -114,6 +120,42 @@ export function App(props: AppProps): React.ReactElement {
   const commands = useMemo(() => allCommands(), []);
 
   const { cols, rows } = size;
+
+  // ------------------------------------------------------------------ draft
+  // The unsent text is saved (debounced) under the conversation it belongs
+  // to and put back when parley next opens that conversation.
+  const draftKey = session.file?.id ?? 'new';
+  const lastDraftKey = useRef<string | null>(null);
+  useEffect(() => {
+    const prev = lastDraftKey.current;
+    lastDraftKey.current = draftKey;
+    if (prev !== draftKey) {
+      // Whatever was pending for the previous conversation is void: its text
+      // was either sent or cleared, or it moves with the user (saved below
+      // under the new key). Without this, sending the first message could
+      // write the just-sent text as the "new conversation" draft.
+      if (prev !== null) scheduleDraft(prev, null);
+      if (!edRef.current.text) {
+        const d = loadDraft(draftKey);
+        if (d) {
+          pastes.current = new Map(Object.entries(d.pastes).map(([k, v]) => [Number(k), v]));
+          attachments.current = new Map(Object.entries(d.attachments));
+          counters.current = d.counters;
+          setEd(E.editorWith(d.text));
+          setHint({ text: 'unsent draft restored · ctrl+c to clear', until: Date.now() + 4000 });
+          setTimeout(() => setHint((h) => (h && h.until <= Date.now() ? null : h)), 4020);
+          return;
+        }
+      }
+    }
+    const text = edRef.current.text;
+    scheduleDraft(
+      draftKey,
+      text.trim()
+        ? { text, pastes: Object.fromEntries(pastes.current), attachments: Object.fromEntries(attachments.current), counters: { ...counters.current } }
+        : null,
+    );
+  }, [ed.text, draftKey, setEd]);
 
   // ------------------------------------------------------------ key routing
   const stack = useRef<KeyHandler[]>([]);
@@ -195,7 +237,14 @@ export function App(props: AppProps): React.ReactElement {
       if (e.type === 'model') rememberModel(e.model);
       if (e.type === 'assistant-end') {
         const cfg = configRef.current;
-        if (cfg.bell && e.stats.durationMs > cfg.bellAfterSeconds * 1000 && e.outcome !== 'interrupted') terminal.bell();
+        const long = e.stats.durationMs > cfg.bellAfterSeconds * 1000 && e.outcome !== 'interrupted';
+        if (cfg.bell && long) terminal.bell();
+        // Only when the terminal has said it lost focus: a notification
+        // about the window you are looking at is noise.
+        const protocol = notifier(cfg);
+        if (protocol && long && terminal.focused === false) {
+          terminal.notify(protocol, 'parley', e.outcome === 'error' ? 'The reply stopped with an error' : `Reply ready${session.conv.title ? `: ${session.conv.title}` : ''}`);
+        }
       }
       force();
     };
@@ -930,7 +979,11 @@ export function App(props: AppProps): React.ReactElement {
       if (key.name === 'pageup' || key.name === 'pagedown') return;
       if (key.name === 'home' && key.ctrl) return setEd(E.bufferStart(s));
       if (key.name === 'end' && key.ctrl) return setEd(E.bufferEnd(s));
-      if (key.name === 'tab') return;
+      if (key.name === 'tab') {
+        // One key for the offer in the status line (see compactOffer below).
+        if (!s.text && !session.streaming && !session.busy && (session.contextUsage().pct ?? 0) >= COMPACT_OFFER_PCT) void session.compact();
+        return;
+      }
 
       const next = editKey(s, key);
       if (next) {
@@ -1064,6 +1117,7 @@ export function App(props: AppProps): React.ReactElement {
   else if (queue.length) left = '↑ to edit queued message';
   else if (stream) left = 'esc to interrupt · enter to queue';
   else if (ed.text.startsWith('/')) left = 'tab to complete · enter to run';
+  else if (!ed.text && !busyLabel && ctx.pct !== undefined && ctx.pct >= COMPACT_OFFER_PCT) left = `context ${ctx.pct}% full · tab to compact`;
   else left = `/ for commands · @ to attach · ${newlineHint}`;
   const ctxColor = ctx.pct !== undefined && ctx.pct >= 80 ? themeHex('warning') : dim;
   const gap = Math.max(1, cols - textWidth(left) - textWidth(right) - 2);

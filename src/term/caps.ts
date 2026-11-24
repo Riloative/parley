@@ -64,6 +64,38 @@ export function terminalName(env: NodeJS.ProcessEnv = process.env): string {
   return env.TERM ?? 'unknown';
 }
 
+export type NotifyProtocol = 'osc9' | 'osc777' | 'osc99';
+
+/**
+ * How this terminal shows a desktop notification, if it is known to. Only
+ * one protocol is chosen, because several terminals implement two and would
+ * show the notification twice. Inside tmux or screen nothing is sent: the
+ * sequence would need passthrough, and focus events are off by default.
+ */
+export function notifyProtocol(env: NodeJS.ProcessEnv = process.env): NotifyProtocol | undefined {
+  if (inTmux(env)) return undefined;
+  const n = terminalName(env);
+  if (n === 'kitty') return 'osc99';
+  if (n === 'iTerm2' || n === 'WezTerm' || n === 'Ghostty') return 'osc9';
+  const term = env.TERM ?? '';
+  if (term.startsWith('foot') || term.startsWith('rxvt')) return 'osc777';
+  return undefined;
+}
+
+/** The escape sequence for a desktop notification. Control characters are
+ * removed so the text can never end the sequence or start another. */
+export function notificationSequence(protocol: NotifyProtocol, title: string, body: string): string {
+  const clean = (s: string) => s.replace(/[\x00-\x1f\x7f-\x9f]/g, ' ').slice(0, 200);
+  const t = clean(title);
+  const b = clean(body);
+  if (protocol === 'osc777') return `\x1b]777;notify;${t.replace(/;/g, ',')};${b.replace(/;/g, ',')}\x07`;
+  // kitty: title and body are two chunks of one notification (same id).
+  if (protocol === 'osc99') return `\x1b]99;i=parley:d=0:p=title;${t}\x1b\\\x1b]99;i=parley:d=1:p=body;${b}\x1b\\`;
+  // OSC 9: a leading "<digits>;" would be read as a ConEmu/Windows Terminal
+  // subcommand (9;4 is the progress bar), so the text never starts with one.
+  return `\x1b]9;${`${t}: ${b}`.replace(/^(\d+);/, '$1,')}\x07`;
+}
+
 /** Whether the terminal is likely to honour DEC 2026 synchronized output.
  * Terminals that do not understand the mode ignore it, so this is only used
  * for diagnostics. */

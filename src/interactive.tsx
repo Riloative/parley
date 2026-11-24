@@ -12,6 +12,8 @@ import { InputHistory } from './core/history.js';
 import { paths } from './config/paths.js';
 import { TerminalController, installExitHandlers, restoreTerminal } from './term/terminal.js';
 import type { Background, EarlyProbe } from './term/probe.js';
+import { flushDrafts, pruneDrafts } from './core/drafts.js';
+import { notifier } from './ui/notify.js';
 import { TranscriptModel } from './ui/transcript.js';
 import { App } from './ui/App.js';
 import type { Item } from './ui/blocks.js';
@@ -61,6 +63,7 @@ export async function runInteractive(args: Args, probe?: EarlyProbe): Promise<vo
   mark('booted');
   const history = new InputHistory(paths.historyFile);
   history.load();
+  pruneDrafts();
 
   let initialConv: string | undefined;
   if (args.continue) initialConv = b.store.list()[0]?.id;
@@ -76,7 +79,7 @@ export async function runInteractive(args: Args, probe?: EarlyProbe): Promise<vo
   if (args.model) session.setModel(args.model);
   if (!session.model && b.configExists) notes.push({ text: 'No model selected yet. Pick one with /model (or set default_model in the config).', tone: 'warning' });
 
-  const terminal = new TerminalController({ setTitle: b.config.terminalTitle, probe });
+  const terminal = new TerminalController({ setTitle: b.config.terminalTitle, probe, focusReports: notifier(b.config) !== undefined });
   const welcome = (): Item => ({
     kind: 'welcome',
     key: `w${Math.random()}`,
@@ -101,6 +104,8 @@ export async function runInteractive(args: Args, probe?: EarlyProbe): Promise<vo
       return;
     }
     exiting = true;
+    // The unsent draft first: it is the one thing not on disk yet.
+    flushDrafts();
     try {
       session.flushPersist();
       session.close();

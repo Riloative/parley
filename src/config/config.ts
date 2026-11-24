@@ -50,6 +50,9 @@ export interface Config {
   theme: ThemeName | 'auto';
   bell: boolean;
   bellAfterSeconds: number;
+  /** Desktop notification when a long reply finishes while the terminal
+   * is not focused: auto-detect the terminal's protocol, force one, or off. */
+  notifications: 'auto' | 'off' | 'osc9' | 'osc777' | 'osc99';
   terminalTitle: boolean;
   /** A single newline inside a Markdown paragraph: keep it as a line break
    * (default), or join the lines as CommonMark does. */
@@ -77,6 +80,7 @@ export const defaultConfig = (): Config => ({
   theme: 'auto',
   bell: true,
   bellAfterSeconds: 10,
+  notifications: 'auto',
   terminalTitle: true,
   softLineBreaks: 'keep',
   providers: {},
@@ -91,6 +95,7 @@ const TOP_KEYS = [
   'theme',
   'bell',
   'bell_after_seconds',
+  'notifications',
   'terminal_title',
   'soft_line_breaks',
   'system_prompt',
@@ -264,6 +269,11 @@ export function parseConfig(text: string): { config: Config; issues: ConfigIssue
   }
   config.bell = v.bool(['bell'], r.bell, 'bell') ?? config.bell;
   config.bellAfterSeconds = v.num(['bell_after_seconds'], r.bell_after_seconds, 'bell_after_seconds', 0) ?? config.bellAfterSeconds;
+  const notif = v.str(['notifications'], r.notifications, 'notifications');
+  if (notif !== undefined) {
+    if (['auto', 'off', 'osc9', 'osc777', 'osc99'].includes(notif)) config.notifications = notif as Config['notifications'];
+    else v.err(v.keyNode(['notifications']), `notifications must be one of auto, off, osc9, osc777 or osc99 (got "${notif}").`);
+  }
   config.terminalTitle = v.bool(['terminal_title'], r.terminal_title, 'terminal_title') ?? config.terminalTitle;
   const slb = v.str(['soft_line_breaks'], r.soft_line_breaks, 'soft_line_breaks');
   if (slb !== undefined) {

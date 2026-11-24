@@ -18,6 +18,8 @@ export type InputEvent =
   | { type: 'paste'; text: string }
   | { type: 'kitty-flags'; flags: number }
   | { type: 'device-attributes' }
+  /** Focus reporting (DEC 1004): the terminal window gained or lost focus. */
+  | { type: 'focus'; focused: boolean }
   /** The terminal's answer to the OSC 11 background-colour query. */
   | { type: 'background'; background: Background };
 
@@ -302,7 +304,11 @@ export class KeyDecoder {
       out.push(k('tab', { shift: true }));
       return len;
     }
-    if (final === 'I' || final === 'O') return len; // focus in/out
+    if ((final === 'I' || final === 'O') && params === '') {
+      // Focus in/out (DEC 1004): never input.
+      out.push({ type: 'focus', focused: final === 'I' });
+      return len;
+    }
     const name = CSI_LETTER[final];
     if (name) out.push(k(name, modsFromParam(nums.length > 1 ? nums[1] : undefined)));
     return len;
