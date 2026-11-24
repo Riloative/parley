@@ -30,15 +30,16 @@ describe('model picker', () => {
     await s.waitFor('Send a message');
     s.write('/model\r');
     await s.waitFor('reasoning   32k context · images · reasoning');
+    // The footer is the last line drawn: wait for the whole frame.
+    await s.waitFor('ctrl+f favourite');
     expect(lines()).toContain('❯ echo        current · 32k context · images');
-    expect(screen()).toContain('ctrl+f favourite');
     s.write('\x1b[B\x1b[B'); // → long
     await s.waitFor('❯ long');
     s.write('\x06');
     await s.waitFor('Favourites');
     // The selection stays on the model that was marked.
-    expect(lines()).toContain('❯ long        ★ · 32k context · images');
-    expect(screen()).toMatch(/^  mock\/long\s+★ · 32k context · images/m);
+    await s.waitFor(() => lines().includes('❯ long        ★ · 32k context · images'));
+    await s.waitFor(/^  mock\/long\s+★ · 32k context · images/m);
     expect(state().favouriteModels).toEqual(['mock/long']);
     s.write('\x1b');
     await s.waitFor(() => !screen().includes('Select a model'));
@@ -83,6 +84,7 @@ describe('/config', () => {
     expect(all()).toContain('● You said: one');
     s.write('/config\r');
     await s.waitFor('Single line breaks in replies');
+    await s.waitFor('Tell me when a new version is out'); // the last row: the frame is complete
     expect(screen()).toContain('keep (as written)');
     expect(screen()).toContain('Reduced motion (still spinner)');
     expect(screen()).toContain('Tell me when a new version is out');
