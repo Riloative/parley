@@ -91,9 +91,14 @@ describe('/config', () => {
     expect(screen()).toContain('keep (as written)');
     expect(screen()).toContain('Reduced motion (still spinner)');
     expect(screen()).toContain('Tell me when a new version is out');
-    for (let i = 0; i < 20 && !lines().some((l) => l.startsWith('❯ Single line breaks')); i++) {
+    // One step at a time: wait until the selection has moved before the next
+    // key, or a slow runner overshoots the row (keys arrive faster than frames).
+    const selected = () => lines().find((l) => l.startsWith('❯ '));
+    for (let i = 0; i < 20 && !selected()?.startsWith('❯ Single line breaks'); i++) {
+      const before = selected();
       s.write('\x1b[B');
-      await sleep(60);
+      await s.waitFor(() => selected() !== before);
+      await s.waitStable();
     }
     expect(lines().some((l) => l.startsWith('❯ Single line breaks'))).toBe(true);
     s.write('\r');
