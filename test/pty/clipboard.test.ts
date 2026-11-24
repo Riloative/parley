@@ -39,7 +39,12 @@ async function reply(): Promise<void> {
 
 const DESKTOP = { DISPLAY: ':0', WAYLAND_DISPLAY: 'wayland-0', XDG_SESSION_TYPE: 'wayland' };
 
-describe('/copy on a Linux desktop', () => {
+// The platform decides the native tool (planCopy is unit-tested for every
+// platform); these run the Linux paths on a Linux host, and the macOS path on
+// a Mac.
+const onLinux = process.platform === 'linux';
+
+describe.runIf(onLinux)('/copy on a Linux desktop', () => {
   it('without wl-copy or xclip, in a VTE terminal (Ptyxis, GNOME Terminal), says nothing was copied instead of claiming it was', async () => {
     const home = makeHome();
     s = spawnTaria({ cols: 100, rows: 30, home, args: ['-m', 'mock/code'], env: { ...DESKTOP, VTE_VERSION: '8002', PATH: fakeBin(home) } });
@@ -87,8 +92,29 @@ describe('/copy on a Linux desktop', () => {
   }, 30_000);
 });
 
+describe.runIf(process.platform === 'darwin')('/copy on macOS', () => {
+  it('uses pbcopy, passing the text on stdin; doctor clipboard reads it back with pbpaste', async () => {
+    const home = makeHome();
+    const bin = fakeBin(home, { pbcopy: 0 });
+    writeFileSync(join(bin, 'pbpaste'), `#!/bin/sh\n/bin/cat "${bin}/pbcopy.stdin"\n`);
+    chmodSync(join(bin, 'pbpaste'), 0o755);
+    s = spawnParley({ cols: 100, rows: 30, home, env: { PATH: bin } });
+    await s.waitFor('Send a message');
+    s.write('hi\r');
+    await s.waitFor('You said: hi');
+    await s.waitStable({ lastLine: 'Send a message' });
+    s.write('/copy\r');
+    await s.waitFor(/Copied the last response \(12 characters\) via pbcopy\./);
+    expect(readFileSync(join(bin, 'pbcopy.stdin'), 'utf8')).toBe('You said: hi');
+    expect(s.raw).not.toContain('\x1b]52;');
+    const cmd = parleyCommand(['doctor', 'clipboard']);
+    const r = spawnSync(cmd.command, cmd.args, { env: testEnv(home, { NO_COLOR: '1', PATH: bin }), encoding: 'utf8', timeout: 20_000 });
+    expect(r.stdout).toMatch(/Test copy\s+copied with pbcopy and read back/);
+  }, 30_000);
+});
+
 describe('/copy elsewhere', () => {
-  it('WSL: uses clip.exe, with the text as UTF-16 so non-ASCII survives', async () => {
+  it.runIf(onLinux)('WSL: uses clip.exe, with the text as UTF-16 so non-ASCII survives', async () => {
     const home = makeHome();
     const bin = fakeBin(home, { 'clip.exe': 0 });
     s = spawnTaria({ cols: 100, rows: 30, home, env: { WSL_DISTRO_NAME: 'Ubuntu', DISPLAY: '', WAYLAND_DISPLAY: '', PATH: bin } });
@@ -191,7 +217,7 @@ describe('taria doctor clipboard', () => {
     return spawnSync(cmd.command, cmd.args, { env: testEnv(home, { NO_COLOR: '1', ...env }), encoding: 'utf8', timeout: 20_000 });
   };
 
-  it('copies a test line and reads it back with the paste tool', () => {
+  it.runIf(onLinux)('copies a test line and reads it back with the paste tool', () => {
     const home = makeHome();
     const bin = fakeBin(home, { 'wl-copy': 0 });
     writeFileSync(join(bin, 'wl-paste'), `#!/bin/sh\n/bin/cat "${bin}/wl-copy.stdin"\n`);
@@ -203,7 +229,7 @@ describe('taria doctor clipboard', () => {
     expect(r.status).toBe(0);
   });
 
-  it('says plainly when nothing can copy, with what to install, and fails', () => {
+  it.runIf(onLinux)('says plainly when nothing can copy, with what to install, and fails', () => {
     const home = makeHome();
     const r = doctor(home, { ...DESKTOP, VTE_VERSION: '8002', PATH: fakeBin(home) });
     expect(r.stdout).toMatch(/Test copy\s+nothing was copied/);
