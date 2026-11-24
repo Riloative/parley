@@ -102,6 +102,13 @@ export class Registry {
     } catch {
       /* fall back to unknown */
     }
+    return this.withOverrides(ref, caps);
+  }
+
+  /** `caps` as reported by the provider, with the config's overrides applied. */
+  withOverrides(ref: string, caps: ModelCapabilities): ModelCapabilities {
+    const r = parseModelRef(ref);
+    if (!r) return caps;
     const pc = this.config.providers[r.provider];
     const mc = pc?.models[r.model];
     const out = { ...caps };

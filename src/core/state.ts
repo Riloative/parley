@@ -7,6 +7,9 @@ import { paths } from '../config/paths.js';
 
 export interface AppState {
   recentModels: string[];
+  favouriteModels: string[];
+  /** Opt-in update check: when it last ran and what it found. */
+  updateCheck?: { at: number; latest?: string; notified?: string };
 }
 
 function file(): string {
@@ -16,9 +19,15 @@ function file(): string {
 export function loadState(): AppState {
   try {
     const s = JSON.parse(readFileSync(file(), 'utf8')) as Partial<AppState>;
-    return { recentModels: Array.isArray(s.recentModels) ? s.recentModels.filter((x) => typeof x === 'string') : [] };
+    const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
+    const uc = s.updateCheck;
+    return {
+      recentModels: strings(s.recentModels),
+      favouriteModels: strings(s.favouriteModels),
+      ...(uc && typeof uc === 'object' && typeof uc.at === 'number' ? { updateCheck: { at: uc.at, ...(typeof uc.latest === 'string' ? { latest: uc.latest } : {}), ...(typeof uc.notified === 'string' ? { notified: uc.notified } : {}) } } : {}),
+    };
   } catch {
-    return { recentModels: [] };
+    return { recentModels: [], favouriteModels: [] };
   }
 }
 
@@ -36,4 +45,14 @@ export function saveState(update: (s: AppState) => AppState): void {
 
 export function rememberModel(model: string): void {
   saveState((s) => ({ ...s, recentModels: [model, ...s.recentModels.filter((m) => m !== model)].slice(0, 10) }));
+}
+
+/** Add or remove a favourite model; returns whether it is now a favourite. */
+export function toggleFavouriteModel(model: string): boolean {
+  let on = false;
+  saveState((s) => {
+    on = !s.favouriteModels.includes(model);
+    return { ...s, favouriteModels: on ? [...s.favouriteModels, model] : s.favouriteModels.filter((m) => m !== model) };
+  });
+  return on;
 }

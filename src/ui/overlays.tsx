@@ -86,6 +86,9 @@ export interface PickerProps<T> {
   onKey?: (key: Key, item: PickerItem<T> | undefined) => boolean;
   initialIndex?: number;
   searchable?: boolean;
+  /** When the items change, keep the selection on the same item if it only
+   * moved by one row (something was inserted or removed just above it). */
+  follow?: boolean;
 }
 
 export function Picker<T>(props: PickerProps<T>): React.ReactElement {
@@ -99,7 +102,17 @@ export function Picker<T>(props: PickerProps<T>): React.ReactElement {
     props.filter === 'none' || !searchable ? props.items : fuzzyFilter(props.items, q, (i) => i.search ?? `${i.group ?? ''} ${i.label} ${i.detail ?? ''}`);
   const query = queryRef.current;
   const visible = useMemo(() => filterItems(query), [props.items, query, props.filter, searchable]); 
+  const lastSel = useRef<{ items: unknown; value: unknown } | null>(null);
+  if (props.follow && lastSel.current && lastSel.current.items !== props.items) {
+    const i = indexRef.current;
+    const want = lastSel.current.value;
+    if (visible[i]?.value !== want) {
+      if (visible[i + 1]?.value === want) indexRef.current = i + 1;
+      else if (i > 0 && visible[i - 1]?.value === want) indexRef.current = i - 1;
+    }
+  }
   const sel = Math.min(indexRef.current, Math.max(0, visible.length - 1));
+  lastSel.current = { items: props.items, value: visible[sel]?.value };
 
   const setQuery = (q: string) => {
     queryRef.current = q;

@@ -26,15 +26,15 @@ import { getTheme, setTheme, themeHex, type ThemeName } from '../render/theme.js
 import { textWidth, truncate } from '../render/width.js';
 import { allCommands, findCommand, type CommandDef, type UiApi } from '../commands/commands.js';
 import { fuzzyFilter, relativeTime } from './fuzzy.js';
-import { formatTokens } from '../core/usage.js';
-import type { ContentPart } from '../providers/types.js';
+import { formatTokens, modelSummary } from '../core/usage.js';
+import type { ContentPart, ModelCapabilities, ModelInfo } from '../providers/types.js';
 import { parseModelRef } from '../providers/types.js';
 import { copyText, readImage, ClipboardError } from '../term/clipboard.js';
 import { listFiles, parseDroppedPaths, readAttachment, AttachError } from './attachments.js';
-import { loadState, rememberModel } from '../core/state.js';
+import { loadState, rememberModel, toggleFavouriteModel } from '../core/state.js';
 import { ProvidersScreen, ConfigScreen, SetupScreen } from './screens.js';
 import type { Config } from '../config/config.js';
-import { mdEscape, warmRenderer } from '../render/markdown.js';
+import { mdEscape, setSoftLineBreaks, warmRenderer } from '../render/markdown.js';
 import type { StoredMessage } from '../core/conversation.js';
 import { loadDraft, scheduleDraft } from '../core/drafts.js';
 import { UndoStack } from './undo.js';
@@ -61,6 +61,9 @@ export interface AppProps {
 /** From this share of the context window on, an empty input box offers
  * /compact on Tab, before a message is refused for overflowing. */
 const COMPACT_OFFER_PCT = 80;
+/** Rows the input box, status line and margins may take below the welcome
+ * box when it is repainted in place. */
+const WELCOME_REPAINT_ROOM = 8;
 
 type Overlay =
   | { type: 'picker'; props: Omit<PickerProps<unknown>, 'cols' | 'maxRows'> }
@@ -278,10 +281,33 @@ export function App(props: AppProps): React.ReactElement {
       process.stdout.write(SYNC_BEGIN + CLEAR_SCREEN + (text ? text + '\n' : '') + SYNC_END);
       reprinted.current = { epoch: transcript.epoch, count: items.length };
     };
+    const onRepaintWelcome = () => {
+      // The terminal's background answer arrived after the first frame and
+      // changed the palette. If the welcome box is still the only thing
+      // printed, directly above the input box, draw it again where it is:
+      // cursor up, erase down, print. Nothing is scrolled or cleared, so the
+      // shell history above parley is untouched. In any other situation the
+      // box keeps its colours.
+      const first = firstPrint.current;
+      const items = transcript.items;
+      if (!first || first.epoch !== transcript.epoch || items.length !== 1 || items[0]!.kind !== 'welcome') return;
+      if (first.cols !== transcript.cols || first.rows !== (process.stdout.rows || 24)) return;
+      if (overlayOpen.current || edRef.current.text || session.streaming || session.busy || session.queue.length) return;
+      const text = renderItem(items[0]!, transcript.cols);
+      const height = text.split('\n').length;
+      // Same height as printed, and box plus input area fit on the screen
+      // (so the box cannot have scrolled off the top).
+      if (height !== first.height || height + WELCOME_REPAINT_ROOM > first.rows) return;
+      inkClear.current?.();
+      process.stdout.write(`${SYNC_BEGIN}\x1b[${height}A\r\x1b[J${text}\n${SYNC_END}`);
+      force();
+    };
     session.on('event', onEvent);
     transcript.on('change', onTranscript);
     transcript.on('reprint', onReprint);
+    transcript.on('repaint-welcome', onRepaintWelcome);
     return () => {
+      transcript.off('repaint-welcome', onRepaintWelcome);
       session.off('event', onEvent);
       transcript.off('change', onTranscript);
       transcript.off('reprint', onReprint);
@@ -289,6 +315,8 @@ export function App(props: AppProps): React.ReactElement {
   }, [session, transcript, terminal, force]);
 
   const inkClear = useRef<(() => void) | null>(null);
+  /** What the first render printed, for repainting the welcome box in place. */
+  const firstPrint = useRef<{ epoch: number; height: number; cols: number; rows: number } | null>(null);
   /** Items the last reprint wrote directly, which <Static> must skip. */
   const reprinted = useRef({ epoch: -1, count: 0 });
   if (reprinted.current.epoch === -1) {
@@ -298,6 +326,7 @@ export function App(props: AppProps): React.ReactElement {
     reprinted.current = { epoch: transcript.epoch, count: transcript.items.length };
     const text = transcript.items.map((item) => renderItem(item, transcript.cols)).join('\n');
     if (text) process.stdout.write(SYNC_BEGIN + text + '\n' + SYNC_END);
+    firstPrint.current = { epoch: transcript.epoch, height: text.split('\n').length, cols: transcript.cols, rows: process.stdout.rows || 24 };
   }
   inkClear.current = () => props.ink.clear?.();
 
@@ -418,27 +447,36 @@ export function App(props: AppProps): React.ReactElement {
   // -------------------------------------------------------------- pickers
   const openModelPicker = useCallback(
     (opts: { onPick?: (model: string) => void; title?: string } = {}) => {
-      const recent = loadState().recentModels;
-      const build = (results: Array<{ provider: string; models?: string[]; error?: string }>): Array<PickerItem<unknown>> => {
+      const state = loadState();
+      const recent = state.recentModels;
+      let favourites = state.favouriteModels;
+      type Listed = { provider: string; models?: ModelInfo[]; error?: string };
+      const build = (results: Listed[]): Array<PickerItem<unknown>> => {
         const items: Array<PickerItem<unknown>> = [];
-        const known = new Set<string>();
-        for (const r of results) for (const m of r.models ?? []) known.add(`${r.provider}/${m}`);
-        const recentItems = recent.filter((m) => session.registry.has(parseModelRef(m)?.provider ?? ''));
-        for (const m of recentItems) items.push({ value: m, label: m, detail: m === session.model ? 'current' : 'recent', group: 'Recent' });
+        const caps = new Map<string, ModelCapabilities>();
+        for (const r of results) for (const m of r.models ?? []) caps.set(`${r.provider}/${m.id}`, session.registry.withOverrides(`${r.provider}/${m.id}`, m.capabilities));
+        // What is known about a model, shortest useful form first.
+        const detail = (ref: string, ...extra: string[]) => {
+          const c = caps.get(ref);
+          return [favourites.includes(ref) ? '★' : '', ref === session.model ? 'current' : '', ...extra, c ? modelSummary(c) : ''].filter(Boolean).join(' · ');
+        };
+        const usable = (m: string) => session.registry.has(parseModelRef(m)?.provider ?? '');
+        for (const m of favourites.filter(usable)) items.push({ value: m, label: m, detail: detail(m), group: 'Favourites' });
+        for (const m of recent.filter(usable)) if (!favourites.includes(m)) items.push({ value: m, label: m, detail: detail(m, 'recent'), group: 'Recent' });
         for (const r of results) {
           if (r.error) {
             items.push({ value: null, label: `${r.provider}: could not list models`, detail: truncate(r.error, 80), group: r.provider, disabled: true });
             continue;
           }
           for (const m of r.models ?? []) {
-            const ref = `${r.provider}/${m}`;
-            items.push({ value: ref, label: m, detail: ref === session.model ? 'current' : '', group: r.provider, search: ref });
+            const ref = `${r.provider}/${m.id}`;
+            items.push({ value: ref, label: m.id, detail: detail(ref), group: r.provider, search: ref });
           }
         }
         return items;
       };
       const providers = session.registry.providerConfigs().map((p) => p.name);
-      const results: Array<{ provider: string; models?: string[]; error?: string }> = providers.map((p) => ({ provider: p }));
+      const results: Listed[] = providers.map((p) => ({ provider: p }));
       const pick = (item: PickerItem<unknown>, query: string) => {
         let ref = item.value as string | null;
         if (item.value === '__custom__') ref = query.trim();
@@ -467,6 +505,19 @@ export function App(props: AppProps): React.ReactElement {
               render();
             },
             placeholder: 'Type to search, or enter provider/model-id',
+            footer: '↑/↓ to select · enter to choose · ctrl+f favourite · esc to cancel',
+            follow: true,
+            onKey: (key, item) => {
+              if (!(key.ctrl && key.name === 'f')) return false;
+              const ref = item?.value;
+              if (typeof ref === 'string' && ref !== '__custom__' && parseModelRef(ref)) {
+                toggleFavouriteModel(ref);
+                favourites = loadState().favouriteModels;
+                current = build(results);
+                render();
+              }
+              return true;
+            },
             loading,
             emptyText: providers.length ? 'No models match. Type provider/model-id to use any model.' : 'No providers configured. Run /providers to add one.',
           },
@@ -478,7 +529,7 @@ export function App(props: AppProps): React.ReactElement {
           .get(name)
           .then((p) => p.listModels())
           .then((models) => {
-            results[i] = { provider: name, models: models.map((m) => m.id) };
+            results[i] = { provider: name, models };
           })
           .catch((e: Error) => {
             results[i] = { provider: name, error: e.message };
@@ -854,6 +905,10 @@ export function App(props: AppProps): React.ReactElement {
             onClose={closeOverlay}
             writeConfig={writeConfig}
             applyTheme={applyTheme}
+            applySoftLineBreaks={(mode) => {
+              setSoftLineBreaks(mode);
+              transcript.reprint(true);
+            }}
             openModelPicker={(title, onPick) => openModelPicker({ title, onPick })}
           />
         ),
@@ -1357,7 +1412,7 @@ export function App(props: AppProps): React.ReactElement {
         ) : null}
         {spinnerRows ? (
           <Box marginTop={1}>
-            <Spinner stream={stream} busyLabel={busyLabel} cols={cols} />
+            <Spinner stream={stream} busyLabel={busyLabel} cols={cols} still={config.reducedMotion} />
           </Box>
         ) : null}
         {queue.length ? (

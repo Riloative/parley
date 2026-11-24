@@ -54,6 +54,11 @@ export interface Config {
    * is not focused: auto-detect the terminal's protocol, force one, or off. */
   notifications: 'auto' | 'off' | 'osc9' | 'osc777' | 'osc99';
   terminalTitle: boolean;
+  /** No animated spinner: a still glyph and a label that does not change. */
+  reducedMotion: boolean;
+  /** Opt-in: at most once a day, ask GitHub whether a newer release exists
+   * and say so. Never downloads or installs anything. */
+  checkForUpdates: boolean;
   /** A single newline inside a Markdown paragraph: keep it as a line break
    * (default), or join the lines as CommonMark does. */
   softLineBreaks: 'keep' | 'join';
@@ -82,6 +87,8 @@ export const defaultConfig = (): Config => ({
   bellAfterSeconds: 10,
   notifications: 'auto',
   terminalTitle: true,
+  reducedMotion: false,
+  checkForUpdates: false,
   softLineBreaks: 'keep',
   providers: {},
   personas: {},
@@ -98,6 +105,8 @@ const TOP_KEYS = [
   'notifications',
   'terminal_title',
   'soft_line_breaks',
+  'reduced_motion',
+  'check_for_updates',
   'system_prompt',
   'reasoning_effort',
   'providers',
@@ -275,6 +284,8 @@ export function parseConfig(text: string): { config: Config; issues: ConfigIssue
     else v.err(v.keyNode(['notifications']), `notifications must be one of auto, off, osc9, osc777 or osc99 (got "${notif}").`);
   }
   config.terminalTitle = v.bool(['terminal_title'], r.terminal_title, 'terminal_title') ?? config.terminalTitle;
+  config.reducedMotion = v.bool(['reduced_motion'], r.reduced_motion, 'reduced_motion') ?? config.reducedMotion;
+  config.checkForUpdates = v.bool(['check_for_updates'], r.check_for_updates, 'check_for_updates') ?? config.checkForUpdates;
   const slb = v.str(['soft_line_breaks'], r.soft_line_breaks, 'soft_line_breaks');
   if (slb !== undefined) {
     if (slb === 'keep' || slb === 'join') config.softLineBreaks = slb;

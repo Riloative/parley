@@ -1,7 +1,7 @@
 // Token estimates, context-window accounting and cost tracking.
 
 import type { Price } from '../config/config.js';
-import type { ContentPart, Usage } from '../providers/types.js';
+import type { ContentPart, ModelCapabilities, Usage } from '../providers/types.js';
 
 /** Rough token estimate (~4 characters per token, images ~1,500). */
 export function estimateTokens(parts: ContentPart[] | string): number {
@@ -21,6 +21,17 @@ export function formatTokens(n: number): string {
   if (n < 10_000) return `${(n / 1000).toFixed(1)}k`;
   if (n < 1_000_000) return `${Math.round(n / 1000)}k`;
   return `${(n / 1_000_000).toFixed(1)}M`;
+}
+
+/** One line on what a model can do, for the model picker. Only what is
+ * known is mentioned. */
+export function modelSummary(c: ModelCapabilities): string {
+  const parts: string[] = [];
+  if (c.contextWindow) parts.push(`${formatTokens(c.contextWindow)} context`);
+  if (c.images === true) parts.push('images');
+  else if (c.images === false) parts.push('text only');
+  if (c.reasoning === true) parts.push('reasoning');
+  return parts.join(' · ');
 }
 
 export interface ModelUsage {

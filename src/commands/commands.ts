@@ -64,30 +64,58 @@ export interface CommandDef {
   custom?: boolean;
 }
 
-function terminalSetup(ui: UiApi): void {
+function terminalSetup(ui: UiApi, target = ''): void {
+  if (target && target !== 'vscode' && target !== 'tmux') return ui.notice('Usage: /terminal-setup, /terminal-setup vscode or /terminal-setup tmux', 'warning');
   const env = process.env;
   const home = homedir();
   const kitty = ui.keyboard().kitty;
   const editors = vscodeKeybindingFiles(env, process.platform, home);
   const tmuxFile = tmuxConfFile(env, home);
   const shortTmux = tmuxFile.startsWith(home) ? `~${tmuxFile.slice(home.length)}` : tmuxFile;
+  const vscodeText = [
+    '**VS Code, Cursor and other forks:** add this to keybindings.json (Command Palette → *Preferences: Open Keyboard Shortcuts (JSON)*). It makes Shift+Enter send what Alt+Enter sends.',
+    '',
+    '```json',
+    JSON.stringify(SHIFT_ENTER_BINDING, null, 2),
+    '```',
+  ];
+  const tmuxText = [
+    `**tmux:** if Shift+Enter still sends the message inside tmux (3.2 or later), add these lines to \`${shortTmux}\`, then run \`tmux source-file ${shortTmux}\`.`,
+    '',
+    '```',
+    ...TMUX_LINES,
+    '```',
+  ];
+  if (target) {
+    // Settings for a terminal parley is not necessarily running in: show
+    // them, then offer to write each file (never without asking).
+    ui.info((target === 'vscode' ? vscodeText : tmuxText).join('\n'));
+    const wanted: Array<{ question: string; apply: () => void }> = [];
+    if (target === 'vscode') {
+      if (!editors.length) ui.notice('No VS Code, Cursor or other fork settings folder was found on this machine, so there is nothing to write. Add the snippet by hand where the editor runs.', 'dim');
+      for (const e of editors) {
+        wanted.push({
+          question: `Add the Shift+Enter keybinding to ${e.name} (${e.file})?`,
+          apply: () => applyEdit(ui, e.file, addShiftEnterBinding(readIfExists(e.file)), `${e.name} now sends a new line for Shift+Enter in its terminal.`),
+        });
+      }
+    } else {
+      wanted.push({
+        question: `Add extended-keys to ${shortTmux}?`,
+        apply: () => applyEdit(ui, tmuxFile, addTmuxLines(readIfExists(tmuxFile)), `Run \`tmux source-file ${shortTmux}\` (or restart tmux) to apply it.`),
+      });
+    }
+    return askEach(ui, wanted);
+  }
   ui.info(
     [
       kitty
         ? '**Shift+Enter** already inserts a new line in this terminal (kitty keyboard protocol).'
         : '**Shift+Enter** may arrive as a plain Enter in this terminal. Alt+Enter, Ctrl+J and `\\` then Enter always insert a new line.',
       '',
-      '**VS Code, Cursor and other forks:** add this to keybindings.json (Command Palette → *Preferences: Open Keyboard Shortcuts (JSON)*). It makes Shift+Enter send what Alt+Enter sends.',
+      ...vscodeText,
       '',
-      '```json',
-      JSON.stringify(SHIFT_ENTER_BINDING, null, 2),
-      '```',
-      '',
-      `**tmux:** if Shift+Enter still sends the message inside tmux (3.2 or later), add these lines to \`${shortTmux}\`, then run \`tmux source-file ${shortTmux}\`.`,
-      '',
-      '```',
-      ...TMUX_LINES,
-      '```',
+      ...tmuxText,
     ].join('\n'),
   );
 
@@ -108,6 +136,11 @@ function terminalSetup(ui: UiApi): void {
       apply: () => applyEdit(ui, tmuxFile, addTmuxLines(readIfExists(tmuxFile)), `Run \`tmux source-file ${shortTmux}\` (or restart tmux) to apply it.`),
     });
   }
+  askEach(ui, offers);
+}
+
+/** One question at a time; "no" (the default) moves on to the next. */
+function askEach(ui: UiApi, offers: Array<{ question: string; apply: () => void }>): void {
   const ask = (i: number): void => {
     const o = offers[i];
     if (!o) return;
@@ -177,7 +210,8 @@ export const HELP_KEYS: Array<[string, string]> = [
   ['Shift+Enter, Alt+Enter, Ctrl+J, \\ then Enter', 'New line'],
   ['Esc', 'Interrupt the reply; when idle, clear the input'],
   ['Esc Esc', 'Rewind: edit an earlier message and branch from it'],
-  ['↑ / ↓', 'Input history (on the first/last line); ↑ withdraws a queued message'],
+  ['↑ / ↓', 'Input history (on the first/last line); ↑ edits a queued message in place'],
+  ['Ctrl+_ or Ctrl+Z, Alt+Z', 'Undo, redo in the input box'],
   ['Ctrl+R', 'Search input history'],
   ['Ctrl+C', 'Clear input; press twice to exit'],
   ['Ctrl+D', 'Exit (on empty input)'],
@@ -424,9 +458,9 @@ export function builtinCommands(): CommandDef[] {
     {
       name: 'terminal-setup',
       description: 'Make Shift+Enter insert a new line in VS Code and tmux',
-      noArgs: true,
-      run(ui) {
-        terminalSetup(ui);
+      argHint: '[vscode|tmux]',
+      run(ui, args) {
+        terminalSetup(ui, args.trim().toLowerCase());
       },
     },
     {

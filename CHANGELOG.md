@@ -12,9 +12,17 @@
 - **Branches are visible.** A `⑂ branch 2 of 3` line marks every point where the conversation was rewound or a reply retried, and `/branches` switches between branches.
 - **Very long conversations** print only their newest 200 messages when the screen is redrawn (resume, resize, Ctrl+O), with a line saying how many are hidden; `/history` shows everything. The model still receives the whole conversation.
 - **`/compact` on one key.** From 80% of the context window, the status line offers "tab to compact" while the input is empty, instead of waiting for a message to be refused.
+- **Queued messages are edited in place.** `↑` on a queued message now opens it where it is in the queue instead of pulling it out: `↑`/`↓` move between queued messages, Enter saves, Ctrl+C puts it back as it was, and saving it empty removes it. Whatever was in the input box comes back afterwards, and nothing in the queue is sent while one is being edited.
+- **Undo and redo in the input box:** `Ctrl+_` or `Ctrl+Z` undoes, `Alt+Z` (or `Ctrl+Shift+Z` where the terminal reports it) redoes. Typing is undone a word at a time; pastes and deletions one by one.
+- **Model picker details and favourites.** Each model shows its context window and whether it takes images and reasons, where the provider or your config says so. `Ctrl+F` marks a favourite; favourites are listed first.
+- **`/config`** can now change `soft_line_breaks` (the conversation is redrawn at once), `reduced_motion` and `check_for_updates`.
+- **`/terminal-setup vscode` and `/terminal-setup tmux`** show the settings for that terminal and offer to write them even when parley is running somewhere else. It still asks before writing anything.
+- **`reduced_motion: true`** replaces the animated spinner with a still one (also in `-p` mode). The elapsed time still counts.
+- **`check_for_updates: true`** (off by default) asks GitHub for the latest release at most once a day and mentions a newer version once. Nothing is downloaded or installed, and the request carries only parley's version.
 
 ### Fixed
 
+- **Welcome box colours on a slow link.** When the terminal's background answer arrives after the first frame, the welcome box is now drawn again in the right palette if it is still alone on the screen. It is redrawn where it is, without clearing anything, and the first frame is not delayed.
 - **`/copy code`** now finds code blocks inside lists and quotes, and indented code blocks; it used to see only top-level fenced blocks.
 - **`/help` table.** The `/system` and `/theme` rows were split in the wrong place and lost their descriptions, because the `|` in their argument hints was read as a column separator. Tables built from dynamic text (`/help`, `/cost`) now escape every cell, so custom commands and model names containing `|` or Markdown are shown literally too.
 
