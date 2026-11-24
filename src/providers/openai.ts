@@ -3,6 +3,7 @@
 // reasoning models; if the organisation is not allowed to receive summaries,
 // the request is retried once without them.
 
+import { debug } from '../debug.js';
 import type { AdapterContext } from './registry.js';
 import { parseSse, request, resolveHeaders, TtlCache } from './http.js';
 import type { ChatMessage, ChatRequest, ModelCapabilities, ModelInfo, Provider, ReasoningEffort, StreamEvent, Usage } from './types.js';
@@ -197,10 +198,12 @@ export class OpenAIProvider implements Provider {
   async *stream(req: ChatRequest): AsyncGenerator<StreamEvent> {
     const caps = guessOpenAICaps(req.model);
     const s = req.sampling;
-    const build = (summaries: boolean) => {
+    const fullInput = toResponsesInput(req.messages);
+    const replaysReasoning = fullInput.some((i) => (i as { type?: string }).type === 'reasoning');
+    const build = (summaries: boolean, withReasoning = true) => {
       const body: Record<string, unknown> = {
         model: req.model,
-        input: toResponsesInput(req.messages),
+        input: withReasoning ? fullInput : fullInput.filter((i) => (i as { type?: string }).type !== 'reasoning'),
         stream: true,
         store: false,
       };
@@ -221,16 +224,34 @@ export class OpenAIProvider implements Provider {
       return body;
     };
     yield { type: 'status', status: 'connecting' };
+    const send = (withReasoning: boolean) =>
+      request({ url: `${this.endpoint}/responses`, headers: this.headers(), body: build(caps.reasoning === true && !this.noSummaries, withReasoning), signal: req.signal, providerName: this.name });
     let res: Response;
-    try {
-      res = await request({ url: `${this.endpoint}/responses`, headers: this.headers(), body: build(caps.reasoning === true && !this.noSummaries), signal: req.signal, providerName: this.name });
-    } catch (e) {
-      // Organisations that are not verified cannot receive reasoning
-      // summaries; fall back to plain reasoning without them.
-      if (e instanceof ProviderError && e.kind === 'bad_request' && /summar/i.test(e.message) && !this.noSummaries) {
-        this.noSummaries = true;
-        res = await request({ url: `${this.endpoint}/responses`, headers: this.headers(), body: build(false), signal: req.signal, providerName: this.name });
-      } else throw e;
+    let withReasoning = true;
+    for (;;) {
+      try {
+        res = await send(withReasoning);
+        break;
+      } catch (e) {
+        if (!(e instanceof ProviderError) || e.kind !== 'bad_request') throw e;
+        // Organisations that are not verified cannot receive reasoning
+        // summaries; fall back to plain reasoning without them.
+        if (/summar/i.test(e.message) && !this.noSummaries) {
+          this.noSummaries = true;
+          continue;
+        }
+        // Earlier reasoning is sent back as an optimisation. If the API
+        // refuses the request with it (the encrypted content can no longer
+        // be verified, say), try once without: the conversation must stay
+        // usable. A request that is wrong for another reason fails again
+        // and that error is reported.
+        if (withReasoning && replaysReasoning) {
+          debug('openai refused the request with replayed reasoning; retrying without it', { message: e.message });
+          withReasoning = false;
+          continue;
+        }
+        throw e;
+      }
     }
     yield { type: 'status', status: 'waiting' };
     if (!res.body) throw new ProviderError('server', `${this.name} returned an empty response`);

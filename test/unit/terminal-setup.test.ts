@@ -1,6 +1,6 @@
 // /terminal-setup edits other programs' config files, so each edit must keep
 // what is there and produce a file that still parses.
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, existsSync, lstatSync, readdirSync, statSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -90,5 +90,64 @@ describe('writing', () => {
     expect(readFileSync(f, 'utf8')).toBe('[1]\n');
     expect(readFileSync(`${f}.parley-backup`, 'utf8')).toBe('[]\n');
     expect(existsSync(`${f}.parley-${process.pid}.tmp`)).toBe(false);
+  });
+});
+
+describe('settings that only look like ours', () => {
+  it('tmux: extended-keys off, or only extended-keys-format, still gets the lines', () => {
+    for (const existing of ['set -s extended-keys off\n', 'set -g extended-keys-format csi-u\n', 'set -s extended-keys on\nset -s extended-keys off\n']) {
+      const r = addTmuxLines(existing);
+      expect(r.ok && r.changed, existing).toBe(true);
+      const text = (r as { text: string }).text;
+      expect(text.startsWith(existing)).toBe(true);
+      // tmux reads the file top to bottom: the last setting wins.
+      expect(text.trimEnd().split('\n').filter((l) => /extended-keys\s/.test(l)).at(-1)).toMatch(/extended-keys on$/);
+      expect(addTmuxLines(text)).toMatchObject({ ok: true, changed: false });
+    }
+    for (const existing of ['set -s extended-keys on\n', 'set-option -g extended-keys always\n', 'set -s extended-keys off\nset -s extended-keys on\n']) {
+      expect(addTmuxLines(existing), existing).toMatchObject({ ok: true, changed: false });
+    }
+  });
+
+  it('VS Code: a Shift+Enter binding that sends something else, or never applies, is not taken for ours', () => {
+    const other = (over: Record<string, unknown>) => JSON.stringify([{ ...SHIFT_ENTER_BINDING, ...over }], null, 2);
+    for (const text of [other({ args: { text: 'foo' } }), other({ when: 'terminalFocus && false' }), other({ args: {} })]) {
+      const r = addShiftEnterBinding(text);
+      expect(r.ok && r.changed, text).toBe(true);
+      const list = parse((r as { text: string }).text);
+      expect(list.length).toBe(2);
+      expect(list.at(-1)).toEqual(SHIFT_ENTER_BINDING); // later entries win in VS Code
+      expect(addShiftEnterBinding((r as { text: string }).text)).toMatchObject({ ok: true, changed: false });
+    }
+    expect(addShiftEnterBinding(JSON.stringify([{ ...SHIFT_ENTER_BINDING, when: ' terminalFocus ' }]))).toMatchObject({ ok: true, changed: false });
+  });
+
+  it('VS Code: a file that starts with a byte-order mark is edited, and keeps it', () => {
+    const r = addShiftEnterBinding('﻿[\n  { "key": "ctrl+k", "command": "a" }\n]\n');
+    expect(r.ok && r.changed).toBe(true);
+    const text = (r as { text: string }).text;
+    expect(text.startsWith('﻿[')).toBe(true);
+    expect(parse(text).length).toBe(2);
+  });
+});
+
+describe('writing another program\'s config file', () => {
+  it('writes through a symlink, keeps the file mode, and never overwrites an earlier backup', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'parley-setup-'));
+    const real = join(dir, 'dotfiles-tmux.conf');
+    const link = join(dir, '.tmux.conf');
+    writeFileSync(real, 'original\n', { mode: 0o600 });
+    symlinkSync(real, link);
+    const first = writeConfigFile(link, 'first edit\n');
+    expect(lstatSync(link).isSymbolicLink()).toBe(true);
+    expect(readFileSync(real, 'utf8')).toBe('first edit\n');
+    expect(statSync(real).mode & 0o777).toBe(0o600);
+    expect(readFileSync(first.backup!, 'utf8')).toBe('original\n');
+    const second = writeConfigFile(link, 'second edit\n');
+    expect(second.backup).not.toBe(first.backup);
+    expect(readFileSync(first.backup!, 'utf8')).toBe('original\n');
+    expect(readFileSync(second.backup!, 'utf8')).toBe('first edit\n');
+    expect(readFileSync(link, 'utf8')).toBe('second edit\n');
+    expect(readdirSync(dir).filter((f) => f.includes('.tmp'))).toEqual([]);
   });
 });

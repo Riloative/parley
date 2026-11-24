@@ -102,9 +102,20 @@ function codepointKey(code: number, mods: Pick<Key, 'shift' | 'alt' | 'ctrl' | '
   return { type: 'key', key: { name: 'char', text: text ?? String.fromCodePoint(code), ...mods } };
 }
 
+/** An unterminated OSC, DCS or APC string that looks like a terminal's
+ * reply (not Alt+] or Alt+P followed by typing). */
+const REPLY_HEAD = /^\x1b(?:\]\d|P[0-9>+$!|=]|_G)/;
+/** How long the end of such a reply is waited for before input is read as
+ * keys again. */
+const REPLY_WAIT_MS = 2000;
+
 export class KeyDecoder {
   private buf = '';
   private paste: string | undefined;
+  /** When the wait for the rest of a split reply began. */
+  private replySince: number | undefined;
+
+  constructor(private readonly now: () => number = Date.now) {}
 
   /** True when a lone ESC (or partial sequence) is waiting for more bytes. */
   get pending(): boolean {
@@ -113,6 +124,14 @@ export class KeyDecoder {
 
   feed(data: string): InputEvent[] {
     const out: InputEvent[] = [];
+    if (this.replySince !== undefined) {
+      // The start of a reply is waiting for its end. Give up on it after a
+      // while, so a lost terminator cannot swallow what is typed later.
+      if (this.now() - this.replySince > REPLY_WAIT_MS) {
+        this.buf = '';
+        this.replySince = undefined;
+      }
+    }
     this.buf += data;
     while (this.buf.length) {
       if (this.paste !== undefined) {
@@ -135,6 +154,7 @@ export class KeyDecoder {
       if (consumed === 0) break; // incomplete sequence: wait for more
       this.buf = this.buf.slice(consumed);
     }
+    if (!REPLY_HEAD.test(this.buf)) this.replySince = undefined;
     return out;
   }
 
@@ -142,6 +162,12 @@ export class KeyDecoder {
   flush(): InputEvent[] {
     if (this.paste !== undefined || !this.buf) return [];
     const b = this.buf;
+    if (REPLY_HEAD.test(b)) {
+      // A terminal reply cut in two by the link (slow SSH): its second half
+      // must not be read as typed text, so keep waiting for the terminator.
+      this.replySince ??= this.now();
+      return [];
+    }
     this.buf = '';
     if (b === '\x1b') return [k('escape')];
     if (b === '\x1b\x1b') return [k('escape'), k('escape')];

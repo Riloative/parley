@@ -133,7 +133,7 @@ src/config/              config.ts (YAML + validation with line numbers), creden
 - Provider-specific details stay inside `src/providers/*`. Everything above talks in `ContentPart`/`StreamEvent`. Tool calls would be new `ContentPart` variants.
 - Never hard-code model names in code; capabilities come from provider APIs, heuristics on ids (OpenAI), or config overrides.
 - Errors shown to the user are plain language and include the provider's own message, passed through `redact()`. Never put a key in a message, log, transcript or config.
-- Persistence is append-only; never rewrite or delete conversation lines. New event types must be ignored safely by older readers (bump `SCHEMA_VERSION` only for incompatible changes).
+- Persistence is append-only; never rewrite or delete conversation lines. `Store.open()` (with the lock) settles what a crash left behind by appending: a newline after a torn last line, and the recovered partial reply as a `message`, because replay only recovers the *last* partial. New event types must be ignored safely by older readers (bump `SCHEMA_VERSION` only for incompatible changes).
 - Colours: use theme tokens (`fg: 'accent' | 'dim' | …`), never raw hex in UI code. `themeHex()` for Ink props respects NO_COLOR and the ANSI theme.
 - Tests: no network. Use the mock provider (`mock/<script>?opts`) or the local HTTP fixture server in `test/unit/adapters.test.ts`. PTY tests go through `test/pty/harness.ts`, which strips CI/proxy/key variables from the child environment and isolates XDG directories.
 - Fix root causes; don't special-case tests.
@@ -144,6 +144,9 @@ src/config/              config.ts (YAML + validation with line numbers), creden
 - The Anthropic SDK (1.x) sends `Authorization: Bearer` and API version 2026-10-21, which rejects sampling parameters.
 - Fetch refuses some ports ("bad port", e.g. 1, 9); tests pick free ephemeral ports instead.
 - `listFiles()` refuses to crawl `$HOME` itself (the @ picker would be enormous); PTY tests that use @ run in a subdirectory.
+- Start-up differences under about 15 ms need `--runs 100`: at 30 runs the benchmark's noise in a container is that large.
+- An unterminated OSC/DCS/APC that looks like a terminal reply (`REPLY_HEAD` in `src/term/keys.ts`) stays buffered across the escape timeout for up to 2 s; Alt+] and Alt+P alone are still keys.
+- `<Static>` is keyed on the transcript epoch only. Anything else in the key (the theme was, once) remounts it and prints every item since the last reprint again.
 - `PARLEY_STARTUP_TRACE=<file>` appends the time (ms since process start) of the first rendered frame, then a JSON line of phase marks (`src/trace.ts`). `node scripts/bench-startup.mjs [--bin path] [--runs 20]` reports median and p95 over many runs (`BENCH_MARKS=1` prints the marks). Node's compile cache (enabled in bin/parley.js) roughly halves module compile time after the first run. Repeat `--bin` (a `.js` path runs with Node) to compare builds; runs alternate, so machine noise hits all alike.
 - `node scripts/bench-stream.mjs [--lines 2000 --tps 20000]` measures CPU, frames, bytes per frame, typing latency and RSS while a reply streams. `node scripts/bench-history.mjs [--conversations 1000 --long-turns 300]` measures `-p -c`, opening `/resume`, resuming a long conversation and a resize reprint. Both take `--bin` like bench-startup.
 - Typing latency must be measured on a parsed screen (xterm headless), not by searching raw output: with incremental rendering Ink writes only the cells that changed.

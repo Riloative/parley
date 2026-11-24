@@ -22,7 +22,7 @@ import * as E from './editor.js';
 import { Spinner } from './Spinner.js';
 import { KeyRouterContext, Picker, Prompt, editKey, pasteKey, type KeyHandler, type KeyRouter, type PickerItem, type PickerProps, type PromptProps } from './overlays.js';
 import { lineToAnsi } from '../render/style.js';
-import { getTheme, setTheme, themeHex, type ThemeName } from '../render/theme.js';
+import { setTheme, themeHex, type ThemeName } from '../render/theme.js';
 import { textWidth, truncate } from '../render/width.js';
 import { allCommands, findCommand, type CommandDef, type UiApi } from '../commands/commands.js';
 import { fuzzyFilter, relativeTime } from './fuzzy.js';
@@ -1391,11 +1391,10 @@ export function App(props: AppProps): React.ReactElement {
   const gap = Math.max(1, cols - textWidth(left) - textWidth(right) - 2);
   const rightShown = textWidth(left) + textWidth(right) + 3 > cols ? truncate(right, Math.max(0, cols - textWidth(left) - 3)) : right;
 
-  const theme = getTheme().name;
   return (
     <KeyRouterContext.Provider value={router}>
       <Static
-        key={`${transcript.epoch}-${theme}`}
+        key={String(transcript.epoch)}
         items={reprinted.current.epoch === transcript.epoch ? transcript.items.slice(reprinted.current.count) : transcript.items}
       >
         {(item) => {

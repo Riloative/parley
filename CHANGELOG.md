@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 — 2026-11-24
 
 ### Added
 
@@ -20,8 +20,20 @@
 - **`reduced_motion: true`** replaces the animated spinner with a still one (also in `-p` mode). The elapsed time still counts.
 - **`check_for_updates: true`** (off by default) asks GitHub for the latest release at most once a day and mentions a newer version once. Nothing is downloaded or installed, and the request carries only parley's version.
 
+### Performance
+
+- Measured against 0.1.0 on a Linux dev container: start-up is unchanged (154 ms median first frame for both, 100 runs each), and so is streaming (26 ms of CPU per frame at 20,000 tokens/s; 6 ms per frame at 80 tokens/s). Opening or resizing a 300-turn conversation is faster because only the newest 200 messages are printed (resume 348 → 268 ms, resize 233 → 148 ms).
+
 ### Fixed
 
+- **A conversation continued after a crash could lose its earlier messages.** If parley died while a reply was streaming and the conversation was then resumed and continued, the next time it was opened it started at the first message sent after the crash; everything before it was hidden and no longer sent to the model. The recovered partial reply is now recorded when the conversation is reopened. Conversations already affected still have every line in their file.
+- **The first message after a crash could be lost.** When the file ended in a half-written line, the next event was written onto the same line and both were unreadable. The line is now ended first.
+- **Conversation printed twice on a slow link.** With `theme: auto`, a background-colour answer that arrived after messages had been exchanged printed the conversation a second time.
+- **Terminal replies typed into the input box.** A reply from the terminal that arrived in two pieces more than a moment apart (slow SSH) left its second half in the input box. The rest of such a reply is now waited for, for up to two seconds.
+- **OpenAI: a failed attempt's reasoning was kept.** When a request was retried, encrypted reasoning from the attempt that failed was stored with the reply and sent back on later turns.
+- **OpenAI: a conversation could get stuck.** If the API refused a request because of reasoning replayed from an earlier turn, every later message failed the same way. parley now sends the request again without the earlier reasoning.
+- **`/terminal-setup`** no longer reports "already has this setting" for a tmux.conf that sets `extended-keys off` (or only `extended-keys-format`), or for a Shift+Enter keybinding that sends something else. It writes through a symlinked config instead of replacing the link, keeps the file's permissions, never overwrites an earlier backup, and accepts a keybindings.json that starts with a byte-order mark.
+- **Editing a queued message** could, under load, replace the queued text with what had been in the input box (found by CI before release).
 - **Welcome box colours on a slow link.** When the terminal's background answer arrives after the first frame, the welcome box is now drawn again in the right palette if it is still alone on the screen. It is redrawn where it is, without clearing anything, and the first frame is not delayed.
 - **`/copy code`** now finds code blocks inside lists and quotes, and indented code blocks; it used to see only top-level fenced blocks.
 - **`/help` table.** The `/system` and `/theme` rows were split in the wrong place and lost their descriptions, because the `|` in their argument hints was read as a column separator. Tables built from dynamic text (`/help`, `/cost`) now escape every cell, so custom commands and model names containing `|` or Markdown are shown literally too.

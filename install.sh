@@ -4,7 +4,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/Riloative/parley/main/install.sh | sh
 #
 # Environment:
-#   PARLEY_VERSION      release tag to install, e.g. v0.1.0 (default: latest)
+#   PARLEY_VERSION      release tag to install, e.g. v0.2.0 (default: latest)
 #   PARLEY_INSTALL_DIR  where to put the binary (default: ~/.local/bin)
 #   PARLEY_RELEASES_URL base URL of the releases (default: GitHub); used for
 #                       mirrors and tests
