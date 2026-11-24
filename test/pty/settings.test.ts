@@ -32,6 +32,7 @@ describe('model picker', () => {
     await s.waitFor('reasoning   32k context · images · reasoning');
     // The footer is the last line drawn: wait for the whole frame.
     await s.waitFor('ctrl+f favourite');
+    await s!.waitStable();
     expect(lines()).toContain('❯ echo        current · 32k context · images');
     s.write('\x1b[B\x1b[B'); // → long
     await s.waitFor('❯ long');
@@ -81,10 +82,12 @@ describe('/config', () => {
     s.write('\r');
     await s.waitFor('● You said: one');
     await s.waitFor(() => /Send a message/.test(screen()));
+    await s!.waitStable();
     expect(all()).toContain('● You said: one');
     s.write('/config\r');
     await s.waitFor('Single line breaks in replies');
     await s.waitFor('Tell me when a new version is out'); // the last row: the frame is complete
+    await s!.waitStable();
     expect(screen()).toContain('keep (as written)');
     expect(screen()).toContain('Reduced motion (still spinner)');
     expect(screen()).toContain('Tell me when a new version is out');
@@ -99,6 +102,7 @@ describe('/config', () => {
     s.write('\x1b');
     // (The user's own message keeps its line break; the reply is one line now.)
     await s.waitFor(() => all().includes('● You said: one two'));
+    await s!.waitStable();
     expect(all()).not.toContain('● You said: one');
     expect(all().filter((l) => l.includes('Welcome to taria')).length).toBe(1);
   }, 40_000);
@@ -112,6 +116,7 @@ describe('reduced motion', () => {
     s.write('hi\r');
     await s.waitFor(/✻ \S+… \(\d+s/);
     await sleep(1300);
+    await s!.waitStable();
     expect(screen()).toMatch(/✻ \S+… \(1s/); // the elapsed time still counts
     s.write('\x1b');
     await s.waitFor('Interrupted');
@@ -135,6 +140,7 @@ describe('/terminal-setup for another terminal', () => {
     s.write('\r');
     await s.waitFor('extended-keys on');
     await s.waitFor('Add extended-keys to');
+    await s!.waitStable();
     expect(all().join('\n')).not.toContain('keybindings.json');
     s.write('\r'); // No is the default
     await s.waitFor(() => !screen().includes('Add extended-keys to'));
@@ -155,6 +161,7 @@ describe('/terminal-setup for another terminal', () => {
     s.write('\r');
     await s.waitFor('"key": "shift+enter"');
     await s.waitFor('settings folder was found');
+    await s!.waitStable();
     expect(all().join('\n')).not.toContain('extended-keys');
     s.write('/terminal-setup iterm');
     await sleep(100);
@@ -213,6 +220,7 @@ describe('new version notice', () => {
     await s.waitFor('Send a message');
     await s.waitFor(() => hits.length === 1, 15_000);
     await sleep(500);
+    await s!.waitStable();
     expect(all().join('\n')).not.toContain('is available');
     await s.close();
     s = spawnTaria({ home: makeHome(`${DEFAULT_CONFIG}check_for_updates: true\n`), env: { TARIA_UPDATE_URL: 'http://127.0.0.1:9/latest' } });
@@ -220,6 +228,7 @@ describe('new version notice', () => {
     await sleep(2500);
     s.write('still fine\r');
     await s.waitFor('You said: still fine');
+    await s!.waitStable();
     expect(all().join('\n')).not.toMatch(/is available|fetch|ECONN|bad port/i);
   }, 40_000);
 });
@@ -236,12 +245,14 @@ describe('late background answer', () => {
     await s.waitFor(() => s!.raw.includes(LIGHT_ACCENT));
     await sleep(300);
     // Same screen, new colours: nothing scrolled, cleared or duplicated.
+    await s!.waitStable();
     expect(lines().join('\n')).toBe(before);
     expect(all().filter((l) => l.includes('Welcome to taria')).length).toBe(1);
     expect(s.raw).not.toContain('\x1b[3J');
     expect(s.raw).not.toContain('\x1b[2J');
     s.write('abc\r');
     await s.waitFor('You said: abc');
+    await s!.waitStable();
     expect(all().filter((l) => l.includes('Welcome to taria')).length).toBe(1);
   }, 30_000);
 
@@ -254,6 +265,7 @@ describe('late background answer', () => {
     await s.waitFor('You said: second');
     const mark = s.raw.length;
     await sleep(3000);
+    await s!.waitStable();
     expect(all().filter((l) => l.includes('You said: hello')).length).toBe(1);
     expect(all().filter((l) => l === '> second').length).toBe(1);
     expect(s.raw.slice(mark)).not.toContain('You said: hello');

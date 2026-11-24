@@ -43,6 +43,7 @@ describe('links', () => {
     await s.waitFor(() => s!.parsed.slice(mark).includes(OPEN) && s!.parsed.slice(mark).includes('Send a message'));
     // The screen is parsed a moment after the bytes arrive: wait for it.
     await s.waitFor(() => all().some((l) => l.includes('You said: see the docs now')) && /Send a message/.test(screen()));
+    await s!.waitStable();
     expect(all().filter((l) => l.includes('You said: see the docs now')).length).toBe(1);
     for (const l of all()) expect(l.length).toBeLessThanOrEqual(60);
   }, 30_000);
@@ -95,6 +96,7 @@ describe('/find', () => {
     await s.waitFor('message 4 of 6');
     s.write('\x1b[B\r'); // the older of the two: the user's message
     await s.waitFor('Message 3 of 6 · You');
+    await s!.waitStable();
     expect(all().filter((l) => l.includes('the needle is here')).length).toBeGreaterThanOrEqual(3);
     s.write('/find nothing-like-this\r');
     await s.waitFor('"nothing-like-this" does not appear in this conversation');
@@ -143,6 +145,7 @@ describe('branches', () => {
     await s.close(true);
     s = spawnTaria({ cols: 90, rows: 30, home, args: ['-c'] });
     await s.waitFor('You said: second original');
+    await s!.waitStable();
     expect(all().join('\n')).not.toContain('second rewritten');
   }, 40_000);
 });

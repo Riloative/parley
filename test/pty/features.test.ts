@@ -44,6 +44,7 @@ describe('conversations', () => {
     s = spawnTaria({ cols: 90, rows: 30, home, args: ['-c'] });
     await s.waitFor('Send a message');
     await s.waitFor('> remember the word kumquat');
+    await s!.waitStable();
     expect(screen()).toContain('You said: remember the word kumquat');
     await say('and now?');
     const dir = join(home, 'data', 'taria', 'conversations');
@@ -67,6 +68,7 @@ describe('conversations', () => {
     await sleep(300);
     s!.write('\r');
     await s!.waitFor('You said: alpha topic');
+    await s!.waitStable();
     expect(screen()).not.toContain('beta topic');
   }, 40_000);
 
@@ -147,6 +149,7 @@ describe('input', () => {
     await s!.waitFor('[Pasted text #1 +20 lines]');
     s!.write('\r');
     await s!.waitFor('line 20');
+    await s!.waitStable();
     expect(s!.all().join('\n')).toContain('> [Pasted text #1 +20 lines]');
   }, 30_000);
 
@@ -158,6 +161,7 @@ describe('input', () => {
     s!.write('\r');
     s!.write('d');
     await s!.waitFor('│   d');
+    await s!.waitStable();
     expect(screen()).toMatch(/│ > a\s+│\n│ {3}b\s+│\n│ {3}c\s+│\n│ {3}d/);
     s!.write('\r');
     await s!.waitFor(/You said: a\n\s*b/);
@@ -286,6 +290,7 @@ describe('appearance and editor', () => {
       await sleep(900);
       s!.write('abc');
       await s!.waitFor('│ > abc');
+      await s!.waitStable();
       expect(s!.screen().join('\n')).not.toMatch(/rgb:|11;/);
       s!.write('\x15');
       await say('later');
@@ -364,6 +369,7 @@ describe('reasoning', () => {
     await s!.waitFor(/^ {2}\d+(\.\d)?s · /m, 20_000);
     s!.write('\x0f');
     await s!.waitFor('The user is asking a question');
+    await s!.waitStable();
     expect(screen()).not.toContain('ctrl+o to expand');
   }, 40_000);
 

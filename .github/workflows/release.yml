@@ -14,14 +14,16 @@ on:
 
 permissions:
   contents: write
+  # Build provenance attestations for the release assets (actions/attest-build-provenance).
+  id-token: write
+  attestations: write
 
 jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: lts/*
           cache: npm
@@ -56,16 +58,26 @@ jobs:
     needs: [verify, binaries]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - name: Download the packaged assets (binaries, npm package, SHA256SUMS)
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
         with:
           name: release-assets
           path: assets
 
       - name: List the assets
         run: ls -l assets && cat assets/SHA256SUMS
+
+      - name: Attest build provenance
+        # Records, signed by GitHub, which workflow run built each file from
+        # which commit. Check a download with:
+        #   gh attestation verify taria-linux-x64.tar.gz --repo Riloative/taria
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            assets/taria-*.tar.gz
+            assets/taria-*.tgz
+            assets/SHA256SUMS
 
       - name: Extract release notes from CHANGELOG.md
         run: |

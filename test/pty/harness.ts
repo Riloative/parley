@@ -31,8 +31,10 @@ export interface Session {
    * Wait until the frame is complete: nothing new has arrived for `quietMs`
    * and everything received has been parsed, and (if given) some line of the
    * screen matches `lastLine`. Assert on the screen only after this.
+   * While a reply streams the screen never settles: pass `region` (the part
+   * asserted on, e.g. the queue and input box) to wait for that part only.
    */
-  waitStable(opts?: { quietMs?: number; lastLine?: string | RegExp; timeoutMs?: number }): Promise<void>;
+  waitStable(opts?: { quietMs?: number; lastLine?: string | RegExp; timeoutMs?: number; region?: () => string }): Promise<void>;
   resize(cols: number, rows: number): void;
   exited: Promise<number>;
   close(keepHome?: boolean): Promise<void>;
@@ -190,9 +192,10 @@ export function spawnTaria(opts: SpawnOptions = {}): Session {
       }
       throw new Error(`Timed out waiting for ${String(pred)}\n--- screen ---\n${s.screen().join('\n')}\n--------------`);
     },
-    async waitStable({ quietMs = 150, lastLine, timeoutMs = 10_000 } = {}) {
+    async waitStable({ quietMs = 150, lastLine, timeoutMs = 10_000, region } = {}) {
       const start = Date.now();
-      let seen = raw.length;
+      const snapshot = () => (region ? region() : String(raw.length));
+      let seen = snapshot();
       let since = Date.now();
       const lineOk = () => {
         if (lastLine === undefined) return true;
@@ -200,10 +203,11 @@ export function spawnTaria(opts: SpawnOptions = {}): Session {
       };
       while (Date.now() - start < timeoutMs) {
         await pending;
-        if (raw.length !== seen) {
-          seen = raw.length;
+        const now = snapshot();
+        if (now !== seen) {
+          seen = now;
           since = Date.now();
-        } else if (parsed.length === raw.length && Date.now() - since >= quietMs && lineOk()) return;
+        } else if ((region || parsed.length === raw.length) && Date.now() - since >= quietMs && lineOk()) return;
         await new Promise((r) => setTimeout(r, 20));
       }
       throw new Error(`Timed out waiting for a stable frame${lastLine === undefined ? '' : ` with ${String(lastLine)}`}\n--- screen ---\n${s.screen().join('\n')}\n--------------`);
@@ -228,3 +232,14 @@ export function spawnTaria(opts: SpawnOptions = {}): Session {
 }
 
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** The screen below the spinner (queue, input box, status line): the part
+ * that can settle while a reply is still streaming above it. */
+export function belowSpinner(s: Session): string {
+  const l = s.screen();
+  let i = -1;
+  l.forEach((x, k) => {
+    if (/esc to (interrupt|cancel)\)/.test(x)) i = k;
+  });
+  return l.slice(i + 1).join('\n');
+}

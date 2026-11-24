@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { makeHome, spawnTaria, sleep, type Session } from './harness.js';
+import { makeHome, spawnTaria, sleep, type Session, belowSpinner } from './harness.js';
 import { TMUX_LINES } from '../../src/term/setup.js';
 import { mockScriptText } from '../../src/providers/mock.js';
 import { renderMarkdown } from '../../src/render/markdown.js';
@@ -174,6 +174,7 @@ describe('rendering core', () => {
     await s.waitFor('│ > next question');
     s.write('\r');
     await s.waitFor('↑ to edit queued message');
+    await s!.waitStable({ region: () => belowSpinner(s!) });
     expect(s.screen().some((l) => l.startsWith('> next question'))).toBe(true);
     await s.waitFor(/^> next question\n\n● A very long answer/m, 30_000);
   }, 60_000);
@@ -187,6 +188,7 @@ describe('rendering core', () => {
     await s.waitFor('↑ to edit queued message');
     s.write('\x1b[A');
     await s.waitFor('│ > queued text');
+    await s!.waitStable({ region: () => belowSpinner(s!) });
     expect(s.screen().join('\n')).not.toContain('↑ to edit queued message');
     s.write('\x1b');
     await s.waitFor('Interrupted');
@@ -286,6 +288,7 @@ describe.runIf(hasTmux)('inside tmux', () => {
       s.write('\x1b[27;2;13~'); // Shift+Enter, xterm modifyOtherKeys form
       s.write('two');
       await s.waitFor(() => /│ > one\s*│\n│\s+two/.test(s!.screen().join('\n')));
+      await s!.waitStable();
       expect(s.screen().join('\n')).not.toContain('You said');
     } finally {
       spawnSync('tmux', ['-L', sock, 'kill-server'], { stdio: 'ignore' });
