@@ -1069,7 +1069,11 @@ export function App(props: AppProps): React.ReactElement {
       return;
     }
     const cur = session.queue[qe.index]!;
-    if (cur.text !== ed.text) session.queue[qe.index] = { ...qe.original, text: ed.text, display: undefined };
+    // The ref, not the rendered state: a frame can render between the edit
+    // starting and React applying the new input text, and the old text (what
+    // was set aside) must never be written into the queue.
+    const text = edRef.current.text;
+    if (cur.text !== text) session.queue[qe.index] = { ...qe.original, text, display: undefined };
   });
 
   // ------------------------------------------------------------- key input

@@ -20,10 +20,12 @@ describe('queued messages', () => {
     await s.waitFor('Send a message');
     s.write('go\r');
     await s.waitFor('Section 1');
+    // (Wait for the queue rows themselves: the text is also in the input box
+    // until Enter is handled.)
     s.write('first queued\r');
-    await s.waitFor('> first queued');
+    await s.waitFor(() => queued().length === 1);
     s.write('second queued\r');
-    await s.waitFor('> second queued');
+    await s.waitFor(() => queued().length === 2);
     expect(queued()).toEqual(['> first queued', '> second queued']);
 
     // Something is being typed when the user decides to fix a queued message.
@@ -80,7 +82,7 @@ describe('queued messages', () => {
     s.write('go\r');
     await s.waitFor('A very long answer');
     s.write('queued\r');
-    await s.waitFor('> queued');
+    await s.waitFor(() => queued().length === 1);
     s.write(UP);
     await s.waitFor('editing queued message');
     // The first reply finishes while the edit is open.
