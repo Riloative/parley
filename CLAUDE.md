@@ -147,8 +147,12 @@ src/config/              config.ts (YAML + validation with line numbers), creden
 ## The rename from parley (0.3.0)
 
 - The old name lives only in `src/brand.ts` (`OLD_APP`) and the code that reads old data: `src/config/migrate.ts`, the keychain fallback, `meta.app` ("parley" or "taria"), `.parley-backup` recognition, `bin/parley.js`, `scripts/parley-alias.sh` and `install.sh`'s `PARLEY_*` fallbacks.
+- The move (`src/config/migrate.ts`) must stay safe when several taria processes start at once: taria's folder is never removed recursively (an empty one goes with plain `rmdir`, folders are put in place with `rename`, and a step that fails because something appeared means "look again"), and `.taria-migration.lock` next to the folders lets one process do the work. The marker (`.migrated-from-parley`) records each copied file as `[size, old mtime, copy mtime]`, so a kept old folder never brings back what taria trashed or cleared. `test/unit/migrate-review.test.ts` runs a second migration between every two file-system calls of the first.
+- `taria doctor` and `taria key status` call `setKeychainReadOnly()`: they must not copy parley's keychain entry. A keychain lookup answers found, missing or error; only "missing" under taria's name allows the old entry to be copied.
+- `test/fixtures/old-readers/` holds `store.ts` and `conversation.ts` from 0.0.1, 0.1.0 and 0.2.0, unchanged. `test/unit/repair-fuzz.test.ts` writes files with them and checks that every reader agrees after a repair (`FUZZ_N=30000` for a long run).
+- `Store.open()` with a lock takes the lock first and reads afterwards, and restores the file's mtime after its settling appends: a repair is not user activity and must not reorder `store.list()`.
 - `adoptLegacyEnv()` runs first in `src/cli.ts`; the rest of the program reads `TARIA_*` only.
-- The migration runs in `src/cli.ts` before anything opens a file, except for `doctor`, which must never change anything (or create a taria folder: an existing one with files stops the move). Notices go to the welcome box, or stderr outside the interactive interface; never stdout.
+- The migration runs in `src/cli.ts` before anything opens a file, except for plain `doctor` and `doctor clipboard`, which must never change anything (`doctor repair` writes, so it moves the files first) (or create a taria folder: an existing one with files stops the move). Notices go to the welcome box, or stderr outside the interactive interface; never stdout.
 - 0.4.0 removes the alias and the old variable names; the checklist is below. Do not start it unless asked.
 
 ### 0.4.0 removal checklist (not started)
