@@ -27,6 +27,12 @@ export interface Session {
   /** Scrollback + screen. */
   all(): string[];
   waitFor(pred: string | RegExp | (() => boolean), timeoutMs?: number): Promise<void>;
+  /**
+   * Wait until the frame is complete: nothing new has arrived for `quietMs`
+   * and everything received has been parsed, and (if given) some line of the
+   * screen matches `lastLine`. Assert on the screen only after this.
+   */
+  waitStable(opts?: { quietMs?: number; lastLine?: string | RegExp; timeoutMs?: number }): Promise<void>;
   resize(cols: number, rows: number): void;
   exited: Promise<number>;
   close(keepHome?: boolean): Promise<void>;
@@ -183,6 +189,24 @@ export function spawnParley(opts: SpawnOptions = {}): Session {
         await new Promise((r) => setTimeout(r, 25));
       }
       throw new Error(`Timed out waiting for ${String(pred)}\n--- screen ---\n${s.screen().join('\n')}\n--------------`);
+    },
+    async waitStable({ quietMs = 150, lastLine, timeoutMs = 10_000 } = {}) {
+      const start = Date.now();
+      let seen = raw.length;
+      let since = Date.now();
+      const lineOk = () => {
+        if (lastLine === undefined) return true;
+        return s.screen().some((l) => (typeof lastLine === 'string' ? l.includes(lastLine) : lastLine.test(l)));
+      };
+      while (Date.now() - start < timeoutMs) {
+        await pending;
+        if (raw.length !== seen) {
+          seen = raw.length;
+          since = Date.now();
+        } else if (parsed.length === raw.length && Date.now() - since >= quietMs && lineOk()) return;
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      throw new Error(`Timed out waiting for a stable frame${lastLine === undefined ? '' : ` with ${String(lastLine)}`}\n--- screen ---\n${s.screen().join('\n')}\n--------------`);
     },
     resize(c, r) {
       proc.resize(c, r);

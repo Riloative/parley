@@ -32,6 +32,7 @@ Usage
   parley -p "question" [options]     print the answer and exit
   cat notes.md | parley -p "summarise"
   parley doctor                      check terminal, clipboard, keychain and providers
+  parley doctor clipboard            try a copy the way /copy does it
   parley key set <provider>          store an API key in the keychain
   parley key remove <provider>       remove a stored key
   parley key status <provider>       show where the key for a provider comes from
@@ -166,7 +167,7 @@ async function main(): Promise<void> {
   }
   if (args.command === 'doctor') {
     const { runDoctor } = await import('./doctor.js');
-    process.exitCode = await runDoctor();
+    process.exitCode = await runDoctor(args.rest);
     return;
   }
   if (args.command === 'key') {

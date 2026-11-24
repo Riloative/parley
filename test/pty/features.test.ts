@@ -133,7 +133,7 @@ describe('conversations', () => {
     s!.write('x\r');
     await s!.waitFor('sys.exit(main(sys.argv))');
     s!.write('/copy code\r');
-    await s!.waitFor('Copied the last code block');
+    await s!.waitFor('Sent the last code block');
     const m = /\x1b\]52;c;([A-Za-z0-9+/=]+)\x07/.exec(s!.raw);
     expect(Buffer.from(m![1]!, 'base64').toString()).toMatch(/^import sys\n\ndef main/);
   }, 30_000);

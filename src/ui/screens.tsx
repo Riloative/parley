@@ -306,6 +306,7 @@ export function ConfigScreen({ config, cols, maxRows, onClose, writeConfig, appl
     { value: 'bell_after_seconds', label: 'Bell threshold', detail: `${cfg.bellAfterSeconds}s` },
     { value: 'terminal_title', label: 'Set the terminal title', detail: cfg.terminalTitle ? 'on' : 'off' },
     { value: 'soft_line_breaks', label: 'Single line breaks in replies', detail: cfg.softLineBreaks === 'join' ? 'join (flow as one paragraph)' : 'keep (as written)' },
+    { value: 'clipboard', label: 'How /copy reaches the clipboard', detail: { auto: 'auto (a tool, then tmux, then the terminal)', native: 'native tools only', osc52: 'the terminal only (OSC 52)', off: 'off' }[cfg.clipboard] },
     { value: 'reduced_motion', label: 'Reduced motion (still spinner)', detail: cfg.reducedMotion ? 'on' : 'off' },
     { value: 'check_for_updates', label: 'Tell me when a new version is out', detail: cfg.checkForUpdates ? 'on (asks GitHub once a day)' : 'off' },
   ];
@@ -327,6 +328,12 @@ export function ConfigScreen({ config, cols, maxRows, onClose, writeConfig, appl
       case 'soft_line_breaks': {
         const mode = cfg.softLineBreaks === 'join' ? 'keep' : 'join';
         if (writeConfig((d) => d.set('soft_line_breaks', mode))) applySoftLineBreaks(mode);
+        break;
+      }
+      case 'clipboard': {
+        const modes: Array<Config['clipboard']> = ['auto', 'native', 'osc52', 'off'];
+        const m = cycle(modes, cfg.clipboard, dir);
+        writeConfig((d) => (m === 'auto' ? d.delete('clipboard') : d.set('clipboard', m)));
         break;
       }
       case 'reduced_motion':

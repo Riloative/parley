@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **`/copy` said it copied when it had not.** On a Linux desktop without `wl-clipboard` or `xclip`, `/copy` fell back to OSC 52 and reported "Copied … via OSC 52", but VTE-based terminals (GNOME Terminal, Ptyxis, Tilix, Terminator) ignore OSC 52, so nothing reached the clipboard. parley now says *Copied* only when a tool confirmed it, *Sent … (OSC 52)* when it handed the text to the terminal, and *Nothing was copied* (with what it tried, what to install, and an offer to write the text to a file) when no method applies.
+- **tmux:** `/copy` used to wrap OSC 52 for passthrough, which tmux 3.3 and later drop by default. It now hands the text to tmux (`load-buffer -w`), which keeps it in tmux's paste buffer and passes it on to the terminal.
+
+### Added
+
+- **WSL:** `/copy` uses `clip.exe`, sending UTF-16 so non-ASCII text survives.
+- **`clipboard: auto | native | osc52 | off`** and **`clipboard_command:`** in the config (also in `/config`).
+- **`parley doctor`** says which method `/copy` uses and why; **`parley doctor clipboard`** copies a test line and reads it back where a paste tool exists.
+- OSC 52 copies larger than about 73 KB are not sent (terminals drop them silently); parley says so and offers a file.
+- GNU screen: OSC 52 is sent in pieces screen passes through.
+
 ## 0.2.0 — 2026-11-24
 
 ### Added

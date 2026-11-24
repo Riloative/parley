@@ -5,7 +5,8 @@ import { spawnSync } from 'node:child_process';
 import { boot } from './bootstrap.js';
 import { paths } from './config/paths.js';
 import { colorLevel, inTmux, likelySupportsSyncOutput, overSsh, terminalName, unicodeOk } from './term/caps.js';
-import { detectClipboardHelper } from './term/clipboard.js';
+import { copyText, currentContext, detectClipboardHelper, readBackText } from './term/clipboard.js';
+import { loadConfig } from './config/config.js';
 import { detectKeychain, keychainLabel, resolveKey, isLocalUrl, defaultKeyEnv } from './config/credentials.js';
 import { KeyDecoder } from './term/keys.js';
 import { BUILD_KIND, VERSION } from './version.js';
@@ -60,7 +61,34 @@ function probeKitty(): Promise<boolean | undefined> {
   });
 }
 
-export async function runDoctor(): Promise<number> {
+/** `parley doctor clipboard`: copy a test line the way /copy does, and read
+ * it back where a paste tool exists. */
+async function clipboardTest(): Promise<number> {
+  failures = 0;
+  const cfg = loadConfig(paths.configFile).config;
+  const ctx = currentContext();
+  const info = detectClipboardHelper({ mode: cfg.clipboard, command: cfg.clipboardCommand }, ctx);
+  process.stdout.write('parley doctor clipboard\n');
+  section('Clipboard');
+  line(info.ok ? 'info' : 'warn', 'Method', info.detail);
+  for (const s of info.plan.skipped) line('info', 'Not used', s);
+  const sample = `parley clipboard test ${new Date().toTimeString().slice(0, 8)}`;
+  const r = await copyText(sample, { mode: cfg.clipboard, command: cfg.clipboardCommand, ctx });
+  if (r.status === 'off') line('info', 'Test copy', 'not run: clipboard: off');
+  else if (r.status === 'failed') line('fail', 'Test copy', `nothing was copied: ${r.tried.join('; ')}`, r.hint);
+  else if (r.status === 'copied') {
+    const back = readBackText(ctx);
+    if (back === undefined) line('ok', 'Test copy', `${r.via} accepted "${sample}" (no paste tool to read it back)`, 'Paste somewhere to check.');
+    else if (back === sample) line('ok', 'Test copy', `copied with ${r.via} and read back`);
+    else line('fail', 'Test copy', `${r.via} exited successfully, but the clipboard holds something else`, 'Another program may own the clipboard; try clipboard_command in the config.');
+  } else {
+    line('warn', 'Test copy', `sent "${sample}" via ${r.via === 'tmux' ? 'tmux (load-buffer -w)' : 'OSC 52'}; the terminal does not confirm it`, `Paste now (Ctrl+Shift+V, or Ctrl+V in Notepad): you should see "${sample}". If nothing appears, the terminal ignores OSC 52${r.via === 'tmux' ? ' or tmux has set-clipboard off' : ''}; install a clipboard tool or set clipboard_command.`);
+  }
+  return failures ? 1 : 0;
+}
+
+export async function runDoctor(rest: string[] = []): Promise<number> {
+  if (rest[0] === 'clipboard') return clipboardTest();
   failures = 0;
   process.stdout.write('parley doctor\n');
 
@@ -112,8 +140,15 @@ export async function runDoctor(): Promise<number> {
   if (overSsh()) line('info', 'SSH session', 'copying uses OSC 52; image paste is not available over SSH');
 
   section('Clipboard');
-  const clip = detectClipboardHelper();
-  line(clip.ok ? 'ok' : 'warn', 'Clipboard helper', clip.detail);
+  const clipCfg = loadConfig(paths.configFile).config;
+  const clip = detectClipboardHelper({ mode: clipCfg.clipboard, command: clipCfg.clipboardCommand });
+  line(clip.ok ? 'ok' : 'warn', '/copy uses', clip.detail, clip.ok ? undefined : clip.plan.hint);
+  for (const s of clip.plan.skipped) line('info', 'Not used', s);
+  if (process.env.TMUX) {
+    const v = spawnSync('tmux', ['show', '-sv', 'set-clipboard'], { encoding: 'utf8' }).stdout?.trim();
+    line(v === 'off' ? 'warn' : 'ok', 'tmux set-clipboard', v || 'unknown', v === 'off' ? 'set -s set-clipboard external   (in ~/.tmux.conf) so tmux passes copies on to the terminal' : undefined);
+  }
+  line('info', 'Test it', 'parley doctor clipboard   (copies a test line and reads it back)');
 
   section('Storage');
   const kc = await detectKeychain();
