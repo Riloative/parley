@@ -1,8 +1,8 @@
 // `taria key set|remove|status <provider>`
 
-import { deleteOldKeychainEntry, hasOldKeychainEntry } from './config/credentials.js';
+import { hasOldKeychainEntry, removeOldKeychainEntry } from './config/credentials.js';
 import { loadConfig } from './config/config.js';
-import { deleteKey, detectKeychain, keychainLabel, resolveKey, storeKey, defaultKeyEnv } from './config/credentials.js';
+import { deleteKey, detectKeychain, keychainLabel, resolveKey, setKeychainReadOnly, storeKey, defaultKeyEnv } from './config/credentials.js';
 
 function readSecret(prompt: string): Promise<string> {
   return new Promise((resolve) => {
@@ -66,12 +66,26 @@ export async function runKeyCommand(rest: string[]): Promise<number> {
     return 0;
   }
   if (action === 'remove-old') {
-    const had = await hasOldKeychainEntry(provider);
-    if (had) await deleteOldKeychainEntry(provider);
-    process.stdout.write(had ? `Removed the old parley keychain entry for ${provider}. The taria entry is unchanged.\n` : `There is no old parley keychain entry for ${provider}.\n`);
+    const r = await removeOldKeychainEntry(provider);
+    if (r === 'copy-failed' || r === 'remove-failed') {
+      process.stderr.write(
+        r === 'copy-failed'
+          ? `The old parley keychain entry for ${provider} is the only copy of that key, and storing it under taria's name failed. Nothing was removed.\n`
+          : `The keychain refused to remove the old parley entry for ${provider}. Nothing was removed.\n`,
+      );
+      return 1;
+    }
+    process.stdout.write(
+      r === 'none'
+        ? `There is no old parley keychain entry for ${provider}.\n`
+        : r === 'copied-and-removed'
+          ? `Stored the key for ${provider} under taria's name first (it was only under parley's), then removed the old parley entry.\n`
+          : `Removed the old parley keychain entry for ${provider}. The taria entry is unchanged.\n`,
+    );
     return 0;
   }
   const kind = await detectKeychain();
+  setKeychainReadOnly();
   const r = pc ? await resolveKey(pc) : { source: 'none' as const };
   const env = pc ? (pc.apiKeyEnv ?? defaultKeyEnv(pc)) : undefined;
   process.stdout.write(

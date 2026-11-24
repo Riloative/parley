@@ -137,3 +137,73 @@ describe('the parley command', () => {
     expect(bad.stderr).toMatch(/Unknown option --no-such-option/);
   });
 });
+
+describe('the keychain, with real processes and a fake keychain tool', () => {
+  /** `secret-tool` and `security` that keep entries as files and log every call. */
+  function fakeKeychainTools(home: string): { bin: string; dir: string; entries: () => string[]; log: () => string } {
+    const bin = join(home, 'kcbin');
+    const dir = join(home, 'kc');
+    mkdirSync(bin);
+    mkdirSync(dir);
+    const script = `#!/bin/sh
+D='${dir}'
+echo "$*" >> "$D/log"
+op=$1
+case "$0" in
+  *security) while [ $# -gt 0 ]; do case "$1" in -s) svc=$2; shift;; -a) acc=$2; shift;; -w) key=$2; [ $# -gt 1 ] && shift;; esac; shift; done
+    case "$op" in
+      find-generic-password) [ -f "$D/$svc.$acc" ] || exit 44; /bin/cat "$D/$svc.$acc";;
+      add-generic-password) printf '%s' "$key" > "$D/$svc.$acc";;
+      delete-generic-password) [ -f "$D/$svc.$acc" ] || exit 44; /bin/rm "$D/$svc.$acc";;
+    esac;;
+  *) [ "$op" = --version ] && exit 0
+    while [ $# -gt 0 ]; do case "$1" in service) svc=$2; shift;; account) acc=$2; shift;; esac; shift; done
+    case "$op" in
+      lookup) [ -f "$D/$svc.$acc" ] || exit 1; /bin/cat "$D/$svc.$acc";;
+      store) /bin/cat > "$D/$svc.$acc";;
+      clear) /bin/rm -f "$D/$svc.$acc";;
+    esac;;
+esac
+`;
+    for (const t of ['secret-tool', 'security']) {
+      writeFileSync(join(bin, t), script);
+      chmodSync(join(bin, t), 0o755);
+    }
+    return { bin, dir, entries: () => readdirSync(dir).filter((f) => f !== 'log').sort(), log: () => (existsSync(join(dir, 'log')) ? readFileSync(join(dir, 'log'), 'utf8') : '') };
+  }
+  const KEY = 'sk-test-FAKE-OLD-0123456789abcdef';
+  const CONFIG = 'default_model: mock/echo\nproviders:\n  mock:\n    type: mock\n  acme:\n    type: openai-compatible\n    base_url: http://127.0.0.1:1/v1\n';
+  function setup() {
+    const home = mkdtempSync(join(tmpdir(), 'taria-kc-'));
+    mkdirSync(join(home, 'config', 'taria'), { recursive: true });
+    writeFileSync(join(home, 'config', 'taria', 'config.yaml'), CONFIG);
+    const kc = fakeKeychainTools(home);
+    writeFileSync(join(kc.dir, 'parley.acme'), KEY);
+    const env = { PATH: kc.bin, TARIA_NO_KEYCHAIN: '', XDG_RUNTIME_DIR: home, NO_COLOR: '1' };
+    return { home, kc, env };
+  }
+
+  it('`taria doctor` and `taria key status` find a key stored by parley and change nothing in the keychain', () => {
+    const { home, kc, env } = setup();
+    const d = run(home, ['doctor'], env);
+    expect(d.stdout).toMatch(/acme.*key from keychain/);
+    expect(d.stdout + d.stderr).not.toContain(KEY);
+    expect(kc.entries()).toEqual(['parley.acme']);
+    const st = run(home, ['key', 'status', 'acme'], env);
+    expect(st.stdout).toMatch(/Key source: keychain \(.*the parley entry\)/);
+    expect(st.stdout).toContain('taria key remove-old acme');
+    expect(kc.entries()).toEqual(['parley.acme']);
+    expect(kc.log()).not.toMatch(/^(store|add-generic-password|clear|delete-generic-password)/m);
+  });
+
+  it('`taria key remove-old` stores the key under taria\'s name before it removes the only copy', () => {
+    const { home, kc, env } = setup();
+    const r = run(home, ['key', 'remove-old', 'acme'], env);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toMatch(/under taria's name first/);
+    expect(r.stdout + r.stderr).not.toContain(KEY);
+    expect(kc.entries()).toEqual(['taria.acme']);
+    expect(readFileSync(join(kc.dir, 'taria.acme'), 'utf8')).toBe(KEY);
+    expect(run(home, ['key', 'status', 'acme'], env).stdout).toMatch(/Key source: keychain/);
+  });
+});

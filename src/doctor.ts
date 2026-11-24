@@ -11,7 +11,7 @@ import { paths } from './config/paths.js';
 import { colorLevel, inTmux, likelySupportsSyncOutput, overSsh, terminalName, unicodeOk } from './term/caps.js';
 import { copyText, currentContext, detectClipboardHelper, readBackText } from './term/clipboard.js';
 import { loadConfig } from './config/config.js';
-import { detectKeychain, keychainLabel, resolveKey, isLocalUrl, defaultKeyEnv } from './config/credentials.js';
+import { detectKeychain, keychainLabel, resolveKey, setKeychainReadOnly, isLocalUrl, defaultKeyEnv } from './config/credentials.js';
 import { KeyDecoder } from './term/keys.js';
 import { BUILD_KIND, VERSION } from './version.js';
 
@@ -174,6 +174,7 @@ export async function runDoctor(rest: string[] = []): Promise<number> {
   if (rest[0] === 'clipboard') return clipboardTest();
   if (rest[0] === 'repair') return repairConversations();
   failures = 0;
+  setKeychainReadOnly();
   process.stdout.write('taria doctor\n');
 
   section('Installation');

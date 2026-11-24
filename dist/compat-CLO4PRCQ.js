@@ -1,5 +1,5 @@
 import { createRequire as __tariaCreateRequire } from 'node:module'; const require = __tariaCreateRequire(import.meta.url);
-import{a as A,b as C,e as k,f as R,g as M}from"./chunk-MMFRQKBG.js";import{a as h}from"./chunk-BAWE62GJ.js";import{d as v}from"./chunk-3IDSU5M3.js";import"./chunk-ZBY3FUV2.js";import"./chunk-A5CHC2K6.js";import"./chunk-SGJ7RKDV.js";function E(o,e){let t=[];e&&t.push({role:"system",content:e});for(let i of o){let a=i.content.some(n=>n.type==="image"&&n.data);if(i.role==="assistant"||!a){let n=i.content.map(d=>d.type==="text"?d.text:d.type==="file"?`<file name="${d.name}">
+import{a as A,b as C,e as k,f as R,g as M}from"./chunk-IAOU6ISC.js";import{a as h}from"./chunk-BAWE62GJ.js";import{d as v}from"./chunk-TJ4SQLBO.js";import"./chunk-ZKAVJ6LF.js";import"./chunk-A5CHC2K6.js";import"./chunk-SGJ7RKDV.js";function E(o,e){let t=[];e&&t.push({role:"system",content:e});for(let i of o){let a=i.content.some(n=>n.type==="image"&&n.data);if(i.role==="assistant"||!a){let n=i.content.map(d=>d.type==="text"?d.text:d.type==="file"?`<file name="${d.name}">
 ${d.text}
 </file>
 `:"").join("");t.push({role:i.role,content:n||"(empty)"});continue}let s=[];for(let n of i.content)n.type==="text"&&n.text?s.push({type:"text",text:n.text}):n.type==="file"?s.push({type:"text",text:`<file name="${n.name}">

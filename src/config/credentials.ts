@@ -111,16 +111,41 @@ async function keychainLookup(service: string, provider: string): Promise<string
 /** The key under taria's name, else under parley's. A key found only under
  * parley's name is also stored under taria's (the old entry is left, so an
  * old parley keeps working; `taria key status` mentions it). */
-async function keychainGet(provider: string): Promise<{ key: string; migrated: boolean } | undefined> {
-  const key = await keychainLookup(SERVICE, provider);
-  if (key) return { key, migrated: false };
-  const old = await keychainLookup(OLD_SERVICE, provider);
-  if (!old) return undefined;
-  const copied = await keychainSet(provider, old).catch(() => false);
-  return { key: old, migrated: copied };
+let lookOnly = false;
+/** `taria doctor` and `taria key status` must change nothing: after this, no
+ * lookup in this process copies parley's keychain entry to taria's name. */
+export function setKeychainReadOnly(): void {
+  lookOnly = true;
 }
 
-export async function deleteOldKeychainEntry(provider: string): Promise<boolean> {
+async function keychainGet(provider: string, readOnly = false): Promise<{ key: string; from: 'taria' | 'old'; copied: boolean } | undefined> {
+  const key = await keychainLookup(SERVICE, provider);
+  if (key) return { key, from: 'taria', copied: false };
+  const old = await keychainLookup(OLD_SERVICE, provider);
+  if (!old) return undefined;
+  // `taria doctor` and `taria key status` only look: they must change nothing.
+  const copied = readOnly || lookOnly ? false : await keychainSet(provider, old).catch(() => false);
+  return { key: old, from: 'old', copied };
+}
+
+/** `taria key remove-old`: removes the key under parley's name, but never
+ * the only copy. If taria's name has no key yet, the old one is stored there
+ * first and read back; if that fails, nothing is removed. */
+export async function removeOldKeychainEntry(provider: string): Promise<'none' | 'removed' | 'copied-and-removed' | 'copy-failed' | 'remove-failed'> {
+  const old = await keychainLookup(OLD_SERVICE, provider).catch(() => undefined);
+  if (!old) return 'none';
+  let copied = false;
+  if (!(await keychainLookup(SERVICE, provider).catch(() => undefined))) {
+    const stored = await keychainSet(provider, old).catch(() => false);
+    if (!stored || (await keychainLookup(SERVICE, provider).catch(() => undefined)) !== old) return 'copy-failed';
+    copied = true;
+  }
+  if (!(await deleteOldKeychainEntry(provider).catch(() => false))) return 'remove-failed';
+  cache.delete(provider);
+  return copied ? 'copied-and-removed' : 'removed';
+}
+
+async function deleteOldKeychainEntry(provider: string): Promise<boolean> {
   const kind = await detectKeychain();
   if (kind === 'macos') return (await run('security', ['delete-generic-password', '-s', OLD_SERVICE, '-a', provider])).code === 0;
   if (kind === 'libsecret') return (await run('secret-tool', ['clear', 'service', OLD_SERVICE, 'account', provider])).code === 0;
@@ -190,7 +215,7 @@ function writeCredentialsFile(entries: Record<string, string>, file = paths.cred
 
 const cache = new Map<string, ResolvedKey>();
 
-export async function resolveKey(p: ProviderConfig): Promise<ResolvedKey> {
+export async function resolveKey(p: ProviderConfig, opts: { readOnly?: boolean } = {}): Promise<ResolvedKey> {
   const cached = cache.get(p.name);
   if (cached) return cached;
   const envName = p.apiKeyEnv ?? defaultKeyEnv(p);
@@ -198,8 +223,8 @@ export async function resolveKey(p: ProviderConfig): Promise<ResolvedKey> {
   const envVal = envName ? process.env[envName] : undefined;
   if (envVal) res = { key: envVal.trim(), source: 'env', detail: envName };
   else {
-    const kc = await keychainGet(p.name).catch(() => undefined);
-    if (kc) res = { key: kc.key, source: 'keychain', detail: `${keychainLabel(await detectKeychain())}${kc.migrated ? ` (copied from the ${OLD_APP} entry)` : ''}` };
+    const kc = await keychainGet(p.name, opts.readOnly).catch(() => undefined);
+    if (kc) res = { key: kc.key, source: 'keychain', detail: `${keychainLabel(await detectKeychain())}${kc.copied ? ` (copied from the ${OLD_APP} entry)` : kc.from === 'old' ? ` (the ${OLD_APP} entry)` : ''}` };
     else {
       const f = readCredentialsFile()[p.name];
       if (f) res = { key: f, source: 'file', detail: paths.credentialsFile };
@@ -212,7 +237,9 @@ export async function resolveKey(p: ProviderConfig): Promise<ResolvedKey> {
       }
     }
   }
-  if (res.key) cache.set(p.name, res);
+  // A look that copied nothing is not remembered: the next normal lookup in
+  // this process still stores the key under taria's name.
+  if (res.key && !(opts.readOnly && !lookOnly && res.source === 'keychain')) cache.set(p.name, res);
   return res;
 }
 
