@@ -170,9 +170,10 @@ export function validEvent(raw: unknown): StoreEvent | null {
 }
 
 /** Replay events into a Conversation. Tolerates a truncated final line. */
-export function replay(id: string, text: string): { conv: Conversation; partial?: StoredMessage } {
+export function replay(id: string, text: string): { conv: Conversation; partial?: StoredMessage; lost: StoredMessage[] } {
   const conv = new Conversation(id);
   const partials = new Map<string, StoredMessage>();
+  const hasChildren = new Set<string>();
   let lastPartial: string | undefined;
   for (const line of text.split('\n')) {
     if (!line.trim()) continue;
@@ -194,7 +195,13 @@ export function replay(id: string, text: string): { conv: Conversation; partial?
       case 'message': {
         const { type: _t, ...m } = ev;
         partials.delete(m.id);
+        // A reply recorded after the conversation had already gone on from it
+        // (a recovered partial): it is not the newest message, so the head
+        // stays where it was.
+        const keep = hasChildren.has(m.id) ? conv.headId : undefined;
         conv.add(m);
+        if (keep !== undefined) conv.headId = keep;
+        if (m.parentId) hasChildren.add(m.parentId);
         break;
       }
       case 'partial':
@@ -226,12 +233,26 @@ export function replay(id: string, text: string): { conv: Conversation; partial?
   }
   if (conv.headId && !conv.messages.has(conv.headId) && !partials.has(conv.headId)) conv.headId = null;
   // A reply that was streaming when the process died: recover what arrived.
+  // Cut-off replies that the conversation went on from. parley 0.0.1 to 0.2.0
+  // recovered only the last partial and never recorded it, so once the
+  // conversation continued, everything before such a reply was hidden. Their
+  // lines are all here: recover them, without moving the head.
+  const tip = conv.headId;
+  const lost: StoredMessage[] = [];
+  for (const [pid, p] of partials) {
+    if (!hasChildren.has(pid) || conv.messages.has(pid)) continue;
+    conv.add(p);
+    lost.push(p);
+  }
+  conv.headId = tip;
   let partial: StoredMessage | undefined;
-  if (lastPartial && partials.has(lastPartial)) {
+  if (lastPartial && partials.has(lastPartial) && !hasChildren.has(lastPartial)) {
     partial = partials.get(lastPartial)!;
+    // A reply that was streaming when the process died, with nothing after
+    // it: recover what arrived, as the newest message.
     if (partial.content.length) conv.add(partial);
   }
-  return { conv, partial };
+  return { conv, partial, lost };
 }
 
 function appendPart(m: StoredMessage, kind: 'text' | 'reasoning', text: string): void {
@@ -249,6 +270,8 @@ function appendPart(m: StoredMessage, kind: 'text' | 'reasoning', text: string):
 export class ConversationFile {
   private lockPath: string;
   private released = false;
+  /** Replies lost to the 0.0.1–0.2.0 crash bug that opening this file recorded. */
+  repaired = 0;
 
   constructor(
     readonly file: string,
@@ -406,7 +429,7 @@ export class Store {
   open(id: string, opts: { lock?: boolean } = {}): ConversationFile {
     const file = this.fileFor(id);
     const text = readFileSync(file, 'utf8');
-    const { conv, partial } = replay(id, text);
+    const { conv, partial, lost } = replay(id, text);
     const cf = new ConversationFile(file, conv);
     if (opts.lock !== false) {
       cf.acquireLock();
@@ -420,6 +443,13 @@ export class Store {
       //   exists. Recording it as an (interrupted) message keeps it.
       if (text && !text.endsWith('\n')) appendFileSync(file, '\n', { mode: 0o600 });
       if (partial?.content.length) cf.append({ type: 'message', ...partial });
+      // Replies lost to the 0.0.1–0.2.0 crash bug: recorded the same way, so
+      // the file is whole for every reader.
+      for (const m of lost) cf.append({ type: 'message', ...m });
+      cf.repaired = lost.length;
+      // Older readers move the head to the last message they read: point it
+      // back at the real tip.
+      if (lost.length && conv.headId) cf.append({ type: 'head', id: conv.headId, ts: Date.now() });
     }
     return cf;
   }
@@ -534,4 +564,36 @@ export function extFor(mediaType: string): string {
     default:
       return 'bin';
   }
+}
+
+/** Conversations hit by the 0.0.1–0.2.0 crash bug and not repaired yet:
+ * `lost` cut-off replies whose recording would show `hidden` more messages.
+ * Reads only. */
+export function scanForRepairs(store: Store): Array<{ id: string; title?: string; lost: number; hidden: number }> {
+  const out: Array<{ id: string; title?: string; lost: number; hidden: number }> = [];
+  let names: string[];
+  try {
+    names = readdirSync(store.conversationsDir);
+  } catch {
+    return out;
+  }
+  for (const n of names.sort()) {
+    if (!n.endsWith('.jsonl')) continue;
+    const id = n.slice(0, -'.jsonl'.length);
+    let text: string;
+    try {
+      text = readFileSync(join(store.conversationsDir, n), 'utf8');
+    } catch {
+      continue;
+    }
+    if (!text.includes('"partial"')) continue; // the common case, cheaply
+    const { conv, lost } = replay(id, text);
+    if (!lost.length) continue;
+    // How many messages the old reading hid: those before the first lost reply
+    // on the current path.
+    const path = conv.path();
+    const firstLost = path.findIndex((m) => lost.some((l) => l.id === m.id));
+    out.push({ id, title: conv.title, lost: lost.length, hidden: firstLost < 0 ? 0 : firstLost + 1 });
+  }
+  return out;
 }

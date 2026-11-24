@@ -195,6 +195,7 @@ export class Session extends EventEmitter {
     this.warned80 = false;
     this.send_({ type: 'reset' });
     this.send_({ type: 'model', model: this.model });
+    if (f.repaired) this.notice(repairNotice(f.repaired), 'success');
     return true;
   }
 
@@ -818,4 +819,10 @@ export class Session extends EventEmitter {
       attachments: q.flatMap((m) => m.attachments ?? []),
     });
   }
+}
+
+/** What to tell the user when opening a conversation recorded replies that
+ * the 0.0.1–0.2.0 crash bug had lost. */
+export function repairNotice(n: number): string {
+  return `Repaired this conversation: ${n === 1 ? 'a reply was' : `${n} replies were`} cut off by a crash in parley before 0.2.0, which hid the messages before ${n === 1 ? 'it' : 'them'}. ${n === 1 ? 'It is' : 'They are'} now recorded, marked as interrupted, and the whole conversation shows again.`;
 }

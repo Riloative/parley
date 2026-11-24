@@ -35,6 +35,7 @@ Usage
   cat notes.md | taria -p "summarise"
   taria doctor                      check terminal, clipboard, keychain and providers
   taria doctor clipboard            try a copy the way /copy does it
+  taria doctor repair                repair conversations a crash in parley < 0.2.0 cut short
   taria key set <provider>          store an API key in the keychain
   taria key remove <provider>       remove a stored key
   taria key status <provider>       show where the key for a provider comes from
