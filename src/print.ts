@@ -4,7 +4,7 @@
 
 import type { Args } from './args.js';
 import { boot, chooseModel } from './bootstrap.js';
-import { Session, type SessionEvent } from './core/session.js';
+import { Session, type SessionEvent, repairNotice } from './core/session.js';
 import { StreamingMarkdown } from './render/markdown.js';
 import { lineToAnsi, type Line } from './render/style.js';
 import { loadHighlighter } from './render/highlight.js';
@@ -46,6 +46,9 @@ export async function runPrint(args: Args): Promise<number> {
     return 1;
   }
   session.off('event', onEarly);
+  // Opening a conversation hit by the 0.0.1–0.2.0 crash bug records the lost
+  // replies. Say so, on stderr: stdout is the answer.
+  if (session.file?.repaired) process.stderr.write(`taria: ${repairNotice(session.file.repaired)}\n`);
   const model = chooseModel(b, args.model, session.conv.model);
   if (!model) {
     process.stderr.write('taria: no model selected. Use -m provider/model-id, or set default_model in the config file.\n');

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Fixed
+
+- **`taria -p -c`** now says, on stderr, when opening the conversation repaired replies cut off by the old crash bug. It used to repair silently.
+- The 0.3.0 notes said "parley" in three places where they described new behaviour of taria (`taria doctor`, `taria doctor clipboard`, the `/copy` messages).
+
 ### Changed
 
 - **Binaries are published for two platforms: Linux x64 and Apple Silicon Macs.** The Intel Mac (`darwin-x64`) and arm64 Linux (`linux-arm64`) binaries are no longer built. The npm package still works on both (Node.js 22 or newer), and `install.sh` says so there instead of failing on a missing download. 0.3.0 remains the last release with those two binaries.
@@ -28,7 +33,7 @@
 - **The conversation list** (`-c`, `/resume`) could show a stale title or message count for a file rewritten with the same size and modification time (by a restore or sync tool); the cache now also compares the change time and inode.
 - **`/terminal-setup`** keeps Windows line endings in a `keybindings.json` that uses them.
 - A conversation that 0.2.0 had already patched this way, by recording the recovered reply at the end of the file, opened at that reply instead of the newest message; it now opens at the newest message.
-- **`/copy` said it copied when it had not.** On a Linux desktop without `wl-clipboard` or `xclip`, `/copy` fell back to OSC 52 and reported "Copied … via OSC 52", but VTE-based terminals (GNOME Terminal, Ptyxis, Tilix, Terminator) ignore OSC 52, so nothing reached the clipboard. parley now says *Copied* only when a tool confirmed it, *Sent … (OSC 52)* when it handed the text to the terminal, and *Nothing was copied* (with what it tried, what to install, and an offer to write the text to a file) when no method applies.
+- **`/copy` said it copied when it had not.** On a Linux desktop without `wl-clipboard` or `xclip`, `/copy` fell back to OSC 52 and reported "Copied … via OSC 52", but VTE-based terminals (GNOME Terminal, Ptyxis, Tilix, Terminator) ignore OSC 52, so nothing reached the clipboard. taria now says *Copied* only when a tool confirmed it, *Sent … (OSC 52)* when it handed the text to the terminal, and *Nothing was copied* (with what it tried, what to install, and an offer to write the text to a file) when no method applies.
 - **tmux:** `/copy` used to wrap OSC 52 for passthrough, which tmux 3.3 and later drop by default. It now hands the text to tmux (`load-buffer -w`), which keeps it in tmux's paste buffer and passes it on to the terminal.
 
 ### Added
@@ -38,8 +43,8 @@
 - **JSON Schema for the config file** (`schema/config.schema.json`), referenced from the first line of new config files, so editors check and complete it.
 - **WSL:** `/copy` uses `clip.exe`, sending UTF-16 so non-ASCII text survives.
 - **`clipboard: auto | native | osc52 | off`** and **`clipboard_command:`** in the config (also in `/config`).
-- **`parley doctor`** says which method `/copy` uses and why; **`parley doctor clipboard`** copies a test line and reads it back where a paste tool exists.
-- OSC 52 copies larger than about 73 KB are not sent (terminals drop them silently); parley says so and offers a file.
+- **`taria doctor`** says which method `/copy` uses and why; **`taria doctor clipboard`** copies a test line and reads it back where a paste tool exists.
+- OSC 52 copies larger than about 73 KB are not sent (terminals drop them silently); taria says so and offers a file.
 - GNU screen: OSC 52 is sent in pieces screen passes through.
 
 ### Measured
