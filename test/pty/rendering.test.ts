@@ -276,8 +276,11 @@ describe.runIf(hasTmux)('inside tmux', () => {
     try {
       await s.waitFor('Send a message', 15_000);
       // parley asks for modified keys once its terminal probe finishes, and
-      // tmux then asks the outer terminal: wait for that, not for a fixed time.
-      await s.waitFor(() => s!.raw.includes('\x1b[>4;1m'), 15_000);
+      // tmux then asks the outer terminal. Wait for that request when tmux
+      // makes one this harness can see (its form differs between tmux
+      // versions, and some send none); otherwise allow the same time as
+      // before.
+      await s.waitFor(() => /\x1b\[>4;\d+m/.test(s!.raw), 3000).catch(() => undefined);
       await sleep(150);
       s.write('one');
       s.write('\x1b[27;2;13~'); // Shift+Enter, xterm modifyOtherKeys form
