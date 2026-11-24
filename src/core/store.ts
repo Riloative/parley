@@ -15,6 +15,7 @@ import {
   renameSync,
   statSync,
   unlinkSync,
+  utimesSync,
   writeFileSync,
   writeSync,
 } from 'node:fs';
@@ -284,17 +285,18 @@ export class ConversationFile {
     return this.conv.id;
   }
 
-  acquireLock(): void {
+  /** Returns false when this process held the lock already. */
+  acquireLock(): boolean {
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         const fd = openSync(this.lockPath, 'wx', 0o600);
         writeSync(fd, JSON.stringify({ pid: process.pid, started: Math.round(ownStart()) }));
         closeSync(fd);
-        return;
+        return true;
       } catch (e) {
         if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
         const info = parseLock(readFileSafe(this.lockPath));
-        if (info.pid === process.pid) return;
+        if (info.pid === process.pid) return false;
         if (holderAlive(info)) throw new ConversationLockedError(info.pid);
         try {
           unlinkSync(this.lockPath); // stale lock from a crashed process
@@ -319,6 +321,24 @@ export class ConversationFile {
   append(ev: StoreEvent): void {
     // One write per event; with O_APPEND the line lands atomically at the end.
     appendFileSync(this.file, JSON.stringify(ev) + '\n', { mode: 0o600 });
+  }
+}
+
+/**
+ * Put a file's modification time back after appending bookkeeping lines.
+ *
+ * list() ranks by the later of the stored time and the file's mtime (the
+ * mtime covers events that carry no time, and whatever older versions
+ * wrote), so both must stay as they were, or a months-old conversation that
+ * was merely repaired becomes the one `-c` continues. Only called with the
+ * lock held, so no other window's write is dated back. The summary cache
+ * still notices the new lines: it is keyed on the size and change time too.
+ */
+function keepMtime(file: string, mtimeMs: number): void {
+  try {
+    utimesSync(file, statSync(file).atimeMs / 1000, mtimeMs / 1000);
+  } catch {
+    /* not ours to change (another owner's file): only the order is affected */
   }
 }
 
@@ -434,30 +454,52 @@ export class Store {
 
   open(id: string, opts: { lock?: boolean } = {}): ConversationFile {
     const file = this.fileFor(id);
-    const text = readFileSync(file, 'utf8');
-    const { conv, partial, lost } = replay(id, text);
-    const cf = new ConversationFile(file, conv);
-    if (opts.lock !== false) {
-      cf.acquireLock();
-      // This process will append to the file. Two leftovers of a crash must
-      // be settled first, by appending (nothing is rewritten):
-      // - a torn last line: without a newline after it, the next event
-      //   would be glued to the fragment and lost with it;
-      // - a reply that was streaming: replay recovers only the *last*
-      //   partial, so once the conversation continued it would be dropped,
-      //   and every later message would hang off a parent that no longer
-      //   exists. Recording it as an (interrupted) message keeps it.
-      if (text && !text.endsWith('\n')) appendFileSync(file, '\n', { mode: 0o600 });
-      if (partial?.content.length) cf.append({ type: 'message', ...partial });
-      // Replies lost to the 0.0.1–0.2.0 crash bug: recorded the same way, so
-      // the file is whole for every reader.
-      for (const m of lost) cf.append({ type: 'message', ...m });
-      cf.repaired = lost.length;
-      // Older readers move the head to the last message they read: point it
-      // back at the real tip.
-      if (lost.length && conv.headId) cf.append({ type: 'head', id: conv.headId, ts: Date.now() });
+    if (opts.lock === false) return new ConversationFile(file, replay(id, readFileSync(file, 'utf8')).conv);
+    // The lock comes first, and the file is read only once it is held: what
+    // is appended below is decided from the file's contents, and a window
+    // that held the lock a moment ago may have finished a reply or gone on
+    // since. (Read before locking, its finished reply would be recorded again
+    // as the cut-off beginning it was, and the later line wins.)
+    const lock = new ConversationFile(file, new Conversation(id));
+    const fresh = lock.acquireLock();
+    try {
+      const text = readFileSync(file, 'utf8');
+      const { conv, partial, lost } = replay(id, text);
+      const cf = new ConversationFile(file, conv);
+      // Settling is bookkeeping, not activity: the file keeps its
+      // modification time (see keepMtime), and the head event below carries
+      // no new time, so the conversation stays where it was in list().
+      const mtimeMs = statSync(file).mtimeMs;
+      let appended = false;
+      try {
+        // This process will append to the file. Two leftovers of a crash must
+        // be settled first, by appending (nothing is rewritten):
+        // - a torn last line: without a newline after it, the next event
+        //   would be glued to the fragment and lost with it;
+        // - a reply that was streaming: replay recovers only the *last*
+        //   partial, so once the conversation continued it would be dropped,
+        //   and every later message would hang off a parent that no longer
+        //   exists. Recording it as an (interrupted) message keeps it.
+        appended = (!!text && !text.endsWith('\n')) || !!partial?.content.length || lost.length > 0;
+        if (text && !text.endsWith('\n')) appendFileSync(file, '\n', { mode: 0o600 });
+        if (partial?.content.length) cf.append({ type: 'message', ...partial });
+        // Replies lost to the 0.0.1–0.2.0 crash bug: recorded the same way, so
+        // the file is whole for every reader.
+        for (const m of lost) cf.append({ type: 'message', ...m });
+        cf.repaired = lost.length;
+        // Older readers move the head to the last message they read: point it
+        // back at the real tip, which is `null` when the user had rewound to
+        // the very start. The time is the conversation's own, not now.
+        if (lost.length) cf.append({ type: 'head', id: conv.headId, ts: conv.updatedAt });
+      } finally {
+        if (appended) keepMtime(file, mtimeMs);
+      }
+      return cf;
+    } catch (e) {
+      // Not this call's lock to give up if the process held it before.
+      if (fresh) lock.releaseLock();
+      throw e;
     }
-    return cf;
   }
 
   /**
@@ -574,8 +616,9 @@ export function extFor(mediaType: string): string {
 }
 
 /** Conversations hit by the 0.0.1–0.2.0 crash bug and not repaired yet:
- * `lost` cut-off replies whose recording would show `hidden` more messages.
- * Reads only. */
+ * `lost` cut-off replies that were never recorded, and the `hidden` messages
+ * the old versions stopped showing because of them (0 when every lost reply
+ * is on a branch the user left). Reads only. */
 export function scanForRepairs(store: Store): Array<{ id: string; title?: string; lost: number; hidden: number }> {
   const out: Array<{ id: string; title?: string; lost: number; hidden: number }> = [];
   let names: string[];
@@ -596,11 +639,11 @@ export function scanForRepairs(store: Store): Array<{ id: string; title?: string
     if (!text.includes('"partial"')) continue; // the common case, cheaply
     const { conv, lost } = replay(id, text);
     if (!lost.length) continue;
-    // How many messages the old reading hid: those before the first lost reply
-    // on the current path.
-    const path = conv.path();
-    const firstLost = path.findIndex((m) => lost.some((l) => l.id === m.id));
-    out.push({ id, title: conv.title, lost: lost.length, hidden: firstLost < 0 ? 0 : firstLost + 1 });
+    // What the old reading hid: it walked back from the newest message and
+    // stopped at the first reply it did not have, so everything up to and
+    // including the *last* lost reply on the current path was missing.
+    const lastLost = conv.path().findLastIndex((m) => lost.includes(m));
+    out.push({ id, title: conv.title, lost: lost.length, hidden: lastLost + 1 });
   }
   return out;
 }

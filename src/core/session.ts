@@ -824,5 +824,7 @@ export class Session extends EventEmitter {
 /** What to tell the user when opening a conversation recorded replies that
  * the 0.0.1–0.2.0 crash bug had lost. */
 export function repairNotice(n: number): string {
-  return `Repaired this conversation: ${n === 1 ? 'a reply was' : `${n} replies were`} cut off by a crash in parley before 0.2.0, which hid the messages before ${n === 1 ? 'it' : 'them'}. ${n === 1 ? 'It is' : 'They are'} now recorded, marked as interrupted, and the whole conversation shows again.`;
+  // Says only what is true in every case: a lost reply on a branch the user
+  // left hid nothing of what was showing.
+  return `Repaired this conversation: ${n === 1 ? 'a reply was' : `${n} replies were`} cut off by a crash in parley before 0.2.0 and never recorded, so parley no longer showed ${n === 1 ? 'it' : 'them'} or the messages before ${n === 1 ? 'it' : 'them'} on that branch. ${n === 1 ? 'It is' : 'They are'} now recorded, marked as interrupted, and nothing is missing any more.`;
 }

@@ -2,8 +2,8 @@
 
 import { accessSync, constants, existsSync, lstatSync, readFileSync, realpathSync, statSync, type Stats } from 'node:fs';
 import { delimiter, dirname, join } from 'node:path';
-import { APP, OLD_APP, OLD_NAMES_REMOVED_IN, legacyEnvNotice } from './brand.js';
-import { DIR_KINDS } from './config/paths.js';
+import { APP, OLD_APP, OLD_NAMES_REMOVED_IN, legacyEnvNotice, renameNotices } from './brand.js';
+import { DIR_KINDS, dirIsExplicit } from './config/paths.js';
 import { spawnSync } from 'node:child_process';
 import { boot } from './bootstrap.js';
 import { Store, scanForRepairs } from './core/store.js';
@@ -132,17 +132,57 @@ function realpathSafe(f: string): string {
   }
 }
 
-/** `taria doctor repair`: list the conversations the 0.0.1–0.2.0 crash bug
- * hid messages in, and record the lost replies after the user agrees. */
+interface RepairHit {
+  store: Store;
+  /** Set for a conversation in parley's old data folder: that folder. */
+  oldDir?: string;
+  id: string;
+  title?: string;
+  lost: number;
+  hidden: number;
+}
+
+/**
+ * Conversations the 0.0.1–0.2.0 crash bug left unrecorded replies in. Reads
+ * only.
+ *
+ * Looks in taria's data folder and, while it is still a folder of its own, in
+ * parley's: plain `doctor` moves nothing, so before the move that is where
+ * every conversation is; and a folder that cannot be moved (taria's already
+ * has files) stays behind for good.
+ */
+function findRepairs(): RepairHit[] {
+  const stores: Array<{ store: Store; oldDir?: string }> = [{ store: new Store(paths.dataDir) }];
+  const old = paths.legacyDir('data');
+  // After the move the old folder is a link to the new one: the same files.
+  if (!dirIsExplicit('data') && existsSync(old) && realpathSafe(old) !== realpathSafe(paths.dataDir)) stores.push({ store: new Store(old), oldDir: old });
+  return stores.flatMap((s) => scanForRepairs(s.store).map((h) => ({ ...s, ...h })));
+}
+
+const cutOff = (n: number) => `${n} cut-off repl${n === 1 ? 'y' : 'ies'}`;
+
+/**
+ * `taria doctor repair`: list the conversations the 0.0.1–0.2.0 crash bug
+ * left unrecorded replies in, and record them after the user agrees.
+ *
+ * Unlike plain `doctor` this command writes, so like every other command
+ * that writes it starts (in cli.ts) by moving parley's folders: what it
+ * repairs is then what taria opens, and the move's own checks (a parley that
+ * is still running) apply. Conversations in an old folder that was not moved
+ * are repaired where they are.
+ */
 async function repairConversations(): Promise<number> {
-  const store = new Store(paths.dataDir);
-  const hit = scanForRepairs(store);
+  for (const n of renameNotices.splice(0)) process.stderr.write(`taria: ${n}\n`);
+  const hit = findRepairs();
   process.stdout.write('taria doctor repair\n\n');
   if (!hit.length) {
     process.stdout.write('No conversation needs repair.\n');
     return 0;
   }
-  for (const h of hit) process.stdout.write(`  ${h.title ?? h.id} (${h.id}): ${h.lost} cut-off repl${h.lost === 1 ? 'y' : 'ies'}, ${h.hidden} earlier message${h.hidden === 1 ? '' : 's'} hidden\n`);
+  for (const h of hit) {
+    const what = h.hidden ? `${cutOff(h.lost)}, ${h.hidden} earlier message${h.hidden === 1 ? '' : 's'} hidden` : `${cutOff(h.lost)} on a branch you left, no message hidden`;
+    process.stdout.write(`  ${h.title ?? h.id} (${h.id})${h.oldDir ? ` in ${h.oldDir}` : ''}: ${what}\n`);
+  }
   process.stdout.write('\nRepair records each cut-off reply as a message (marked as interrupted) at the end of its file.\nNothing already in the files is changed or deleted.\n');
   if (!process.stdin.isTTY) {
     process.stdout.write('Run this in a terminal to confirm. (Opening a conversation in taria also repairs it.)\n');
@@ -159,7 +199,7 @@ async function repairConversations(): Promise<number> {
   let failed = 0;
   for (const h of hit) {
     try {
-      const f = store.open(h.id);
+      const f = h.store.open(h.id);
       f.releaseLock();
       process.stdout.write(`  repaired ${h.title ?? h.id}: ${f.repaired} repl${f.repaired === 1 ? 'y' : 'ies'} recorded\n`);
     } catch (e) {
@@ -239,10 +279,16 @@ export async function runDoctor(rest: string[] = []): Promise<number> {
   line('info', 'Test it', 'taria doctor clipboard   (copies a test line and reads it back)');
 
   section('Conversations');
-  const hit = scanForRepairs(new Store(paths.dataDir));
+  const hit = findRepairs();
   if (!hit.length) line('ok', 'Crash damage', 'none (no conversation is missing earlier messages)');
   else {
-    for (const h of hit.slice(0, 10)) line('warn', 'Needs repair', `${h.title ?? h.id}: ${h.hidden} earlier message${h.hidden === 1 ? '' : 's'} hidden by a reply cut off in parley before 0.2.0`);
+    for (const h of hit.slice(0, 10)) {
+      const replies = h.lost === 1 ? 'a reply' : `${h.lost} replies`;
+      const where = h.oldDir ? ` (in ${h.oldDir})` : '';
+      // A lost reply on a branch the user left hid nothing of what shows.
+      if (h.hidden) line('warn', 'Needs repair', `${h.title ?? h.id}: ${h.hidden} earlier message${h.hidden === 1 ? '' : 's'} hidden by ${replies} cut off in parley before 0.2.0${where}`);
+      else line('warn', 'Needs repair', `${h.title ?? h.id}: ${replies} cut off in parley before 0.2.0 ${h.lost === 1 ? 'was' : 'were'} never recorded, on a branch you left; no message is hidden${where}`);
+    }
     if (hit.length > 10) line('warn', 'Needs repair', `… and ${hit.length - 10} more`);
     line('info', 'Repair', `taria doctor repair   (asks first; only adds lines, never changes or deletes any). Opening a conversation also repairs it.`);
   }
