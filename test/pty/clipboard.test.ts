@@ -98,7 +98,7 @@ describe.runIf(process.platform === 'darwin')('/copy on macOS', () => {
     const bin = fakeBin(home, { pbcopy: 0 });
     writeFileSync(join(bin, 'pbpaste'), `#!/bin/sh\n/bin/cat "${bin}/pbcopy.stdin"\n`);
     chmodSync(join(bin, 'pbpaste'), 0o755);
-    s = spawnParley({ cols: 100, rows: 30, home, env: { PATH: bin } });
+    s = spawnTaria({ cols: 100, rows: 30, home, env: { PATH: bin } });
     await s.waitFor('Send a message');
     s.write('hi\r');
     await s.waitFor('You said: hi');
@@ -107,7 +107,7 @@ describe.runIf(process.platform === 'darwin')('/copy on macOS', () => {
     await s.waitFor(/Copied the last response \(12 characters\) via pbcopy\./);
     expect(readFileSync(join(bin, 'pbcopy.stdin'), 'utf8')).toBe('You said: hi');
     expect(s.raw).not.toContain('\x1b]52;');
-    const cmd = parleyCommand(['doctor', 'clipboard']);
+    const cmd = tariaCommand(['doctor', 'clipboard']);
     const r = spawnSync(cmd.command, cmd.args, { env: testEnv(home, { NO_COLOR: '1', PATH: bin }), encoding: 'utf8', timeout: 20_000 });
     expect(r.stdout).toMatch(/Test copy\s+copied with pbcopy and read back/);
   }, 30_000);
