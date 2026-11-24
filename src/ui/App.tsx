@@ -830,11 +830,34 @@ export function App(props: AppProps): React.ReactElement {
 
   const copy = useCallback(
     (text: string, what: string) => {
-      copyText(text)
-        .then((r) => notice(`Copied ${what} (${text.length.toLocaleString()} characters) via ${r.method}.`, 'success'))
+      const size = `${text.length.toLocaleString()} character${text.length === 1 ? '' : 's'}`;
+      const cfg = configRef.current;
+      copyText(text, { mode: cfg.clipboard, command: cfg.clipboardCommand })
+        .then((r) => {
+          // Say only what is known: a tool's exit status confirms a copy;
+          // the terminal never confirms OSC 52.
+          if (r.status === 'copied') return notice(`Copied ${what} (${size}) via ${r.via}.`, 'success');
+          if (r.status === 'off') return notice('Copying is turned off (clipboard: off). Change it with /config or in the config file.', 'dim');
+          if (r.status === 'sent' && r.via === 'tmux') {
+            return notice(`Copied ${what} (${size}) to tmux's paste buffer, and asked tmux to pass it to the terminal's clipboard. The terminal does not confirm that; if nothing pastes outside tmux, see \`parley doctor\`.`, 'success');
+          }
+          if (r.status === 'sent') {
+            return notice(`Sent ${what} (${size}) to the terminal's clipboard (OSC 52). The terminal does not confirm this; if nothing pastes, see \`parley doctor\`.`, 'success');
+          }
+          notice(`Nothing was copied. Tried ${r.tried.join('; ')}.${r.hint ? ` ${r.hint}` : ''}`, 'error');
+          const file = join(tmpdir(), `parley-copy-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.${/code/.test(what) ? 'txt' : 'md'}`);
+          confirm(`Write it to a file instead? (${file})`, () => {
+            try {
+              writeFileSync(file, text, { mode: 0o600 });
+              notice(`Wrote ${what} to ${file}`, 'success');
+            } catch (e) {
+              notice(`Could not write ${file}: ${(e as Error).message}`, 'error');
+            }
+          });
+        })
         .catch((e: Error) => notice(`Copy failed: ${e.message}`, 'error'));
     },
-    [notice],
+    [notice, confirm],
   );
 
   // ------------------------------------------------------------- submitting

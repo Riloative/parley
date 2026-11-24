@@ -68,10 +68,10 @@ describe('numbered code blocks', () => {
     expect(all()).toContain('  py · 2');
     const copied = () => [...s!.raw.matchAll(/\x1b\]52;c;([A-Za-z0-9+/=]+)\x07/g)].map((m) => Buffer.from(m[1]!, 'base64').toString());
     s.write('/copy code 1\r');
-    await s.waitFor('Copied code block 1 of 2');
+    await s.waitFor('Sent code block 1 of 2');
     expect(copied().at(-1)).toBe('first()');
     s.write('/copy code\r');
-    await s.waitFor('Copied the last code block');
+    await s.waitFor('Sent the last code block');
     expect(copied().at(-1)).toBe('second()');
     s.write('/copy code 3\r');
     await s.waitFor('The last response has 2 code blocks; use /copy code 1 to 2.');

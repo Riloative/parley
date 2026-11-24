@@ -340,6 +340,8 @@ notifications: auto                  # auto | off | osc9 | osc777 | osc99: deskt
 terminal_title: true                 # show the conversation title in the terminal title
 soft_line_breaks: keep               # keep | join: a single newline inside a paragraph stays a line break, or joins the lines
 reduced_motion: false                # true: a still spinner instead of an animated one
+clipboard: auto                      # auto | native | osc52 | off: how /copy reaches the clipboard
+# clipboard_command: wl-copy -p       # a command that takes the text on stdin, tried first
 check_for_updates: false             # true: once a day, ask GitHub for the latest release and mention a newer one (nothing is downloaded)
 system_prompt: "You are concise."    # default for new conversations
 reasoning_effort: medium             # default effort where supported
@@ -420,7 +422,12 @@ All honour the `XDG_*` variables (the same layout is used on macOS). Conversatio
 
 **"No API key found".** Set the environment variable, or `parley key set <provider>`. `parley key status <provider>` shows what was found.
 
-**Copy or image paste doesn't work on Linux.** Install `wl-clipboard` (Wayland) or `xclip` (X11). Over SSH, copying uses OSC 52, which most terminals support (in tmux, `set -g set-clipboard on`); image paste needs a local clipboard, so attach files with `@` instead.
+**`/copy` copies nothing.** Run `parley doctor clipboard`: it says which method `/copy` uses, copies a test line and, where a paste tool exists, reads it back. parley reports *Copied … via wl-copy* only when a tool confirmed the copy; *Sent … (OSC 52)* means the text was handed to the terminal, which never confirms it.
+- **Linux desktop:** install `wl-clipboard` (Wayland) or `xclip` (X11). Without them, parley would fall back to OSC 52, which VTE-based terminals (GNOME Terminal, Ptyxis, Tilix, Terminator) ignore, so there it says nothing was copied and offers to write the text to a file instead.
+- **WSL:** `clip.exe` is used (the text is sent as UTF-16, so accents and symbols survive).
+- **SSH:** OSC 52 to the terminal on your own machine. Windows Terminal, iTerm2, kitty, WezTerm, Ghostty, foot and Alacritty accept it; some need it enabled (iTerm2: *Applications in terminal may access clipboard*). Texts over about 73 KB are not sent, because terminals drop larger ones silently.
+- **tmux:** the text goes into tmux's paste buffer (`prefix ]`) with `load-buffer -w`, which also passes it to the terminal unless `set-clipboard` is `off`.
+- `clipboard: native | osc52 | off` and `clipboard_command:` (a command that reads the text on stdin, such as `wl-copy -p`) override the choice. For image paste on Linux you still need `wl-clipboard` or `xclip`.
 
 **Odd characters or boxes instead of glyphs.** Use a UTF-8 locale (`export LANG=en_US.UTF-8`) and a font with box-drawing characters.
 

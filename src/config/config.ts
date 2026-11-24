@@ -54,6 +54,11 @@ export interface Config {
    * is not focused: auto-detect the terminal's protocol, force one, or off. */
   notifications: 'auto' | 'off' | 'osc9' | 'osc777' | 'osc99';
   terminalTitle: boolean;
+  /** How /copy reaches the clipboard: auto (a native tool, then tmux, then
+   * OSC 52), native (tools only), osc52 (the terminal only), or off. */
+  clipboard: 'auto' | 'native' | 'osc52' | 'off';
+  /** A command that takes the text on stdin, tried first, e.g. "wl-copy -p". */
+  clipboardCommand?: string;
   /** No animated spinner: a still glyph and a label that does not change. */
   reducedMotion: boolean;
   /** Opt-in: at most once a day, ask GitHub whether a newer release exists
@@ -87,6 +92,7 @@ export const defaultConfig = (): Config => ({
   bellAfterSeconds: 10,
   notifications: 'auto',
   terminalTitle: true,
+  clipboard: 'auto',
   reducedMotion: false,
   checkForUpdates: false,
   softLineBreaks: 'keep',
@@ -105,6 +111,8 @@ const TOP_KEYS = [
   'notifications',
   'terminal_title',
   'soft_line_breaks',
+  'clipboard',
+  'clipboard_command',
   'reduced_motion',
   'check_for_updates',
   'system_prompt',
@@ -284,6 +292,12 @@ export function parseConfig(text: string): { config: Config; issues: ConfigIssue
     else v.err(v.keyNode(['notifications']), `notifications must be one of auto, off, osc9, osc777 or osc99 (got "${notif}").`);
   }
   config.terminalTitle = v.bool(['terminal_title'], r.terminal_title, 'terminal_title') ?? config.terminalTitle;
+  const clip = v.str(['clipboard'], r.clipboard, 'clipboard');
+  if (clip !== undefined) {
+    if (['auto', 'native', 'osc52', 'off'].includes(clip)) config.clipboard = clip as Config['clipboard'];
+    else v.err(v.keyNode(['clipboard']), `clipboard must be one of auto, native, osc52 or off (got "${clip}").`);
+  }
+  config.clipboardCommand = v.str(['clipboard_command'], r.clipboard_command, 'clipboard_command') || undefined;
   config.reducedMotion = v.bool(['reduced_motion'], r.reduced_motion, 'reduced_motion') ?? config.reducedMotion;
   config.checkForUpdates = v.bool(['check_for_updates'], r.check_for_updates, 'check_for_updates') ?? config.checkForUpdates;
   const slb = v.str(['soft_line_breaks'], r.soft_line_breaks, 'soft_line_breaks');
