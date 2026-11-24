@@ -10,7 +10,7 @@ import { Store, scanForRepairs } from './core/store.js';
 import { paths } from './config/paths.js';
 import { colorLevel, inTmux, likelySupportsSyncOutput, overSsh, terminalName, unicodeOk } from './term/caps.js';
 import { copyText, currentContext, detectClipboardHelper, readBackText } from './term/clipboard.js';
-import { loadConfig } from './config/config.js';
+import { formatIssues, loadConfig } from './config/config.js';
 import { detectKeychain, keychainLabel, resolveKey, setKeychainReadOnly, isLocalUrl, defaultKeyEnv } from './config/credentials.js';
 import { KeyDecoder } from './term/keys.js';
 import { BUILD_KIND, VERSION } from './version.js';
@@ -69,23 +69,45 @@ function probeKitty(): Promise<boolean | undefined> {
  * it back where a paste tool exists. */
 async function clipboardTest(): Promise<number> {
   failures = 0;
-  const cfg = loadConfig(paths.configFile).config;
+  const loaded = loadConfig(paths.configFile);
+  const cfg = loaded.config;
   const ctx = currentContext();
   const info = detectClipboardHelper({ mode: cfg.clipboard, command: cfg.clipboardCommand }, ctx);
   process.stdout.write('taria doctor clipboard\n');
   section('Clipboard');
-  line(info.ok ? 'info' : 'warn', 'Method', info.detail);
+  // A clipboard setting the config file got wrong is not in `cfg` at all.
+  for (const i of formatIssues(loaded.file, loaded.issues.filter((x) => /clipboard/.test(x.message)))) line('fail', 'Config error', i);
+  line(info.ok ? 'info' : 'warn', 'Method', info.detail, info.fix);
   for (const s of info.plan.skipped) line('info', 'Not used', s);
   const sample = `taria clipboard test ${new Date().toTimeString().slice(0, 8)}`;
-  const r = await copyText(sample, { mode: cfg.clipboard, command: cfg.clipboardCommand, ctx });
+  // OSC 52 is for a terminal: piped or redirected, the sequence would only
+  // end up in a file or another program's input.
+  let r: Awaited<ReturnType<typeof copyText>>;
+  try {
+    r = await copyText(sample, { mode: cfg.clipboard, command: cfg.clipboardCommand, ctx, write: process.stdout.isTTY ? undefined : null });
+  } catch (e) {
+    line('fail', 'Test copy', `could not be run: ${(e as Error).message}`);
+    return 1;
+  }
+  // Every method that was tried and failed, also when a later one worked: a
+  // clipboard_command that does not work is a failure in its own right.
+  const listTried = () => {
+    if (r.status === 'off') return;
+    for (const f of r.failed) line(f.configured ? 'fail' : 'warn', 'Tried', `${f.method}: ${f.reason}`, f.configured ? 'Correct clipboard_command in the config file, or remove it.' : undefined);
+  };
   if (r.status === 'off') line('info', 'Test copy', 'not run: clipboard: off');
-  else if (r.status === 'failed') line('fail', 'Test copy', `nothing was copied: ${r.tried.join('; ')}`, r.hint);
+  else if (r.status === 'failed' && r.noTerminal) {
+    listTried();
+    line('warn', 'Test copy', 'not run: OSC 52 is the method left here, and the output is not a terminal (nothing was written)', 'Run `taria doctor clipboard` in the terminal itself, without a pipe or redirect.');
+  } else if (r.status === 'failed') line('fail', 'Test copy', `nothing was copied: ${r.tried.join('; ')}`, r.hint);
   else if (r.status === 'copied') {
+    listTried();
     const back = readBackText(ctx);
     if (back === undefined) line('ok', 'Test copy', `${r.via} accepted "${sample}" (no paste tool to read it back)`, 'Paste somewhere to check.');
     else if (back === sample) line('ok', 'Test copy', `copied with ${r.via} and read back`);
     else line('fail', 'Test copy', `${r.via} exited successfully, but the clipboard holds something else`, 'Another program may own the clipboard; try clipboard_command in the config.');
   } else {
+    listTried();
     line('warn', 'Test copy', `sent "${sample}" via ${r.via === 'tmux' ? 'tmux (load-buffer -w)' : 'OSC 52'}; the terminal does not confirm it`, `Paste now (Ctrl+Shift+V, or Ctrl+V in Notepad): you should see "${sample}". If nothing appears, the terminal ignores OSC 52${r.via === 'tmux' ? ' or tmux has set-clipboard off' : ''}; install a clipboard tool or set clipboard_command.`);
   }
   return failures ? 1 : 0;
@@ -270,7 +292,7 @@ export async function runDoctor(rest: string[] = []): Promise<number> {
   section('Clipboard');
   const clipCfg = loadConfig(paths.configFile).config;
   const clip = detectClipboardHelper({ mode: clipCfg.clipboard, command: clipCfg.clipboardCommand });
-  line(clip.ok ? 'ok' : 'warn', '/copy uses', clip.detail, clip.ok ? undefined : clip.plan.hint);
+  line(clip.ok ? 'ok' : 'warn', '/copy uses', clip.detail, clip.ok ? undefined : (clip.fix ?? clip.plan.hint));
   for (const s of clip.plan.skipped) line('info', 'Not used', s);
   if (process.env.TMUX) {
     const v = spawnSync('tmux', ['show', '-sv', 'set-clipboard'], { encoding: 'utf8' }).stdout?.trim();

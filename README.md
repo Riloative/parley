@@ -369,7 +369,7 @@ terminal_title: true                 # show the conversation title in the termin
 soft_line_breaks: keep               # keep | join: a single newline inside a paragraph stays a line break, or joins the lines
 reduced_motion: false                # true: a still spinner instead of an animated one
 clipboard: auto                      # auto | native | osc52 | off: how /copy reaches the clipboard
-# clipboard_command: wl-copy -p       # a command that takes the text on stdin, tried first
+# clipboard_command: wl-copy -p       # a program (and arguments) that takes the text on stdin, tried first; not run by a shell
 check_for_updates: false             # true: once a day, ask GitHub for the latest release and mention a newer one (nothing is downloaded)
 system_prompt: "You are concise."    # default for new conversations
 reasoning_effort: medium             # default effort where supported
@@ -456,6 +456,7 @@ All honour the `XDG_*` variables (the same layout is used on macOS). Conversatio
 - **SSH:** OSC 52 to the terminal on your own machine. Windows Terminal, iTerm2, kitty, WezTerm, Ghostty, foot and Alacritty accept it; some need it enabled (iTerm2: *Applications in terminal may access clipboard*). Texts over about 73 KB are not sent, because terminals drop larger ones silently.
 - **tmux:** the text goes into tmux's paste buffer (`prefix ]`) with `load-buffer -w`, which also passes it to the terminal unless `set-clipboard` is `off`.
 - `clipboard: native | osc52 | off` and `clipboard_command:` (a command that reads the text on stdin, such as `wl-copy -p`) override the choice. For image paste on Linux you still need `wl-clipboard` or `xclip`.
+- `clipboard_command` is **not run by a shell**: it is a program and its arguments. Single or double quotes group a word that contains spaces (`"/opt/my tools/copy" --flag`), and a word that starts with `~/` gets your home directory. Nothing else is expanded: no `$VAR`, no backslash before a space, no `|`, `;` or `>`; for those, put the commands in a script and name the script. A quote that is never closed, or an empty first word, is reported as a config error and the setting is ignored. If the command fails, `/copy` goes on to the next method and names the command and the reason; a tool gets 5 seconds, then it is stopped.
 
 **Odd characters or boxes instead of glyphs.** Use a UTF-8 locale (`export LANG=en_US.UTF-8`) and a font with box-drawing characters.
 

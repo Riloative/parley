@@ -5,6 +5,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { LineCounter, parseDocument, isMap, isScalar, type Document, type Node } from 'yaml';
 import { paths } from './paths.js';
+import { clipboardCommandProblem } from '../term/clipboard.js';
 import type { ProviderType, SamplingSettings } from '../providers/types.js';
 import type { ThemeName } from '../render/theme.js';
 
@@ -297,7 +298,10 @@ export function parseConfig(text: string): { config: Config; issues: ConfigIssue
     if (['auto', 'native', 'osc52', 'off'].includes(clip)) config.clipboard = clip as Config['clipboard'];
     else v.err(v.keyNode(['clipboard']), `clipboard must be one of auto, native, osc52 or off (got "${clip}").`);
   }
-  config.clipboardCommand = v.str(['clipboard_command'], r.clipboard_command, 'clipboard_command') || undefined;
+  const clipCommand = v.str(['clipboard_command'], r.clipboard_command, 'clipboard_command')?.trim();
+  const clipProblem = clipCommand ? clipboardCommandProblem(clipCommand) : undefined;
+  if (clipProblem) v.err(v.keyNode(['clipboard_command']), `clipboard_command ${clipProblem}, so it is not used. It is not run by a shell: write the program and its arguments, with quotes around a word that contains spaces.`);
+  else config.clipboardCommand = clipCommand || undefined;
   config.reducedMotion = v.bool(['reduced_motion'], r.reduced_motion, 'reduced_motion') ?? config.reducedMotion;
   config.checkForUpdates = v.bool(['check_for_updates'], r.check_for_updates, 'check_for_updates') ?? config.checkForUpdates;
   const slb = v.str(['soft_line_breaks'], r.soft_line_breaks, 'soft_line_breaks');

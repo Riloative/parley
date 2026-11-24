@@ -29,7 +29,7 @@ import { fuzzyFilter, relativeTime } from './fuzzy.js';
 import { formatTokens, modelSummary } from '../core/usage.js';
 import type { ContentPart, ModelCapabilities, ModelInfo } from '../providers/types.js';
 import { parseModelRef } from '../providers/types.js';
-import { copyText, readImage, ClipboardError } from '../term/clipboard.js';
+import { copyText, describeFailures, readImage, ClipboardError } from '../term/clipboard.js';
 import { listFiles, parseDroppedPaths, readAttachment, AttachError } from './attachments.js';
 import { loadState, rememberModel, toggleFavouriteModel } from '../core/state.js';
 import { ProvidersScreen, ConfigScreen, SetupScreen } from './screens.js';
@@ -836,13 +836,17 @@ export function App(props: AppProps): React.ReactElement {
         .then((r) => {
           // Say only what is known: a tool's exit status confirms a copy;
           // the terminal never confirms OSC 52.
-          if (r.status === 'copied') return notice(`Copied ${what} (${size}) via ${r.via}.`, 'success');
           if (r.status === 'off') return notice('Copying is turned off (clipboard: off). Change it with /config or in the config file.', 'dim');
+          // A method that failed before this one is named, with the reason:
+          // above all a clipboard_command, which its owner believes is in use.
+          const before = r.status !== 'failed' && r.failed.length ? ` Tried first, without success: ${describeFailures(r.failed)}.` : '';
+          const tone = r.status !== 'failed' && r.failed.some((f) => f.configured) ? 'warning' : 'success';
+          if (r.status === 'copied') return notice(`Copied ${what} (${size}) via ${r.via}.${before}`, tone);
           if (r.status === 'sent' && r.via === 'tmux') {
-            return notice(`Copied ${what} (${size}) to tmux's paste buffer, and asked tmux to pass it to the terminal's clipboard. The terminal does not confirm that; if nothing pastes outside tmux, see \`taria doctor\`.`, 'success');
+            return notice(`Copied ${what} (${size}) to tmux's paste buffer, and asked tmux to pass it to the terminal's clipboard. The terminal does not confirm that; if nothing pastes outside tmux, see \`taria doctor\`.${before}`, tone);
           }
           if (r.status === 'sent') {
-            return notice(`Sent ${what} (${size}) to the terminal's clipboard (OSC 52). The terminal does not confirm this; if nothing pastes, see \`taria doctor\`.`, 'success');
+            return notice(`Sent ${what} (${size}) to the terminal's clipboard (OSC 52). The terminal does not confirm this; if nothing pastes, see \`taria doctor\`.${before}`, tone);
           }
           notice(`Nothing was copied. Tried ${r.tried.join('; ')}.${r.hint ? ` ${r.hint}` : ''}`, 'error');
           const file = join(tmpdir(), `taria-copy-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.${/code/.test(what) ? 'txt' : 'md'}`);
