@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Riloative/taria/main/schema/config.schema.json",
+  "title": "taria configuration (~/.config/taria/config.yaml)",
+  "description": "Editors use this to check and complete the config file. taria itself validates the file on start and reports each mistake with its line number. API keys never go in this file.",
+  "type": "object",
+  "additionalProperties": false,
+  "$defs": {
+    "modelRef": { "type": "string", "pattern": "^[^/\\s]+/.+$", "description": "provider/model-id, e.g. anthropic/claude-opus-5-5" },
+    "sampling": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "temperature": { "type": "number", "minimum": 0, "maximum": 2 },
+        "top_p": { "type": "number", "minimum": 0, "maximum": 1 },
+        "top_k": { "type": "integer", "minimum": 1 },
+        "max_tokens": { "type": "integer", "minimum": 1 },
+        "extra_body": { "type": "object", "description": "Extra fields sent as-is in the request body." }
+      }
+    },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sampling": { "$ref": "#/$defs/sampling" },
+        "context_window": { "type": "integer", "minimum": 256 },
+        "images": { "type": "boolean", "description": "The model accepts images (overrides what the provider reports)." },
+        "reasoning": { "type": "boolean", "description": "The model reasons (overrides what the provider reports)." }
+      }
+    },
+    "provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": { "enum": ["anthropic", "openai", "openai-compatible", "mock"] },
+        "base_url": { "type": "string", "format": "uri" },
+        "api_key_env": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$", "description": "The NAME of the environment variable holding the key." },
+        "no_key": { "type": "boolean", "description": "No key is needed (local servers)." },
+        "headers": { "type": "object", "additionalProperties": { "type": "string" }, "description": "Extra headers; values may be env:NAME or ${NAME}." },
+        "context_window": { "type": "integer", "minimum": 256 },
+        "sampling": { "$ref": "#/$defs/sampling" },
+        "models": { "type": "object", "additionalProperties": { "$ref": "#/$defs/model" } },
+        "timeout_ms": { "type": "integer", "minimum": 1000 }
+      }
+    },
+    "price": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input", "output"],
+      "description": "US dollars per million tokens.",
+      "properties": {
+        "input": { "type": "number", "minimum": 0 },
+        "output": { "type": "number", "minimum": 0 },
+        "cache_read": { "type": "number", "minimum": 0 },
+        "cache_write": { "type": "number", "minimum": 0 }
+      }
+    }
+  },
+  "properties": {
+    "default_model": { "$ref": "#/$defs/modelRef" },
+    "title_model": { "$ref": "#/$defs/modelRef", "description": "Model that names conversations." },
+    "compact_model": { "$ref": "#/$defs/modelRef", "description": "Model that summarises for /compact." },
+    "theme": { "enum": ["auto", "dark", "light", "ansi"] },
+    "bell": { "type": "boolean" },
+    "bell_after_seconds": { "type": "number", "minimum": 0 },
+    "notifications": { "enum": ["auto", "off", "osc9", "osc777", "osc99"] },
+    "terminal_title": { "type": "boolean" },
+    "soft_line_breaks": { "enum": ["keep", "join"] },
+    "clipboard": { "enum": ["auto", "native", "osc52", "off"], "description": "How /copy reaches the clipboard." },
+    "clipboard_command": { "type": "string", "description": "A command that takes the text on stdin, tried first." },
+    "reduced_motion": { "type": "boolean" },
+    "check_for_updates": { "type": "boolean" },
+    "system_prompt": { "type": "string" },
+    "reasoning_effort": { "enum": ["off", "minimal", "low", "medium", "high", "xhigh", "max"] },
+    "providers": { "type": "object", "additionalProperties": { "$ref": "#/$defs/provider" } },
+    "personas": {
+      "type": "object",
+      "additionalProperties": {
+        "oneOf": [
+          { "type": "string" },
+          { "type": "object", "additionalProperties": false, "required": ["prompt"], "properties": { "prompt": { "type": "string" }, "model": { "$ref": "#/$defs/modelRef" } } }
+        ]
+      }
+    },
+    "prices": { "type": "object", "additionalProperties": { "$ref": "#/$defs/price" } }
+  }
+}

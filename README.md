@@ -99,6 +99,16 @@ npm install -g https://github.com/Riloative/taria/releases/download/v0.3.0/taria
 
 The repository ships a prebuilt, self-contained bundle in `dist/`, so the global install has no dependencies and needs no compiler.
 
+### Shell completions and the man page
+
+```bash
+taria completions bash > ~/.local/share/bash-completion/completions/taria
+taria completions zsh > "${fpath[1]}/_taria"
+taria completions fish > ~/.config/fish/completions/taria.fish
+```
+
+They complete commands, options and option values (`--theme`), and also apply to the `parley` alias. The npm package installs the man page (`man taria`); with the standalone binary, `taria man > ~/.local/share/man/man1/taria.1` writes it. `--help`, the completions and the man page are generated from one description of the command line, so they always agree.
+
 ### Check the install
 
 `taria --version` shows the version, whether you're running the standalone binary or the npm package, and the Node.js runtime. `taria doctor` checks your environment and shows the install method and location:
@@ -338,6 +348,14 @@ Explain $ARGUMENTS to a curious beginner, with one concrete example.
 Saved as `explain.md`, this is used as `/explain recursion`.
 
 ## Configuration file
+
+Editors that understand JSON Schema (VS Code with the YAML extension, Neovim with yaml-language-server, JetBrains IDEs) check and complete the file when its first line is
+
+```yaml
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Riloative/taria/main/schema/config.schema.json
+```
+
+New config files start with that line. The schema is [`schema/config.schema.json`](schema/config.schema.json); a test keeps it in step with what taria accepts.
 
 `~/.config/taria/config.yaml` (honours `XDG_CONFIG_HOME`). Mistakes are reported with the line number and a plain explanation, and the rest of the file still loads.
 

@@ -1,6 +1,9 @@
 // Entry point. Kept deliberately tiny: argument parsing, --help and
 // --version run without loading React, Ink, providers or the highlighter.
 
+import { helpText } from './cliSpec.js';
+import { parseArgs } from './args.js';
+export type { Args } from './args.js';
 import { adoptLegacyEnv, legacyEnvNotice, renameNotices } from './brand.js';
 import { legacyDirsPresent } from './config/paths.js';
 import { mark } from './trace.js';
@@ -10,141 +13,9 @@ import { BUILD_KIND, VERSION, versionLine } from './version.js';
 
 export { BUILD_KIND, VERSION, versionLine };
 
-export interface Args {
-  print: boolean;
-  prompt?: string;
-  model?: string;
-  system?: string;
-  continue: boolean;
-  resume: boolean;
-  resumeId?: string;
-  json: boolean;
-  debug: boolean;
-  debugFile?: string;
-  noColor: boolean;
-  theme?: string;
-  command?: 'doctor' | 'key' | 'help' | 'version';
-  rest: string[];
-}
 
-const HELP = `taria — a terminal chat client for Claude, OpenAI, Mistral and local models
+const HELP = helpText();
 
-Usage
-  taria [options] [prompt]          start an interactive chat
-  taria -p "question" [options]     print the answer and exit
-  cat notes.md | taria -p "summarise"
-  taria doctor                      check terminal, clipboard, keychain and providers
-  taria doctor clipboard            try a copy the way /copy does it
-  taria doctor repair                repair conversations a crash in parley < 0.2.0 cut short
-  taria key set <provider>          store an API key in the keychain
-  taria key remove <provider>       remove a stored key
-  taria key status <provider>       show where the key for a provider comes from
-
-Options
-  -p, --print            non-interactive: stream the answer to stdout and exit
-  -m, --model <ref>      model as provider/model-id
-  -s, --system <text>    system prompt
-  -c, --continue         continue the most recent conversation
-  -r, --resume [id]      resume a conversation (opens a picker without an id)
-      --json             with -p: print one JSON object instead of text
-      --theme <name>     dark, light, ansi or auto
-      --no-color         disable colour (NO_COLOR is honoured too)
-      --debug [file]     log requests, responses and timings (keys redacted)
-  -h, --help             show this help
-  -v, --version          show the version
-
-Config:  $XDG_CONFIG_HOME/taria/config.yaml (default ~/.config/taria/config.yaml)
-Data:    $XDG_DATA_HOME/taria (default ~/.local/share/taria)
-Inside taria, type /help for commands and keys.
-`;
-
-export function parseArgs(argv: string[]): Args | { error: string } {
-  const a: Args = { print: false, continue: false, resume: false, json: false, debug: false, noColor: false, rest: [] };
-  const positional: string[] = [];
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i]!;
-    const next = () => {
-      const v = argv[i + 1];
-      if (v === undefined || (v.startsWith('-') && v !== '-')) return undefined;
-      i++;
-      return v;
-    };
-    const need = (name: string) => {
-      const v = next();
-      if (v === undefined) throw new Error(`${name} needs a value`);
-      return v;
-    };
-    try {
-      if (arg === '--') {
-        positional.push(...argv.slice(i + 1));
-        break;
-      }
-      if (arg.startsWith('--') && arg.includes('=')) {
-        const [k, ...v] = arg.split('=');
-        argv.splice(i + 1, 0, v.join('='));
-        argv[i] = k!;
-        i--;
-        continue;
-      }
-      switch (arg) {
-        case '-p':
-        case '--print':
-          a.print = true;
-          break;
-        case '-m':
-        case '--model':
-          a.model = need(arg);
-          break;
-        case '-s':
-        case '--system':
-          a.system = need(arg);
-          break;
-        case '-c':
-        case '--continue':
-          a.continue = true;
-          break;
-        case '-r':
-        case '--resume':
-          a.resume = true;
-          a.resumeId = next();
-          break;
-        case '--json':
-          a.json = true;
-          break;
-        case '--debug':
-          a.debug = true;
-          a.debugFile = next();
-          break;
-        case '--no-color':
-          a.noColor = true;
-          break;
-        case '--theme':
-          a.theme = need(arg);
-          break;
-        case '-h':
-        case '--help':
-          a.command = 'help';
-          break;
-        case '-v':
-        case '--version':
-          a.command = 'version';
-          break;
-        default:
-          if (arg.startsWith('-') && arg !== '-') return { error: `Unknown option ${arg}. Run taria --help.` };
-          positional.push(arg);
-      }
-    } catch (e) {
-      return { error: `${(e as Error).message}. Run taria --help.` };
-    }
-  }
-  if (!a.command && (positional[0] === 'doctor' || positional[0] === 'key')) {
-    a.command = positional[0];
-    a.rest = positional.slice(1);
-  } else if (positional.length) {
-    a.prompt = positional.join(' ');
-  }
-  return a;
-}
 
 async function main(): Promise<void> {
   mark('cli');
@@ -160,6 +31,22 @@ async function main(): Promise<void> {
   }
   if (args.command === 'version') {
     process.stdout.write(`${versionLine()}\n`);
+    return;
+  }
+  if (args.command === 'completions') {
+    const { completionScript } = await import('./completions.js');
+    const script = completionScript(args.rest[0] ?? '');
+    if (!script) {
+      process.stderr.write('Usage: taria completions bash|zsh|fish\n');
+      process.exit(2);
+    }
+    process.stdout.write(script);
+    return;
+  }
+  if (args.command === 'man') {
+    // Used by the build to write dist/taria.1 (no date, so the build is reproducible).
+    const { manPage } = await import('./manpage.js');
+    process.stdout.write(manPage(VERSION, ''));
     return;
   }
   if (args.noColor) process.env.NO_COLOR = '1';

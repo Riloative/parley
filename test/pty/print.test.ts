@@ -85,6 +85,17 @@ describe('taria -p', () => {
     expect(r.err).toMatch(/config\.yaml:7: config: unknown setting "bel"\. Did you mean "bell"\?/);
   });
 
+  it('prints shell completions and the man page; an unknown shell is a usage error', async () => {
+    const b = await run(['completions', 'bash']);
+    expect(b.code).toBe(0);
+    expect(b.out).toContain('complete -F _taria taria');
+    const m = await run(['man']);
+    expect(m.out.startsWith('.TH TARIA 1')).toBe(true);
+    const bad = await run(['completions', 'tcsh']);
+    expect(bad.code).toBe(2);
+    expect(bad.err).toContain('Usage: taria completions bash|zsh|fish');
+  });
+
   it('answers --help and --version quickly without loading the interface', async () => {
     const v = await run(['--version']);
     const kind = process.env.TARIA_BIN ?? process.env.PARLEY_BIN ? 'standalone binary' : 'node package';

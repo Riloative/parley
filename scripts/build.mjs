@@ -37,3 +37,11 @@ await build({
   logLevel: 'warning',
   plugins: sharedPlugins,
 });
+
+// The man page, generated from the same description as --help.
+{
+  const { execFileSync } = await import('node:child_process');
+  const { writeFileSync } = await import('node:fs');
+  const page = execFileSync(process.execPath, [new URL('../bin/taria.js', import.meta.url).pathname, 'man'], { encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' } });
+  writeFileSync(new URL('../dist/taria.1', import.meta.url), page);
+}

@@ -4,7 +4,7 @@
 import React from 'react';
 import { PassThrough } from 'node:stream';
 import { appendFileSync, writeSync } from 'node:fs';
-import type { Args } from './cli.js';
+import type { Args } from './args.js';
 import { boot, chooseModel, resolveTheme } from './bootstrap.js';
 import { getTheme, setTheme } from './render/theme.js';
 import { Session, repairNotice } from './core/session.js';
