@@ -1,8 +1,9 @@
 // Append-only JSONL persistence. Every event is written (synchronously, one
 // line, O_APPEND) the moment it happens, so a crash or closed terminal loses
 // at most the last fraction of a second of a streaming reply. A per-file lock
-// stops two parley instances from writing the same conversation.
+// stops two taria instances from writing the same conversation.
 
+import { APP } from '../brand.js';
 import {
   appendFileSync,
   closeSync,
@@ -27,7 +28,8 @@ import { paths } from '../config/paths.js';
 export const SCHEMA_VERSION = 1;
 
 export type StoreEvent =
-  | { type: 'meta'; v: number; id: string; createdAt: number; app: 'parley'; cwd?: string }
+  /** `app` is "taria", or "parley" in files written before the rename. */
+  | { type: 'meta'; v: number; id: string; createdAt: number; app: 'taria' | 'parley'; cwd?: string }
   | ({ type: 'message' } & StoredMessage)
   | { type: 'partial'; id: string; parentId: string | null; model?: string; ts: number }
   | { type: 'delta'; id: string; text?: string; reasoning?: string }
@@ -65,7 +67,7 @@ interface LockInfo {
   started?: number;
 }
 
-/** Locks written by parley 0.0.1 hold just the PID. */
+/** Locks written by taria 0.0.1 hold just the PID. */
 function parseLock(text: string): LockInfo {
   const t = text.trim();
   try {
@@ -103,7 +105,7 @@ function holderAlive(info: LockInfo): boolean {
 
 export class ConversationLockedError extends Error {
   constructor(readonly pid: number) {
-    super(`This conversation is open in another parley window (pid ${pid}).`);
+    super(`This conversation is open in another taria window (pid ${pid}).`);
   }
 }
 
@@ -389,7 +391,7 @@ export class Store {
     const conv = new Conversation(id);
     const cf = new ConversationFile(file, conv);
     cf.acquireLock();
-    cf.append({ type: 'meta', v: SCHEMA_VERSION, id, createdAt: conv.createdAt, app: 'parley', cwd });
+    cf.append({ type: 'meta', v: SCHEMA_VERSION, id, createdAt: conv.createdAt, app: APP, cwd });
     return cf;
   }
 

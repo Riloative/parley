@@ -1,11 +1,12 @@
 {
-  "name": "parley",
+  "name": "taria",
   "version": "0.2.0",
   "description": "A terminal chat client for Claude, OpenAI, Mistral and local models",
   "type": "module",
   "license": "MIT",
   "private": true,
   "bin": {
+    "taria": "bin/taria.js",
     "parley": "bin/parley.js"
   },
   "files": [
@@ -17,7 +18,7 @@
   },
   "scripts": {
     "build": "node scripts/build.mjs",
-    "dev": "node scripts/build.mjs && node bin/parley.js",
+    "dev": "node scripts/build.mjs && node bin/taria.js",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run",

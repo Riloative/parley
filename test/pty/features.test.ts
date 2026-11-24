@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { makeHome, spawnParley, sleep, DEFAULT_CONFIG, type Session } from './harness.js';
+import { makeHome, spawnTaria, sleep, DEFAULT_CONFIG, type Session } from './harness.js';
 
 let s: Session | undefined;
 afterEach(async () => {
@@ -16,8 +16,8 @@ const paste = (t: string) => `\x1b[200~${t}\x1b[201~`;
 const screen = () => s!.screen().join('\n');
 const bottom = () => s!.screen().filter((l) => l.trim()).slice(-4).join('\n');
 
-async function start(opts: Parameters<typeof spawnParley>[0] = {}) {
-  s = spawnParley({ cols: 90, rows: 30, ...opts });
+async function start(opts: Parameters<typeof spawnTaria>[0] = {}) {
+  s = spawnTaria({ cols: 90, rows: 30, ...opts });
   await s.waitFor('Send a message');
   return s;
 }
@@ -39,14 +39,14 @@ describe('conversations', () => {
     await sleep(50);
     s!.write('\x03');
     await s!.exited;
-    await s!.waitFor(/Resume this conversation with: parley -r \S+/);
+    await s!.waitFor(/Resume this conversation with: taria -r \S+/);
     await s!.close(true);
-    s = spawnParley({ cols: 90, rows: 30, home, args: ['-c'] });
+    s = spawnTaria({ cols: 90, rows: 30, home, args: ['-c'] });
     await s.waitFor('Send a message');
     await s.waitFor('> remember the word kumquat');
     expect(screen()).toContain('You said: remember the word kumquat');
     await say('and now?');
-    const dir = join(home, 'data', 'parley', 'conversations');
+    const dir = join(home, 'data', 'taria', 'conversations');
     const files = readdirSync(dir).filter((f) => f.endsWith('.jsonl'));
     expect(files).toHaveLength(1);
     const lines = readFileSync(join(dir, files[0]!), 'utf8').trim().split('\n');
@@ -124,7 +124,7 @@ describe('conversations', () => {
     await s!.waitFor('Delete "Fruit chat"?');
     s!.write(DOWN + '\r');
     await s!.waitFor('Conversation deleted.');
-    expect(readdirSync(join(s!.home, 'data', 'parley', 'trash')).length).toBe(1);
+    expect(readdirSync(join(s!.home, 'data', 'taria', 'trash')).length).toBe(1);
   }, 30_000);
 
   it('/copy and /copy code use the clipboard (OSC 52 without a helper)', async () => {
@@ -292,12 +292,12 @@ describe('appearance and editor', () => {
       expect(s!.raw).toContain(LIGHT_ACCENT);
       // Nothing was reprinted: the scrollback was never cleared.
       expect(s!.raw).not.toContain('\x1b[3J');
-      expect(s!.all().filter((l) => l.includes('Welcome to parley')).length).toBe(1);
+      expect(s!.all().filter((l) => l.includes('Welcome to taria')).length).toBe(1);
     }, 30_000);
 
-    it('keys typed while parley starts are kept, in order', async () => {
-      s = spawnParley({ home: makeHome(AUTO), background: 'rgb:ffff/ffff/ffff' });
-      // Once the background query is out, parley owns the keyboard (raw
+    it('keys typed while taria starts are kept, in order', async () => {
+      s = spawnTaria({ home: makeHome(AUTO), background: 'rgb:ffff/ffff/ffff' });
+      // Once the background query is out, taria owns the keyboard (raw
       // mode) while the interface loads.
       await s.waitFor(() => s!.raw.includes('\x1b]11;?'));
       s.write('typed early');
@@ -311,7 +311,7 @@ describe('appearance and editor', () => {
     s!.write('/theme\r');
     await s!.waitFor('follow the terminal background');
     s!.write('\x1b[B\r'); // dark → light
-    await s!.waitFor(() => /theme: light/.test(readFileSync(join(s!.home, 'config', 'parley', 'config.yaml'), 'utf8')));
+    await s!.waitFor(() => /theme: light/.test(readFileSync(join(s!.home, 'config', 'taria', 'config.yaml'), 'utf8')));
     // Light accent (#C15F3C) is used for the welcome border after the reprint.
     await s!.waitFor(() => s!.raw.includes('38;2;193;95;60'));
     await s!.waitFor('You said: colourful');
@@ -337,7 +337,7 @@ describe('/terminal-setup', () => {
     // paths). The backup is made first and the new file renamed into place
     // after it, so wait for the new content.
     await s!.waitFor(() => readFileSync(keybindings, 'utf8').includes('shift+enter'));
-    expect(existsSync(`${keybindings}.parley-backup`)).toBe(true);
+    expect(existsSync(`${keybindings}.taria-backup`)).toBe(true);
     const text = readFileSync(keybindings, 'utf8');
     expect(text.startsWith('// my bindings\n')).toBe(true);
     expect(text).toContain('"key": "shift+enter"');
@@ -387,8 +387,8 @@ describe('reasoning', () => {
 describe('configuration', () => {
   it('custom commands from the commands folder with $ARGUMENTS', async () => {
     const home = makeHome();
-    mkdirSync(join(home, 'config', 'parley', 'commands'), { recursive: true });
-    writeFileSync(join(home, 'config', 'parley', 'commands', 'greet.md'), '---\ndescription: Greet someone\n---\nSay hello to $ARGUMENTS politely.\n');
+    mkdirSync(join(home, 'config', 'taria', 'commands'), { recursive: true });
+    writeFileSync(join(home, 'config', 'taria', 'commands', 'greet.md'), '---\ndescription: Greet someone\n---\nSay hello to $ARGUMENTS politely.\n');
     await start({ home });
     s!.write('/gre');
     await s!.waitFor('Greet someone');
@@ -406,7 +406,7 @@ describe('configuration', () => {
     s!.write('/config\r' + DOWN.repeat(5) + '\r');
     await s!.waitFor('Settings');
     await s!.waitFor(/Bell when a long reply finishes\s+on/);
-    const text = readFileSync(join(home, 'config', 'parley', 'config.yaml'), 'utf8');
+    const text = readFileSync(join(home, 'config', 'taria', 'config.yaml'), 'utf8');
     expect(text).toContain('# my comment');
     expect(text).toMatch(/bell: true/);
   }, 30_000);
@@ -420,13 +420,13 @@ describe('configuration', () => {
 
   it('first run: setup flow writes a config', async () => {
     await start({ noConfig: true, env: { ANTHROPIC_API_KEY: 'sk-ant-test-xxxxxxxxxxxx' } }).catch(() => undefined);
-    await s!.waitFor("Welcome! Let's connect parley to a model.");
+    await s!.waitFor("Welcome! Let's connect taria to a model.");
     await s!.waitFor('Use Anthropic (Claude)');
     await s!.waitFor('ANTHROPIC_API_KEY is set');
     await s!.waitFor('Skip for now');
     s!.write(DOWN.repeat(5) + '\r');
     await sleep(500);
-    const cfg = join(s!.home, 'config', 'parley', 'config.yaml');
+    const cfg = join(s!.home, 'config', 'taria', 'config.yaml');
     expect(existsSync(cfg)).toBe(true);
     expect(readFileSync(cfg, 'utf8')).toContain('default_model: mock/markdown');
     expect(readFileSync(cfg, 'utf8')).not.toContain('sk-ant-test');

@@ -48,17 +48,19 @@ jobs:
       - name: Check the archive and the binary
         shell: bash
         run: |
-          test -f "build/bin/parley-${{ matrix.target }}.tar.gz"
-          file build/bin/parley
+          test -f "build/bin/taria-${{ matrix.target }}.tar.gz"
+          # The archive holds taria and, for 0.3.x, the parley alias.
+          [ "$(tar -tzf "build/bin/taria-${{ matrix.target }}.tar.gz" | sort | tr '\n' ' ')" = "parley taria " ]
+          file build/bin/taria
           ls -l build/bin
-          build/bin/parley --version
-          build/bin/parley --version | grep -q "standalone binary, Node v$(node -p "require('./scripts/binary-runtime.json').node"), ${{ matrix.target }})"
+          build/bin/taria --version
+          build/bin/taria --version | grep -q "standalone binary, Node v$(node -p "require('./scripts/binary-runtime.json').node"), ${{ matrix.target }})"
 
       - name: Minimum glibc required (Linux)
         if: runner.os == 'Linux'
         run: |
-          objdump -T build/bin/parley | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1
-          objdump -T build/bin/parley | grep -o 'GLIBCXX_[0-9.]*' | sort -uV | tail -1
+          objdump -T build/bin/taria | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1
+          objdump -T build/bin/taria | grep -o 'GLIBCXX_[0-9.]*' | sort -uV | tail -1
 
       - name: Runs on the oldest supported glibc (AlmaLinux 8, glibc 2.28), not older (Ubuntu 18.04, glibc 2.27)
         if: runner.os == 'Linux'
@@ -68,7 +70,7 @@ jobs:
           # Rather than install it from distribution mirrors inside the
           # containers (an AlmaLinux mirror outage once failed this step after
           # half an hour), mount the runner's own copy. It needs only glibc
-          # 2.14, so the checks still measure parley's own glibc floor.
+          # 2.14, so the checks still measure taria's own glibc floor.
           lib="$(ldconfig -p | awk '/libatomic.so.1 /{print $NF; exit}')"
           if [ -z "$lib" ]; then
             sudo apt-get install -y -qq libatomic1
@@ -79,38 +81,38 @@ jobs:
           cp -L "$lib" "$RUNNER_TEMP/atomic/libatomic.so.1"
           bin=(-v "$PWD/build/bin:/b:ro")
           atomic=(-v "$RUNNER_TEMP/atomic:/atomic:ro" -e LD_LIBRARY_PATH=/atomic)
-          if docker run --rm "${bin[@]}" almalinux:8 /b/parley --version 2>&1 | grep -q libatomic; then
+          if docker run --rm "${bin[@]}" almalinux:8 /b/taria --version 2>&1 | grep -q libatomic; then
             echo "AlmaLinux 8 without libatomic: fails naming libatomic, as documented"
           fi
-          docker run --rm "${bin[@]}" "${atomic[@]}" almalinux:8 sh -c 'ldd --version | head -1; /b/parley --version && echo hi | /b/parley -p -m mock/echo say'
-          if docker run --rm "${bin[@]}" "${atomic[@]}" ubuntu:18.04 /b/parley --version > old.txt 2>&1; then
+          docker run --rm "${bin[@]}" "${atomic[@]}" almalinux:8 sh -c 'ldd --version | head -1; /b/taria --version && echo hi | /b/taria -p -m mock/echo say'
+          if docker run --rm "${bin[@]}" "${atomic[@]}" ubuntu:18.04 /b/taria --version > old.txt 2>&1; then
             echo "Unexpectedly ran on glibc 2.27; update the documented minimum" >&2
             exit 1
           fi
           cat old.txt
-          grep -q 'GLIBC_2.2[0-9].*required by /b/parley' old.txt
+          grep -q 'GLIBC_2.2[0-9].*required by /b/taria' old.txt
 
       - name: Signature (macOS)
         if: runner.os == 'macOS'
-        run: codesign --verify --verbose build/bin/parley && codesign -dv build/bin/parley 2>&1 | head -5
+        run: codesign --verify --verbose build/bin/taria && codesign -dv build/bin/taria 2>&1 | head -5
 
       - name: Smoke checks
         shell: bash
         run: |
-          export PARLEY_NO_KEYCHAIN=1
-          out="$(echo hi | build/bin/parley -p -m mock/echo say)"
+          export TARIA_NO_KEYCHAIN=1
+          out="$(echo hi | build/bin/taria -p -m mock/echo say)"
           [ "$out" = "$(printf 'You said: hi\n\nsay')" ]
-          build/bin/parley doctor | tee doctor.txt || true
+          build/bin/taria doctor | tee doctor.txt || true
           grep -q 'Install method         standalone binary' doctor.txt
 
       - name: PTY suite against the binary
         run: npx vitest run test/pty
         env:
-          PARLEY_BIN: ${{ github.workspace }}/build/bin/parley
+          TARIA_BIN: ${{ github.workspace }}/build/bin/taria
 
       - name: Start-up time (binary and Node build)
         run: |
-          node scripts/bench-startup.mjs --runs 20 --bin build/bin/parley
+          node scripts/bench-startup.mjs --runs 20 --bin build/bin/taria
           npm run build
           node scripts/bench-startup.mjs --runs 20
 
@@ -119,15 +121,18 @@ jobs:
         run: |
           rel="$RUNNER_TEMP/releases/latest/download"
           mkdir -p "$rel"
-          cp "build/bin/parley-${{ matrix.target }}.tar.gz" "$rel/"
-          (cd "$rel" && (sha256sum parley-*.tar.gz 2>/dev/null || shasum -a 256 parley-*.tar.gz) > SHA256SUMS)
-          PARLEY_RELEASES_URL="file://$RUNNER_TEMP/releases" PARLEY_INSTALL_DIR="$RUNNER_TEMP/bin" sh install.sh
-          "$RUNNER_TEMP/bin/parley" --version | grep -q 'standalone binary'
+          cp "build/bin/taria-${{ matrix.target }}.tar.gz" "$rel/"
+          (cd "$rel" && (sha256sum taria-*.tar.gz 2>/dev/null || shasum -a 256 taria-*.tar.gz) > SHA256SUMS)
+          TARIA_RELEASES_URL="file://$RUNNER_TEMP/releases" TARIA_INSTALL_DIR="$RUNNER_TEMP/bin" sh install.sh
+          "$RUNNER_TEMP/bin/taria" --version | grep -q 'standalone binary'
+          # The parley alias runs the same binary, after one line on stderr.
+          [ "$("$RUNNER_TEMP/bin/parley" --version 2>/dev/null)" = "$("$RUNNER_TEMP/bin/taria" --version)" ]
+          "$RUNNER_TEMP/bin/parley" --version 2>&1 >/dev/null | grep -q 'parley is now taria'
 
       - uses: actions/upload-artifact@v5
         with:
-          name: parley-${{ matrix.target }}
-          path: build/bin/parley-${{ matrix.target }}.tar.gz
+          name: taria-${{ matrix.target }}
+          path: build/bin/taria-${{ matrix.target }}.tar.gz
           if-no-files-found: error
           retention-days: 14
 
@@ -145,7 +150,7 @@ jobs:
       - name: Download the binaries
         uses: actions/download-artifact@v5
         with:
-          pattern: parley-*
+          pattern: taria-*
           path: assets
           merge-multiple: true
 
@@ -155,8 +160,8 @@ jobs:
       - name: Checksums
         working-directory: assets
         run: |
-          for t in darwin-arm64 darwin-x64 linux-arm64 linux-x64; do test -f "parley-$t.tar.gz"; done
-          sha256sum parley-*.tar.gz parley-*.tgz > SHA256SUMS
+          for t in darwin-arm64 darwin-x64 linux-arm64 linux-x64; do test -f "taria-$t.tar.gz"; done
+          sha256sum taria-*.tar.gz taria-*.tgz > SHA256SUMS
           cat SHA256SUMS
           ls -l
 
@@ -164,8 +169,8 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/releases/latest"
           cp -r assets "$RUNNER_TEMP/releases/latest/download"
-          PARLEY_RELEASES_URL="file://$RUNNER_TEMP/releases" PARLEY_INSTALL_DIR="$RUNNER_TEMP/bin" sh install.sh
-          "$RUNNER_TEMP/bin/parley" --version
+          TARIA_RELEASES_URL="file://$RUNNER_TEMP/releases" TARIA_INSTALL_DIR="$RUNNER_TEMP/bin" sh install.sh
+          "$RUNNER_TEMP/bin/taria" --version
 
       - uses: actions/upload-artifact@v5
         with:

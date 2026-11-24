@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { makeHome, spawnParley, sleep, type Session } from './harness.js';
+import { makeHome, spawnTaria, sleep, type Session } from './harness.js';
 import { TMUX_LINES } from '../../src/term/setup.js';
 import { mockScriptText } from '../../src/providers/mock.js';
 import { renderMarkdown } from '../../src/render/markdown.js';
@@ -33,7 +33,7 @@ function answerLines(all: string[]): string[] {
 }
 
 async function streamLong(cols: number, rows: number, model = LONG) {
-  s = spawnParley({ cols, rows, args: ['-m', model] });
+  s = spawnTaria({ cols, rows, args: ['-m', model] });
   await s.waitFor('Send a message');
   const mark = s.raw.length;
   s.write('go\r');
@@ -78,7 +78,7 @@ describe('rendering core', () => {
   }
 
   it('keeps the dynamic area shorter than the terminal while a long code block streams', async () => {
-    s = spawnParley({ cols: 70, rows: 16, args: ['-m', 'mock/long?lines=300&tps=800'] });
+    s = spawnTaria({ cols: 70, rows: 16, args: ['-m', 'mock/long?lines=300&tps=800'] });
     await s.waitFor('Send a message');
     s.write('go\r');
     for (let i = 0; i < 10; i++) {
@@ -99,7 +99,7 @@ describe('rendering core', () => {
     s!.resize(60, 30);
     await sleep(600);
     const all = s!.all();
-    expect(all.filter((l) => l.includes('Welcome to parley')).length).toBe(1);
+    expect(all.filter((l) => l.includes('Welcome to taria')).length).toBe(1);
     expect(all.filter((l) => l.trim() === 'Section 7').length).toBe(1);
     expect(answerLines(all)).toEqual(expectedAnswer('mock/long?lines=120&tps=6000', 60));
     for (const l of all) expect(l.length).toBeLessThanOrEqual(60);
@@ -109,11 +109,11 @@ describe('rendering core', () => {
     // Resumes and reprints write the history directly instead of through
     // <Static>; the result must look exactly like the streamed original.
     const home = makeHome();
-    const dir = join(home, 'data', 'parley', 'conversations');
+    const dir = join(home, 'data', 'taria', 'conversations');
     mkdirSync(dir, { recursive: true });
     const id = '20260101-000000-resume';
     const reply = (t: number) => `## Part ${t}\n\nSome **bold** text and \`code\` that is long enough to wrap at narrow widths, part ${t}.\n\n\`\`\`js\nconst v${t} = [${t}];\n\`\`\`\n`;
-    const lines: object[] = [{ type: 'meta', v: 1, id, createdAt: 1, app: 'parley' }];
+    const lines: object[] = [{ type: 'meta', v: 1, id, createdAt: 1, app: 'taria' }];
     let parent: string | null = null;
     for (let t = 0; t < 40; t++) {
       lines.push({ type: 'message', id: `u${t}`, parentId: parent, role: 'user', content: [{ type: 'text', text: `question ${t}` }], ts: t });
@@ -124,7 +124,7 @@ describe('rendering core', () => {
 
     const check = (cols: number) => {
       const all = s!.all().map((l) => l.trimEnd());
-      expect(all.filter((l) => l.includes('Welcome to parley')).length).toBe(1);
+      expect(all.filter((l) => l.includes('Welcome to taria')).length).toBe(1);
       const order = all.flatMap((l) => (/^> question (\d+)$/.exec(l) ? [Number(RegExp.$1)] : []));
       expect(order).toEqual([...Array(40).keys()]);
       for (const l of all) expect(l.length).toBeLessThanOrEqual(cols);
@@ -135,7 +135,7 @@ describe('rendering core', () => {
     };
 
     setColorLevel(0);
-    s = spawnParley({ cols: 80, rows: 24, home, args: ['-r', id] });
+    s = spawnTaria({ cols: 80, rows: 24, home, args: ['-r', id] });
     await s.waitFor('Send a message');
     await sleep(300);
     check(80);
@@ -155,7 +155,7 @@ describe('rendering core', () => {
 
   it('resizing mid-stream still produces one clean copy of the answer', async () => {
     const model = 'mock/long?lines=150&tps=1500';
-    s = spawnParley({ cols: 90, rows: 30, args: ['-m', model] });
+    s = spawnTaria({ cols: 90, rows: 30, args: ['-m', model] });
     await s.waitFor('Send a message');
     s.write('go\r');
     await s.waitFor('Section 4');
@@ -166,7 +166,7 @@ describe('rendering core', () => {
   }, 60_000);
 
   it('lets you type while streaming and queues Enter until the reply ends', async () => {
-    s = spawnParley({ cols: 80, rows: 24, args: ['-m', 'mock/long?lines=150&tps=600'] });
+    s = spawnTaria({ cols: 80, rows: 24, args: ['-m', 'mock/long?lines=150&tps=600'] });
     await s.waitFor('Send a message');
     s.write('go\r');
     await s.waitFor('Section 2');
@@ -179,7 +179,7 @@ describe('rendering core', () => {
   }, 60_000);
 
   it('withdraws a queued message with Up', async () => {
-    s = spawnParley({ cols: 80, rows: 24, args: ['-m', 'mock/long?lines=200&tps=300'] });
+    s = spawnTaria({ cols: 80, rows: 24, args: ['-m', 'mock/long?lines=200&tps=300'] });
     await s.waitFor('Send a message');
     s.write('go\r');
     await s.waitFor('Section 1');
@@ -193,7 +193,7 @@ describe('rendering core', () => {
   }, 60_000);
 
   it('interrupts with Esc and keeps the partial text', async () => {
-    s = spawnParley({ cols: 80, rows: 24, args: ['-m', 'mock/long?lines=400&tps=200'] });
+    s = spawnTaria({ cols: 80, rows: 24, args: ['-m', 'mock/long?lines=400&tps=200'] });
     await s.waitFor('Send a message');
     s.write('go\r');
     await s.waitFor('Section 1');
@@ -205,7 +205,7 @@ describe('rendering core', () => {
   }, 30_000);
 
   it('restores the terminal on exit', async () => {
-    s = spawnParley({ cols: 80, rows: 24 });
+    s = spawnTaria({ cols: 80, rows: 24 });
     await s.waitFor('Send a message');
     s.write('\x03');
     await s.waitFor('Press Ctrl-C again to exit');
@@ -218,7 +218,7 @@ describe('rendering core', () => {
   }, 30_000);
 
   it('restores the terminal when killed with SIGTERM', async () => {
-    s = spawnParley({ cols: 80, rows: 24 });
+    s = spawnTaria({ cols: 80, rows: 24 });
     await s.waitFor('Send a message');
     s.proc.kill('SIGTERM');
     await s.exited;
@@ -231,19 +231,19 @@ describe('rendering core', () => {
 
 import { spawnSync } from 'node:child_process';
 import { testEnv } from './harness.js';
-import { parleyCommand } from '../build-once.js';
+import { tariaCommand } from '../build-once.js';
 
 const hasTmux = spawnSync('sh', ['-c', 'command -v tmux'], { stdio: 'ignore' }).status === 0;
 
 describe.runIf(hasTmux)('inside tmux', () => {
   it('renders and streams correctly', async () => {
-    const sock = `parley-test-${process.pid}`;
+    const sock = `taria-test-${process.pid}`;
     // tmux needs the test environment inside the session, so pass it via env.
-    s = spawnParley({
+    s = spawnTaria({
       cols: 80,
       rows: 24,
       command: 'tmux',
-      commandArgs: ['-L', sock, '-f', '/dev/null', 'new-session', '-x', '80', '-y', '24', `${parleyCommand().shell} -m mock/long?lines=80\\&tps=3000`],
+      commandArgs: ['-L', sock, '-f', '/dev/null', 'new-session', '-x', '80', '-y', '24', `${tariaCommand().shell} -m mock/long?lines=80\\&tps=3000`],
     });
     try {
       await s.waitFor('Send a message', 15_000);
@@ -262,20 +262,20 @@ describe.runIf(hasTmux)('inside tmux', () => {
     }
   }, 60_000);
 
-  it('with the /terminal-setup tmux lines, Shift+Enter from an xterm-compatible terminal reaches parley as a new line', async () => {
-    const sock = `parley-keys-${process.pid}`;
+  it('with the /terminal-setup tmux lines, Shift+Enter from an xterm-compatible terminal reaches taria as a new line', async () => {
+    const sock = `taria-keys-${process.pid}`;
     const conf = join(makeHome(), 'tmux.conf');
     writeFileSync(conf, TMUX_LINES.join('\n') + '\n');
-    s = spawnParley({
+    s = spawnTaria({
       cols: 80,
       rows: 24,
       identifyAsXterm: true,
       command: 'tmux',
-      commandArgs: ['-L', sock, '-f', conf, 'new-session', '-x', '80', '-y', '24', parleyCommand().shell],
+      commandArgs: ['-L', sock, '-f', conf, 'new-session', '-x', '80', '-y', '24', tariaCommand().shell],
     });
     try {
       await s.waitFor('Send a message', 15_000);
-      // parley asks for modified keys once its terminal probe finishes, and
+      // taria asks for modified keys once its terminal probe finishes, and
       // tmux then asks the outer terminal. Wait for that request when tmux
       // makes one this harness can see (its form differs between tmux
       // versions, and some send none); otherwise allow the same time as

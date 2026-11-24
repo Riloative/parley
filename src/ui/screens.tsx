@@ -473,11 +473,11 @@ export function SetupScreen({ cols, maxRows, configFile, onDone }: SetupProps): 
   const items: Array<PickerItem<string>> = [];
   for (const d of detected ?? []) items.push({ value: `detected:${d.preset.id}:${d.baseUrl ?? ''}`, label: `Use ${d.preset.label}`, detail: d.how });
   items.push({ value: 'wizard', label: 'Add a provider', detail: 'cloud API or local server' });
-  items.push({ value: 'mock', label: 'Skip for now', detail: 'try parley with the built-in mock provider; run /providers later' });
+  items.push({ value: 'mock', label: 'Skip for now', detail: 'try taria with the built-in mock provider; run /providers later' });
   return (
     <Box flexDirection="column">
       <Picker
-        title="Welcome! Let's connect parley to a model."
+        title="Welcome! Let's connect taria to a model."
         items={items}
         searchable={false}
         cols={cols}

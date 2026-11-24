@@ -47,7 +47,7 @@ describe('key redaction', () => {
   for (const m of ['http', 'stream', 'plain']) {
     it(`keeps the key out of notices, transcripts and logs (${m} error)`, async () => {
       mode = m;
-      const dir = mkdtempSync(join(tmpdir(), 'parley-redact-'));
+      const dir = mkdtempSync(join(tmpdir(), 'taria-redact-'));
       const log = enableDebug(join(dir, 'debug.log'));
       const config: Config = { ...defaultConfig(), providers: { r: { name: 'r', type: 'openai-compatible', baseUrl: base, apiKeyEnv: 'REDACT_TEST_KEY', headers: {}, models: {} } } };
       const store = new Store(dir);
@@ -78,7 +78,7 @@ describe('retry policy', () => {
     });
     await new Promise<void>((r) => srv.listen(0, '127.0.0.1', r));
     const url = `http://127.0.0.1:${(srv.address() as AddressInfo).port}/v1`;
-    const dir = mkdtempSync(join(tmpdir(), 'parley-retry-'));
+    const dir = mkdtempSync(join(tmpdir(), 'taria-retry-'));
     const config: Config = { ...defaultConfig(), providers: { r: { name: 'r', type: 'openai-compatible', baseUrl: url, headers: {}, models: {} } } };
     const session = new Session({ config, registry: new Registry(config), store: new Store(dir), model: 'r/m' });
     const notices: string[] = [];

@@ -13,6 +13,7 @@ import { paths } from './config/paths.js';
 import { TerminalController, installExitHandlers, restoreTerminal } from './term/terminal.js';
 import type { Background, EarlyProbe } from './term/probe.js';
 import { flushDrafts, pruneDrafts } from './core/drafts.js';
+import { renameNotices } from './brand.js';
 import { VERSION } from './version.js';
 import { notifier } from './ui/notify.js';
 import { TranscriptModel } from './ui/transcript.js';
@@ -24,7 +25,7 @@ import { mark, startupMarks } from './trace.js';
 import { redact } from './config/credentials.js';
 
 function crashReport(e: unknown): string {
-  return `\nparley crashed: ${redact(String((e as Error)?.stack ?? e))}\n`;
+  return `\ntaria crashed: ${redact(String((e as Error)?.stack ?? e))}\n`;
 }
 
 /**
@@ -74,6 +75,7 @@ export async function runInteractive(args: Args, probe?: EarlyProbe): Promise<vo
   if (args.system) session.setSystemPrompt(args.system);
 
   const notes: Array<{ text: string; tone: 'dim' | 'error' | 'success' | 'warning' }> = b.issues.map((t) => ({ text: t, tone: 'error' as const }));
+  for (const n of renameNotices.splice(0)) notes.push({ text: n, tone: /^(Migration|Note):/.test(n) ? 'warning' : 'dim' });
   if (args.continue && !initialConv) notes.push({ text: 'No previous conversation to continue.', tone: 'dim' });
   const resumeFailed = initialConv ? !session.resume(initialConv) : false;
   if (resumeFailed) notes.push({ text: `Could not open conversation ${initialConv}.`, tone: 'error' });
@@ -124,7 +126,7 @@ export async function runInteractive(args: Args, probe?: EarlyProbe): Promise<vo
     if (code === 0 && session.file) {
       // Synchronous: process.exit() follows, and an async write to a pipe or
       // (on macOS) a pty could be dropped.
-      writeNow(1, lineToAnsi([{ text: `\nResume this conversation with: parley -r ${session.file.id}\n`, style: { fg: 'dim' } }]));
+      writeNow(1, lineToAnsi([{ text: `\nResume this conversation with: taria -r ${session.file.id}\n`, style: { fg: 'dim' } }]));
     }
     process.exit(code);
   };
@@ -141,7 +143,7 @@ export async function runInteractive(args: Args, probe?: EarlyProbe): Promise<vo
   if (background) setTheme(resolveTheme(args.theme ?? b.config.theme, process.env, background));
   // A later answer (a slow link) still applies to everything drawn from then
   // on. What is already printed keeps its colours: reprinting would clear
-  // the scrollback, including the shell history above parley. The one
+  // the scrollback, including the shell history above taria. The one
   // exception is a welcome box that is still alone on the screen, which the
   // app draws again in place.
 
@@ -156,7 +158,7 @@ export async function runInteractive(args: Args, probe?: EarlyProbe): Promise<vo
   });
   terminal.start();
   if (session.conv.title && b.config.terminalTitle) terminal.setTitle(session.conv.title);
-  else if (b.config.terminalTitle) terminal.setTitle('parley');
+  else if (b.config.terminalTitle) terminal.setTitle('taria');
 
   mark('terminal-started');
   const { render } = await import('ink');
@@ -189,11 +191,11 @@ export async function runInteractive(args: Args, probe?: EarlyProbe): Promise<vo
     },
   );
   ink.clear = () => instance.clear();
-  if (process.env.PARLEY_STARTUP_TRACE) {
+  if (process.env.TARIA_STARTUP_TRACE) {
     // Time from process start to the first rendered frame (for profiling).
     void instance.waitUntilRenderFlush().then(() => {
       mark('first-frame');
-      appendFileSync(process.env.PARLEY_STARTUP_TRACE!, `${performance.now().toFixed(1)}\n${JSON.stringify(startupMarks())}\n`);
+      appendFileSync(process.env.TARIA_STARTUP_TRACE!, `${performance.now().toFixed(1)}\n${JSON.stringify(startupMarks())}\n`);
     });
   }
 
@@ -202,7 +204,7 @@ export async function runInteractive(args: Args, probe?: EarlyProbe): Promise<vo
     setTimeout(() => {
       void import('./core/update.js').then(async (u) => {
         const v = await u.newerVersion({ enabled: true });
-        if (v && !exiting) transcript.notice(`parley ${v} is available (this is ${VERSION}): ${u.RELEASES_PAGE} · check_for_updates: false turns this notice off`);
+        if (v && !exiting) transcript.notice(`taria ${v} is available (this is ${VERSION}): ${u.RELEASES_PAGE} · check_for_updates: false turns this notice off`);
       });
     }, 1000).unref();
   }
@@ -211,9 +213,9 @@ export async function runInteractive(args: Args, probe?: EarlyProbe): Promise<vo
     const p = args.prompt;
     setTimeout(() => void session.submit({ text: p }), 50);
   }
-  if (process.env.PARLEY_DEBUG_CRASH?.startsWith('uncaught')) {
+  if (process.env.TARIA_DEBUG_CRASH?.startsWith('uncaught')) {
     // Test hook: crash outside React after a delay.
-    const ms = Number(process.env.PARLEY_DEBUG_CRASH.split(':')[1] ?? 0);
+    const ms = Number(process.env.TARIA_DEBUG_CRASH.split(':')[1] ?? 0);
     setTimeout(() => {
       throw new Error('debug crash (uncaught)');
     }, ms);

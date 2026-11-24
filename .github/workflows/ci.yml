@@ -47,11 +47,14 @@ jobs:
       - name: Global install smoke test (npm install -g .)
         run: |
           npm install -g .
-          parley --version
-          parley --help > /dev/null
-          out="$(echo hi | parley -p -m mock/echo say)"
+          taria --version
+          taria --help > /dev/null
+          out="$(echo hi | taria -p -m mock/echo say)"
           [ "$out" = "$(printf 'You said: hi\n\nsay')" ]
-          parley doctor || true
+          taria doctor || true
+          # The parley alias (0.3.x only): same output, a notice on stderr.
+          [ "$(parley --version 2>/dev/null)" = "$(taria --version)" ]
+          parley --version 2>&1 >/dev/null | grep -q 'parley is now taria'
 
   shellcheck:
     name: shellcheck install.sh

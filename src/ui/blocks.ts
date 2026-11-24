@@ -12,7 +12,7 @@ import { unicodeOk } from '../term/caps.js';
 export const GLYPH = unicodeOk() ? '◆' : '*';
 export const BULLET = unicodeOk() ? '●' : '*';
 export const ELBOW = unicodeOk() ? '⎿' : '`-';
-export const APP_NAME = 'parley';
+export const APP_NAME = 'taria';
 
 const DIM: Style = { fg: 'dim' };
 

@@ -6,7 +6,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
-import { DEFAULT_CONFIG, makeHome, spawnParley, sleep, type Session } from './harness.js';
+import { DEFAULT_CONFIG, makeHome, spawnTaria, sleep, type Session } from './harness.js';
 
 let s: Session | undefined;
 let server: Server | undefined;
@@ -21,12 +21,12 @@ const paste = (t: string) => `\x1b[200~${t}\x1b[201~`;
 const screen = () => s!.screen().join('\n');
 const lines = () => s!.screen().map((l) => l.trimEnd());
 const all = () => s!.all().map((l) => l.trimEnd());
-const configText = () => readFileSync(join(s!.home, 'config', 'parley', 'config.yaml'), 'utf8');
-const state = () => JSON.parse(readFileSync(join(s!.home, 'data', 'parley', 'state.json'), 'utf8')) as { favouriteModels?: string[]; updateCheck?: { at: number; latest?: string; notified?: string } };
+const configText = () => readFileSync(join(s!.home, 'config', 'taria', 'config.yaml'), 'utf8');
+const state = () => JSON.parse(readFileSync(join(s!.home, 'data', 'taria', 'state.json'), 'utf8')) as { favouriteModels?: string[]; updateCheck?: { at: number; latest?: string; notified?: string } };
 
 describe('model picker', () => {
   it('shows what each model can do, and Ctrl+F keeps favourites at the top across restarts', async () => {
-    s = spawnParley({ cols: 100, rows: 32 });
+    s = spawnTaria({ cols: 100, rows: 32 });
     await s.waitFor('Send a message');
     s.write('/model\r');
     await s.waitFor('reasoning   32k context · images · reasoning');
@@ -48,7 +48,7 @@ describe('model picker', () => {
     s.write('\x04');
     await s.exited;
     await s.close(true);
-    s = spawnParley({ cols: 100, rows: 32, home });
+    s = spawnTaria({ cols: 100, rows: 32, home });
     await s.waitFor('Send a message');
     s.write('/model\r');
     await s.waitFor('Favourites');
@@ -61,7 +61,7 @@ describe('model picker', () => {
   }, 40_000);
 
   it('uses the capabilities set in the config', async () => {
-    s = spawnParley({
+    s = spawnTaria({
       cols: 100,
       rows: 32,
       config: `${DEFAULT_CONFIG}    models:\n      echo:\n        context_window: 200000\n        images: false\n        reasoning: true\n`,
@@ -74,7 +74,7 @@ describe('model picker', () => {
 
 describe('/config', () => {
   it('changes soft_line_breaks and redraws the conversation with it', async () => {
-    s = spawnParley({ cols: 80, rows: 30 });
+    s = spawnTaria({ cols: 80, rows: 30 });
     await s.waitFor('Send a message');
     s.write(paste('one\ntwo'));
     await sleep(100);
@@ -100,14 +100,14 @@ describe('/config', () => {
     // (The user's own message keeps its line break; the reply is one line now.)
     await s.waitFor(() => all().includes('● You said: one two'));
     expect(all()).not.toContain('● You said: one');
-    expect(all().filter((l) => l.includes('Welcome to parley')).length).toBe(1);
+    expect(all().filter((l) => l.includes('Welcome to taria')).length).toBe(1);
   }, 40_000);
 });
 
 describe('reduced motion', () => {
   const MOVING = /[✢✳✶✽]/;
   it('shows a still spinner; the default one moves', async () => {
-    s = spawnParley({ cols: 80, rows: 24, config: `${DEFAULT_CONFIG}reduced_motion: true\n`, args: ['-m', 'mock/slow-first'] });
+    s = spawnTaria({ cols: 80, rows: 24, config: `${DEFAULT_CONFIG}reduced_motion: true\n`, args: ['-m', 'mock/slow-first'] });
     await s.waitFor('Send a message');
     s.write('hi\r');
     await s.waitFor(/✻ \S+… \(\d+s/);
@@ -118,7 +118,7 @@ describe('reduced motion', () => {
     expect(s.raw).not.toMatch(MOVING);
     await s.close();
 
-    s = spawnParley({ cols: 80, rows: 24, args: ['-m', 'mock/slow-first'] });
+    s = spawnTaria({ cols: 80, rows: 24, args: ['-m', 'mock/slow-first'] });
     await s.waitFor('Send a message');
     s.write('hi\r');
     await s.waitFor(() => MOVING.test(s!.raw));
@@ -127,7 +127,7 @@ describe('reduced motion', () => {
 
 describe('/terminal-setup for another terminal', () => {
   it('tmux: shows the lines and writes ~/.tmux.conf only after a yes, outside tmux too', async () => {
-    s = spawnParley({ cols: 100, rows: 30 });
+    s = spawnTaria({ cols: 100, rows: 30 });
     await s.waitFor('Send a message');
     const conf = join(s.home, '.tmux.conf');
     s.write('/terminal-setup tmux');
@@ -148,7 +148,7 @@ describe('/terminal-setup for another terminal', () => {
   }, 40_000);
 
   it('vscode: says so when no editor settings exist, and rejects other names', async () => {
-    s = spawnParley({ cols: 100, rows: 30 });
+    s = spawnTaria({ cols: 100, rows: 30 });
     await s.waitFor('Send a message');
     s.write('/terminal-setup vscode');
     await sleep(100);
@@ -177,7 +177,7 @@ describe('new version notice', () => {
 
   it('is off by default: nothing is requested', async () => {
     const { hits, url } = await serve('v99.0.0');
-    s = spawnParley({ env: { PARLEY_UPDATE_URL: url } });
+    s = spawnTaria({ env: { TARIA_UPDATE_URL: url } });
     await s.waitFor('Send a message');
     await sleep(2000);
     expect(hits).toEqual([]);
@@ -187,11 +187,11 @@ describe('new version notice', () => {
   it('when switched on, asks once a day and mentions a newer version once', async () => {
     const { hits, url } = await serve('v99.0.0');
     const home = makeHome(`${DEFAULT_CONFIG}check_for_updates: true\n`);
-    s = spawnParley({ cols: 110, home, env: { PARLEY_UPDATE_URL: url } });
+    s = spawnTaria({ cols: 110, home, env: { TARIA_UPDATE_URL: url } });
     await s.waitFor('Send a message');
-    await s.waitFor('parley 99.0.0 is available', 15_000);
+    await s.waitFor('taria 99.0.0 is available', 15_000);
     expect(hits.length).toBe(1);
-    expect(hits[0]!.ua).toMatch(/^parley\/\d+\.\d+\.\d+/);
+    expect(hits[0]!.ua).toMatch(/^taria\/\d+\.\d+\.\d+/);
     expect(state().updateCheck).toMatchObject({ latest: '99.0.0', notified: '99.0.0' });
     // The input box still works and nothing was installed or changed.
     s.write('hello\r');
@@ -200,7 +200,7 @@ describe('new version notice', () => {
     await s.exited;
     await s.close(true);
 
-    s = spawnParley({ cols: 110, home, env: { PARLEY_UPDATE_URL: url } });
+    s = spawnTaria({ cols: 110, home, env: { TARIA_UPDATE_URL: url } });
     await s.waitFor('Send a message');
     await sleep(2500);
     expect(hits.length).toBe(1);
@@ -209,13 +209,13 @@ describe('new version notice', () => {
 
   it('says nothing when this version is the latest, or when the server is unreachable', async () => {
     const { hits, url } = await serve('v0.0.1');
-    s = spawnParley({ home: makeHome(`${DEFAULT_CONFIG}check_for_updates: true\n`), env: { PARLEY_UPDATE_URL: url } });
+    s = spawnTaria({ home: makeHome(`${DEFAULT_CONFIG}check_for_updates: true\n`), env: { TARIA_UPDATE_URL: url } });
     await s.waitFor('Send a message');
     await s.waitFor(() => hits.length === 1, 15_000);
     await sleep(500);
     expect(all().join('\n')).not.toContain('is available');
     await s.close();
-    s = spawnParley({ home: makeHome(`${DEFAULT_CONFIG}check_for_updates: true\n`), env: { PARLEY_UPDATE_URL: 'http://127.0.0.1:9/latest' } });
+    s = spawnTaria({ home: makeHome(`${DEFAULT_CONFIG}check_for_updates: true\n`), env: { TARIA_UPDATE_URL: 'http://127.0.0.1:9/latest' } });
     await s.waitFor('Send a message');
     await sleep(2500);
     s.write('still fine\r');
@@ -229,7 +229,7 @@ describe('late background answer', () => {
   const LIGHT_ACCENT = '38;2;193;95;60';
 
   it('repaints a welcome box that is still alone on the screen, in place', async () => {
-    s = spawnParley({ cols: 80, rows: 24, home: makeHome(AUTO), background: 'rgb:ffff/ffff/ffff', backgroundDelayMs: 1500 });
+    s = spawnTaria({ cols: 80, rows: 24, home: makeHome(AUTO), background: 'rgb:ffff/ffff/ffff', backgroundDelayMs: 1500 });
     await s.waitFor('% context'); // the status line is complete
     expect(s.raw).not.toContain(LIGHT_ACCENT);
     const before = lines().join('\n');
@@ -237,16 +237,16 @@ describe('late background answer', () => {
     await sleep(300);
     // Same screen, new colours: nothing scrolled, cleared or duplicated.
     expect(lines().join('\n')).toBe(before);
-    expect(all().filter((l) => l.includes('Welcome to parley')).length).toBe(1);
+    expect(all().filter((l) => l.includes('Welcome to taria')).length).toBe(1);
     expect(s.raw).not.toContain('\x1b[3J');
     expect(s.raw).not.toContain('\x1b[2J');
     s.write('abc\r');
     await s.waitFor('You said: abc');
-    expect(all().filter((l) => l.includes('Welcome to parley')).length).toBe(1);
+    expect(all().filter((l) => l.includes('Welcome to taria')).length).toBe(1);
   }, 30_000);
 
   it('does not print the conversation a second time when the answer arrives after messages', async () => {
-    s = spawnParley({ cols: 80, rows: 24, home: makeHome(AUTO), background: 'rgb:ffff/ffff/ffff', backgroundDelayMs: 2500 });
+    s = spawnTaria({ cols: 80, rows: 24, home: makeHome(AUTO), background: 'rgb:ffff/ffff/ffff', backgroundDelayMs: 2500 });
     await s.waitFor('Send a message');
     s.write('hello\r');
     await s.waitFor('You said: hello');
@@ -264,14 +264,14 @@ describe('late background answer', () => {
   }, 30_000);
 
   it('leaves the box alone once the user has started typing', async () => {
-    s = spawnParley({ cols: 80, rows: 24, home: makeHome(AUTO), background: 'rgb:ffff/ffff/ffff', backgroundDelayMs: 1200 });
+    s = spawnTaria({ cols: 80, rows: 24, home: makeHome(AUTO), background: 'rgb:ffff/ffff/ffff', backgroundDelayMs: 1200 });
     await s.waitFor('Send a message');
     s.write('typing');
     await s.waitFor('│ > typing');
     const mark = s.raw.length;
     await sleep(1600);
-    expect(s.raw.slice(mark)).not.toContain('Welcome to parley');
+    expect(s.raw.slice(mark)).not.toContain('Welcome to taria');
     expect(screen()).toContain('│ > typing');
-    expect(all().filter((l) => l.includes('Welcome to parley')).length).toBe(1);
+    expect(all().filter((l) => l.includes('Welcome to taria')).length).toBe(1);
   }, 30_000);
 });

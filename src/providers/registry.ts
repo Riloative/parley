@@ -56,7 +56,7 @@ export class Registry {
     if (!key.key && !pc.noKey && !isLocalUrl(pc.baseUrl) && pc.type !== 'openai-compatible') {
       throw new ProviderError(
         'auth',
-        `No API key found for "${name}". Set ${pc.apiKeyEnv ?? (pc.type === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY')}, or run "parley key set ${name}".`,
+        `No API key found for "${name}". Set ${pc.apiKeyEnv ?? (pc.type === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY')}, or run "taria key set ${name}".`,
       );
     }
     const ctx: AdapterContext = { config: pc, key };

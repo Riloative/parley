@@ -1,9 +1,9 @@
 // Streaming cost, measured in a pseudo-terminal while a long, fast reply
-// streams: how much CPU parley uses, how many frames it draws and how big
+// streams: how much CPU taria uses, how many frames it draws and how big
 // they are, how quickly typed keys show up meanwhile, and memory at the end.
 //
 // Usage: node scripts/bench-stream.mjs [--runs 3] [--lines 2000] [--tps 20000] [--bin path]...
-// Without --bin it measures the Node build (node bin/parley.js); a --bin that
+// Without --bin it measures the Node build (node bin/taria.js); a --bin that
 // ends in .js runs with this Node. Repeat --bin to compare builds.
 // CPU and memory come from /proc (Linux) or ps (macOS).
 
@@ -35,17 +35,17 @@ const root = new URL("..", import.meta.url).pathname;
 const bins = process.argv.flatMap((a, i) =>
   a === "--bin" ? [resolve(process.argv[i + 1])] : [],
 );
-const targets = (bins.length ? bins : [join(root, "bin", "parley.js")]).map(
+const targets = (bins.length ? bins : [join(root, "bin", "taria.js")]).map(
   (b) =>
     b.endsWith(".js")
       ? { label: `node build ${b}`, command: process.execPath, args: [b] }
       : { label: `binary ${b}`, command: b, args: [] },
 );
 
-const home = mkdtempSync(join(tmpdir(), "parley-bench-stream-"));
-mkdirSync(join(home, "config", "parley"), { recursive: true });
+const home = mkdtempSync(join(tmpdir(), "taria-bench-stream-"));
+mkdirSync(join(home, "config", "taria"), { recursive: true });
 writeFileSync(
-  join(home, "config", "parley", "config.yaml"),
+  join(home, "config", "taria", "config.yaml"),
   "bell: false\nproviders:\n  mock:\n    type: mock\n",
 );
 const env = {
@@ -56,7 +56,7 @@ const env = {
   XDG_STATE_HOME: join(home, "state"),
   TERM: "xterm-256color",
   COLORTERM: "truecolor",
-  PARLEY_NO_KEYCHAIN: "1",
+  TARIA_NO_KEYCHAIN: "1",
 };
 for (const k of ["CI", "GITHUB_ACTIONS"]) delete env[k];
 

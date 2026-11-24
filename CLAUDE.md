@@ -1,6 +1,6 @@
-# parley — notes for working on this codebase
+# taria — notes for working on this codebase
 
-parley is a terminal chat client (TypeScript, strict; React + Ink 8; Node ≥ 22) that imitates the look and behaviour of a terminal coding-assistant CLI but only converses. Users run it daily, so reliability and smooth rendering beat features.
+taria is a terminal chat client (TypeScript, strict; React + Ink 8; Node ≥ 22) that imitates the look and behaviour of a terminal coding-assistant CLI but only converses. Users run it daily, so reliability and smooth rendering beat features.
 
 Priorities when they conflict: (1) no lost conversations, no corrupted terminal, no leaked keys; (2) smooth streaming and typing; (3) visual/behavioural fidelity; (4) breadth.
 
@@ -24,7 +24,7 @@ Why dist/ is committed: `npm install -g .` packs the folder *before* installing 
 
 ## Standalone binaries
 
-`node scripts/build-binary.mjs` builds `build/bin/parley` (and `build/bin/parley-<os>-<arch>.tar.gz`) for the machine it runs on. Binaries are never committed; CI builds them on native runners (`.github/workflows/binaries.yml`). Test any build with the PTY suite: `PARLEY_BIN=$PWD/build/bin/parley npx vitest run test/pty`.
+`node scripts/build-binary.mjs` builds `build/bin/taria` (and `build/bin/taria-<os>-<arch>.tar.gz`) for the machine it runs on. Binaries are never committed; CI builds them on native runners (`.github/workflows/binaries.yml`). Test any build with the PTY suite: `TARIA_BIN=$PWD/build/bin/taria npx vitest run test/pty`.
 
 - **Technology: Node.js single executable applications (SEA).** Pinned runtime: Node **26.13.1** (active LTS), in `scripts/binary-runtime.json`. The script downloads the official build for the host platform, checks it against `SHASUMS256.txt`, and runs `node --build-sea`.
 - **Shape of the build:** one ESM file (`mainFormat: "module"`, so yoga-layout's top-level await works) with code splitting off, because an executable can't load chunk files. esbuild inlines the lazily imported modules. `react-devtools-core` is aliased to a stub (`scripts/stubs/`), because Ink's optional DevTools import would otherwise be linked eagerly and fail. Code cache on; `execArgvExtension: "none"`, so `NODE_OPTIONS` can't change the binary's behaviour.
@@ -35,26 +35,28 @@ Why dist/ is committed: `npm install -g .` packs the folder *before* installing 
 - **Why not Node 22/24 SEA:** only CommonJS entry points before Node 25. **Why not `deno compile`:** not needed, since SEA passed.
 - **Targets:** darwin-arm64, darwin-x64, linux-x64 and linux-arm64, each built and tested on a native GitHub runner (`macos-latest`, `macos-15-intel`, `ubuntu-24.04`, `ubuntu-24.04-arm`).
   - **macOS:** binaries are signed ad hoc (`codesign --sign -`), not notarized.
-  - **Linux:** binaries need glibc ≥ 2.28 (Node's official builds), plus libstdc++ (GLIBCXX_3.4.21) and libatomic, which minimal images such as `debian:10` lack. CI runs the binaries in AlmaLinux 8 (glibc 2.28) and checks that they fail with parley's own glibc error on Ubuntu 18.04. Both containers get the runner's libatomic mounted instead of installing it, so distribution mirror outages can't fail the check.
+  - **Linux:** binaries need glibc ≥ 2.28 (Node's official builds), plus libstdc++ (GLIBCXX_3.4.21) and libatomic, which minimal images such as `debian:10` lack. CI runs the binaries in AlmaLinux 8 (glibc 2.28) and checks that they fail with taria's own glibc error on Ubuntu 18.04. Both containers get the runner's libatomic mounted instead of installing it, so distribution mirror outages can't fail the check.
   - **Not built:** musl (Node has no official musl builds) and Windows.
-- **To upgrade the embedded Node:** change `scripts/binary-runtime.json`, rebuild locally, and run the PTY suite with `PARLEY_BIN`.
+- **To upgrade the embedded Node:** change `scripts/binary-runtime.json`, rebuild locally, and run the PTY suite with `TARIA_BIN`.
 
-`install.sh` (POSIX sh, shellcheck-clean, tested in `test/unit/install.test.ts` and in CI against the real archives) installs a release binary. `PARLEY_RELEASES_URL` points it at another layout, such as `file://` in tests.
+`install.sh` (POSIX sh, shellcheck-clean, tested in `test/unit/install.test.ts` and in CI against the real archives) installs a release binary. `TARIA_RELEASES_URL` points it at another layout, such as `file://` in tests.
 
 ## Releasing
 
 1. Bump the version: `npm version X.Y.Z --no-git-tag-version`, then `npm run build` (the version is baked into dist/).
 2. Add a `## X.Y.Z — date` section to CHANGELOG.md.
 3. Merge to main. Tags cannot be pushed from Claude Code cloud sessions (HTTP 403), so give the user these commands to run in a GitHub Codespace, with the merge commit's full SHA:
-   `git fetch origin main --tags` · `git tag -a vX.Y.Z -m "parley X.Y.Z" <sha>` · `git push origin vX.Y.Z`.
-4. `.github/workflows/release.yml` then checks the tag against package.json, re-runs the checks, builds and tests the four binaries through the reusable `binaries.yml`, and publishes a GitHub Release. The release carries `parley-<os>-<arch>.tar.gz`, the npm tarball and `SHA256SUMS`, with that CHANGELOG section as its notes. CI runs the same build-and-package steps on every pull request.
+   `git fetch origin main --tags` · `git tag -a vX.Y.Z -m "taria X.Y.Z" <sha>` · `git push origin vX.Y.Z`.
+4. `.github/workflows/release.yml` then checks the tag against package.json, re-runs the checks, builds and tests the four binaries through the reusable `binaries.yml`, and publishes a GitHub Release. The release carries `taria-<os>-<arch>.tar.gz`, the npm tarball and `SHA256SUMS`, with that CHANGELOG section as its notes. CI runs the same build-and-package steps on every pull request.
 
 ## Layout
 
 ```
-bin/parley.js            enables Node's compile cache, imports dist/cli.js
+bin/taria.js             enables Node's compile cache, imports dist/cli.js
+bin/parley.js            0.3.x alias: one line on stderr, then taria (remove in 0.4.0, with scripts/parley-alias.sh)
+src/brand.ts             the names (taria, and parley before 0.3.0); PARLEY_* → TARIA_* adoption; rename notices
 src/version.ts           version, build kind (node package vs standalone binary)
-src/trace.ts             start-up phase marks for PARLEY_STARTUP_TRACE
+src/trace.ts             start-up phase marks for TARIA_STARTUP_TRACE
 scripts/build-binary.mjs standalone executable (Node SEA)
 scripts/esbuild-plugins.mjs build-time patches to dependencies (shared by both builds; equivalence-tested)
 scripts/bench-*.mjs      start-up, streaming and long-history benchmarks (see Gotchas)
@@ -62,7 +64,7 @@ install.sh               curl | sh installer for the release binaries
 src/cli.ts               arg parsing; --help/--version without loading anything else; dispatch
 src/interactive.tsx      wires terminal + session + transcript + Ink; exit/signal handling
 src/print.ts             -p mode (pipes, --json, exit codes)
-src/doctor.ts, keycmd.ts `parley doctor`, `parley key …`
+src/doctor.ts, keycmd.ts `taria doctor`, `taria key …`
 src/bootstrap.ts         config + theme + registry + store; model selection
 src/debug.ts             --debug log (redacted)
 
@@ -80,7 +82,7 @@ src/core/
   store.ts               append-only JSONL per conversation, replay/crash recovery, locks, list/search, attachments
   session.ts             turns, frame batching (33ms), delta persistence (400ms), retries, queue, rewind/retry, compaction, titles
   drafts.ts              the unsent input text per conversation (debounced, atomic, flushed on shutdown)
-  update.ts              opt-in daily check for a newer release (lazy-imported after the first frame; `PARLEY_UPDATE_URL` in tests)
+  update.ts              opt-in daily check for a newer release (lazy-imported after the first frame; `TARIA_UPDATE_URL` in tests)
   history.ts, state.ts, usage.ts
 
 src/render/
@@ -104,7 +106,8 @@ src/ui/
   attachments.ts, fuzzy.ts, Spinner.tsx
 
 src/commands/commands.ts built-in slash commands + Markdown custom commands
-src/config/              config.ts (YAML + validation with line numbers), credentials.ts (env → keychain → file), presets.ts, paths.ts
+src/config/              config.ts (YAML + validation with line numbers), credentials.ts (env → keychain (taria, then parley's entry) → file), presets.ts, paths.ts
+  migrate.ts             one-time move of parley's folders to taria's (rename + link, or copy + verify; resumable)
 ```
 
 ## How rendering stays flicker-free
@@ -126,7 +129,7 @@ src/config/              config.ts (YAML + validation with line numbers), creden
 - Reprints of conversations longer than `COLLAPSE_ABOVE` messages print the newest `COLLAPSE_KEEP` (`src/ui/transcript.ts`); `/history` toggles.
 - While a queued message is being edited, `session.holdQueue(true)` keeps the queue from being sent, and the queue slot always holds the text typed so far, so an interrupted reply hands back the edited text.
 - A late background answer repaints the welcome box in place (`repaint-welcome`: cursor up, erase down) only when it is the sole item, the size is unchanged since the first print, and the input is empty and idle. Every other case keeps the old colours; never clear the scrollback for this.
-- `PARLEY_DEBUG_CRASH=render|uncaught[:ms]` forces a crash, for the terminal-restore tests in `test/pty/bugs.test.ts`.
+- `TARIA_DEBUG_CRASH=render|uncaught[:ms]` forces a crash, for the terminal-restore tests in `test/pty/bugs.test.ts`.
 
 ## Conventions
 
@@ -137,6 +140,13 @@ src/config/              config.ts (YAML + validation with line numbers), creden
 - Colours: use theme tokens (`fg: 'accent' | 'dim' | …`), never raw hex in UI code. `themeHex()` for Ink props respects NO_COLOR and the ANSI theme.
 - Tests: no network. Use the mock provider (`mock/<script>?opts`) or the local HTTP fixture server in `test/unit/adapters.test.ts`. PTY tests go through `test/pty/harness.ts`, which strips CI/proxy/key variables from the child environment and isolates XDG directories.
 - Fix root causes; don't special-case tests.
+
+## The rename from parley (0.3.0)
+
+- The old name lives only in `src/brand.ts` (`OLD_APP`) and the code that reads old data: `src/config/migrate.ts`, the keychain fallback, `meta.app` ("parley" or "taria"), `.parley-backup` recognition, `bin/parley.js`, `scripts/parley-alias.sh` and `install.sh`'s `PARLEY_*` fallbacks.
+- `adoptLegacyEnv()` runs first in `src/cli.ts`; the rest of the program reads `TARIA_*` only.
+- The migration runs in `src/cli.ts` before anything opens a file, except for `doctor`, which must never change anything (or create a taria folder: an existing one with files stops the move). Notices go to the welcome box, or stderr outside the interactive interface; never stdout.
+- In 0.4.0: remove `bin/parley.js`, `scripts/parley-alias.sh`, the `parley` bin entry, the alias steps in `build-binary.mjs`, `install.sh` and the workflows, and the `PARLEY_*` adoption. Keep reading old data (migration, keychain fallback, `meta.app`) for longer.
 
 ## Gotchas
 
@@ -149,10 +159,10 @@ src/config/              config.ts (YAML + validation with line numbers), creden
 - Clipboard (`src/term/clipboard.ts`): `planCopy()` is pure and decides the methods from env, platform and PATH; `copyText()` runs them. Report *Copied* only for a tool's exit status 0; OSC 52 and tmux are *sent*. VTE terminals (`VTE_VERSION`, locally) ignore OSC 52, so it is skipped there in `auto`. PTY tests put fake tools on `PATH` (with `/bin/cat`, since PATH holds only the fake directory).
 - PTY tests: call `s.waitStable({ lastLine })` before asserting on the screen; it waits until nothing new has arrived and everything is parsed.
 - `<Static>` is keyed on the transcript epoch only. Anything else in the key (the theme was, once) remounts it and prints every item since the last reprint again.
-- `PARLEY_STARTUP_TRACE=<file>` appends the time (ms since process start) of the first rendered frame, then a JSON line of phase marks (`src/trace.ts`). `node scripts/bench-startup.mjs [--bin path] [--runs 20]` reports median and p95 over many runs (`BENCH_MARKS=1` prints the marks). Node's compile cache (enabled in bin/parley.js) roughly halves module compile time after the first run. Repeat `--bin` (a `.js` path runs with Node) to compare builds; runs alternate, so machine noise hits all alike.
+- `TARIA_STARTUP_TRACE=<file>` appends the time (ms since process start) of the first rendered frame, then a JSON line of phase marks (`src/trace.ts`). `node scripts/bench-startup.mjs [--bin path] [--runs 20]` reports median and p95 over many runs (`BENCH_MARKS=1` prints the marks). Node's compile cache (enabled in bin/taria.js) roughly halves module compile time after the first run. Repeat `--bin` (a `.js` path runs with Node) to compare builds; runs alternate, so machine noise hits all alike.
 - `node scripts/bench-stream.mjs [--lines 2000 --tps 20000]` measures CPU, frames, bytes per frame, typing latency and RSS while a reply streams. `node scripts/bench-history.mjs [--conversations 1000 --long-turns 300]` measures `-p -c`, opening `/resume`, resuming a long conversation and a resize reprint. Both take `--bin` like bench-startup.
 - Typing latency must be measured on a parsed screen (xterm headless), not by searching raw output: with incremental rendering Ink writes only the cells that changed.
 - `scripts/esbuild-plugins.mjs` patches yoga-layout (no `fetch()` for its embedded WASM) and string-width (lazy RGI_Emoji regex). Each plugin fails the build if its pattern disappears after an upgrade; `test/unit/build-plugins.test.ts` proves the patched code matches the original.
-- `PARLEY_BIN=/path/to/parley` makes the PTY and print-mode tests run against that executable instead of `node bin/parley.js`.
+- `TARIA_BIN=/path/to/taria` makes the PTY and print-mode tests run against that executable instead of `node bin/taria.js`.
 - node-pty's macOS prebuilt `spawn-helper` can lose its execute bit on install; the harness chmods it.
 - The PTY harness answers the terminal's DA1 query; `kitty: true` also answers the kitty keyboard query (xterm.js itself doesn't implement the protocol).

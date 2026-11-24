@@ -1,4 +1,4 @@
-// Non-interactive mode (`parley -p`): stream the answer to stdout and exit.
+// Non-interactive mode (`taria -p`): stream the answer to stdout and exit.
 // No colour or spinner unless stdout is a terminal; errors go to stderr with
 // a non-zero exit code.
 
@@ -22,19 +22,19 @@ export async function runPrint(args: Args): Promise<number> {
   const tty = !!process.stdout.isTTY;
   if (!tty) setColorLevel(0);
   const b = boot(args.theme);
-  for (const i of b.issues) process.stderr.write(`parley: ${i}\n`);
+  for (const i of b.issues) process.stderr.write(`taria: ${i}\n`);
 
   const piped = await readStdin();
   let prompt = args.prompt ?? '';
   if (piped.trim()) prompt = prompt ? `${piped.replace(/\s+$/, '')}\n\n${prompt}` : piped;
   if (!prompt.trim()) {
-    process.stderr.write('parley: no prompt given. Usage: parley -p "question"   or   cat file | parley -p "instruction"\n');
+    process.stderr.write('taria: no prompt given. Usage: taria -p "question"   or   cat file | taria -p "instruction"\n');
     return 2;
   }
 
   const session = new Session({ config: b.config, registry: b.registry, store: b.store, model: '' });
   // Report notices raised while opening the conversation (e.g. it is locked
-  // by another parley window) before the main listener is attached.
+  // by another taria window) before the main listener is attached.
   const early: string[] = [];
   const onEarly = (e: SessionEvent) => {
     if (e.type === 'notice' && e.tone === 'error') early.push(e.text);
@@ -42,13 +42,13 @@ export async function runPrint(args: Args): Promise<number> {
   session.on('event', onEarly);
   const resumeId = args.continue ? b.store.list()[0]?.id : args.resume ? args.resumeId : undefined;
   if (resumeId && !session.resume(resumeId)) {
-    process.stderr.write(`parley: ${early[0] ?? `could not open conversation ${resumeId}`}\n`);
+    process.stderr.write(`taria: ${early[0] ?? `could not open conversation ${resumeId}`}\n`);
     return 1;
   }
   session.off('event', onEarly);
   const model = chooseModel(b, args.model, session.conv.model);
   if (!model) {
-    process.stderr.write('parley: no model selected. Use -m provider/model-id, or set default_model in the config file.\n');
+    process.stderr.write('taria: no model selected. Use -m provider/model-id, or set default_model in the config file.\n');
     return 2;
   }
   session.setModel(model);
@@ -101,7 +101,7 @@ export async function runPrint(args: Args): Promise<number> {
     }
     if (e.type === 'assistant-end') final = e;
     if (e.type === 'notice' && e.tone === 'error') errorText = e.text;
-    if (e.type === 'notice' && e.tone === 'warning') process.stderr.write(`parley: ${e.text}\n`);
+    if (e.type === 'notice' && e.tone === 'warning') process.stderr.write(`taria: ${e.text}\n`);
   });
 
   const onSig = () => session.interrupt();
@@ -136,7 +136,7 @@ export async function runPrint(args: Args): Promise<number> {
     process.stdout.write('\n');
   }
   if (errorText) {
-    process.stderr.write(`parley: ${errorText}\n`);
+    process.stderr.write(`taria: ${errorText}\n`);
     return 1;
   }
   if (end?.outcome === 'interrupted') return 130;

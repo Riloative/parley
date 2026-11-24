@@ -1,4 +1,4 @@
-// Shared input history (one JSON line per submitted prompt). Many parley
+// Shared input history (one JSON line per submitted prompt). Many taria
 // instances append concurrently; each append is a single O_APPEND write, and
 // readers tolerate partial lines.
 

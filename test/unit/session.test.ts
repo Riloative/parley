@@ -10,7 +10,7 @@ import { defaultConfig, type Config } from '../../src/config/config.js';
 
 function make(model = 'mock/echo', over: Partial<Config> = {}) {
   const config: Config = { ...defaultConfig(), ...over };
-  const store = new Store(mkdtempSync(join(tmpdir(), 'parley-sess-')));
+  const store = new Store(mkdtempSync(join(tmpdir(), 'taria-sess-')));
   const session = new Session({ config, registry: new Registry(config), store, model });
   const events: SessionEvent[] = [];
   session.on('event', (e: SessionEvent) => events.push(e));
@@ -191,7 +191,7 @@ describe('session', () => {
     const port = (srv.address() as { port: number }).port;
     await new Promise((r) => srv.close(r));
     const config: Config = { ...defaultConfig(), providers: { local: { name: 'local', type: 'openai-compatible', baseUrl: `http://127.0.0.1:${port}/v1`, headers: {}, models: {} } } };
-    const store = new Store(mkdtempSync(join(tmpdir(), 'parley-sess-')));
+    const store = new Store(mkdtempSync(join(tmpdir(), 'taria-sess-')));
     const session = new Session({ config, registry: new Registry(config), store, model: 'local/m' });
     const notices: string[] = [];
     session.on('event', (e: SessionEvent) => e.type === 'notice' && notices.push(e.text));

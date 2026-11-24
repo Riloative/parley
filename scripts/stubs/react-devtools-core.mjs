@@ -3,7 +3,7 @@
 const devtools = {
   initialize() {},
   connectToDevTools() {
-    throw new Error('React DevTools are not available in the standalone parley binary.');
+    throw new Error('React DevTools are not available in the standalone taria binary.');
   },
 };
 export default devtools;

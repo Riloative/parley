@@ -1,6 +1,8 @@
 // Entry point. Kept deliberately tiny: argument parsing, --help and
 // --version run without loading React, Ink, providers or the highlighter.
 
+import { adoptLegacyEnv, legacyEnvNotice, renameNotices } from './brand.js';
+import { legacyDirsPresent } from './config/paths.js';
 import { mark } from './trace.js';
 import { startEarlyProbe } from './term/probe.js';
 
@@ -25,17 +27,17 @@ export interface Args {
   rest: string[];
 }
 
-const HELP = `parley — a terminal chat client for Claude, OpenAI, Mistral and local models
+const HELP = `taria — a terminal chat client for Claude, OpenAI, Mistral and local models
 
 Usage
-  parley [options] [prompt]          start an interactive chat
-  parley -p "question" [options]     print the answer and exit
-  cat notes.md | parley -p "summarise"
-  parley doctor                      check terminal, clipboard, keychain and providers
-  parley doctor clipboard            try a copy the way /copy does it
-  parley key set <provider>          store an API key in the keychain
-  parley key remove <provider>       remove a stored key
-  parley key status <provider>       show where the key for a provider comes from
+  taria [options] [prompt]          start an interactive chat
+  taria -p "question" [options]     print the answer and exit
+  cat notes.md | taria -p "summarise"
+  taria doctor                      check terminal, clipboard, keychain and providers
+  taria doctor clipboard            try a copy the way /copy does it
+  taria key set <provider>          store an API key in the keychain
+  taria key remove <provider>       remove a stored key
+  taria key status <provider>       show where the key for a provider comes from
 
 Options
   -p, --print            non-interactive: stream the answer to stdout and exit
@@ -50,9 +52,9 @@ Options
   -h, --help             show this help
   -v, --version          show the version
 
-Config:  $XDG_CONFIG_HOME/parley/config.yaml (default ~/.config/parley/config.yaml)
-Data:    $XDG_DATA_HOME/parley (default ~/.local/share/parley)
-Inside parley, type /help for commands and keys.
+Config:  $XDG_CONFIG_HOME/taria/config.yaml (default ~/.config/taria/config.yaml)
+Data:    $XDG_DATA_HOME/taria (default ~/.local/share/taria)
+Inside taria, type /help for commands and keys.
 `;
 
 export function parseArgs(argv: string[]): Args | { error: string } {
@@ -127,11 +129,11 @@ export function parseArgs(argv: string[]): Args | { error: string } {
           a.command = 'version';
           break;
         default:
-          if (arg.startsWith('-') && arg !== '-') return { error: `Unknown option ${arg}. Run parley --help.` };
+          if (arg.startsWith('-') && arg !== '-') return { error: `Unknown option ${arg}. Run taria --help.` };
           positional.push(arg);
       }
     } catch (e) {
-      return { error: `${(e as Error).message}. Run parley --help.` };
+      return { error: `${(e as Error).message}. Run taria --help.` };
     }
   }
   if (!a.command && (positional[0] === 'doctor' || positional[0] === 'key')) {
@@ -147,7 +149,7 @@ async function main(): Promise<void> {
   mark('cli');
   const parsed = parseArgs(process.argv.slice(2));
   if ('error' in parsed) {
-    process.stderr.write(`parley: ${parsed.error}\n`);
+    process.stderr.write(`taria: ${parsed.error}\n`);
     process.exit(2);
   }
   const args = parsed;
@@ -160,15 +162,26 @@ async function main(): Promise<void> {
     return;
   }
   if (args.noColor) process.env.NO_COLOR = '1';
+  const oldEnv = legacyEnvNotice();
+  if (oldEnv) renameNotices.push(oldEnv);
+  // doctor only reports; everything else moves parley's files first.
+  if (args.command !== 'doctor' && legacyDirsPresent()) {
+    const { migrateFromParley, migrationNotices } = await import('./config/migrate.js');
+    renameNotices.push(...migrationNotices(migrateFromParley()));
+  }
   if (args.debug) {
     const { enableDebug } = await import('./debug.js');
     const f = enableDebug(args.debugFile);
-    process.stderr.write(`parley: writing debug log to ${f}\n`);
+    process.stderr.write(`taria: writing debug log to ${f}\n`);
   }
   if (args.command === 'doctor') {
     const { runDoctor } = await import('./doctor.js');
     process.exitCode = await runDoctor(args.rest);
     return;
+  }
+  if (args.command !== undefined || args.print || !process.stdin.isTTY || !process.stdout.isTTY) {
+    // Never on stdout: in -p mode that is the answer.
+    for (const n of renameNotices.splice(0)) process.stderr.write(`taria: ${n}\n`);
   }
   if (args.command === 'key') {
     const { runKeyCommand } = await import('./keycmd.js');
@@ -189,7 +202,10 @@ async function main(): Promise<void> {
   await runInteractive(args, probe);
 }
 
+// PARLEY_* variables keep working as TARIA_*: adopted before anything reads them.
+adoptLegacyEnv();
+
 main().catch((e: Error) => {
-  process.stderr.write(`parley: ${e?.stack ?? e}\n`);
+  process.stderr.write(`taria: ${e?.stack ?? e}\n`);
   process.exit(1);
 });

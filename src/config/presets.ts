@@ -91,13 +91,13 @@ export function configTemplate(providers: ProviderSpec[], defaultModel?: string)
         })
         .join('\n\n')
     : '  {}';
-  return `# parley configuration
+  return `# taria configuration
 #
 # Models are addressed as provider/model-id, where "provider" is one of the
-# names under "providers" below. Run /model inside parley to browse them.
-# API keys never go in this file: parley reads them from environment
+# names under "providers" below. Run /model inside taria to browse them.
+# API keys never go in this file: taria reads them from environment
 # variables, the OS keychain, or the private credentials file next to this one
-# ("parley key set <provider>" stores one).
+# ("taria key set <provider>" stores one).
 
 ${defaultModel ? `default_model: ${yamlStr(defaultModel)}` : '# default_model: provider/model-id'}
 

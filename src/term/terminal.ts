@@ -276,7 +276,7 @@ export class TerminalController extends EventEmitter {
 let interruptsHeld = false;
 
 /** While an external program (e.g. $EDITOR) owns the terminal, Ctrl+C there
- * sends SIGINT to the whole process group; parley must not quit because of it. */
+ * sends SIGINT to the whole process group; taria must not quit because of it. */
 export function holdInterrupts(on: boolean): void {
   interruptsHeld = on;
 }
@@ -294,7 +294,7 @@ export function installExitHandlers(onExit: (code: number, reason: string, repor
   });
   process.on('exit', () => restoreTerminal());
   const crash = (label: string, err: unknown) => {
-    const report = `\nparley crashed${label}: ${redact(String((err as Error)?.stack ?? err))}\n`;
+    const report = `\ntaria crashed${label}: ${redact(String((err as Error)?.stack ?? err))}\n`;
     try {
       // Clean up first (save, unlock, unmount, restore), then report, so
       // nothing redraws over the message.

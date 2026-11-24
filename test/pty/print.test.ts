@@ -5,7 +5,7 @@ import { readFileSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { parleyCommand } from '../build-once.js';
+import { tariaCommand } from '../build-once.js';
 import { makeHome, testEnv, DEFAULT_CONFIG } from './harness.js';
 
 const homes: string[] = [];
@@ -15,7 +15,7 @@ function run(args: string[], opts: { stdin?: string; home?: string; env?: Record
   homes.push(home);
   return new Promise((resolve) => {
     const started = Date.now();
-    const launch = parleyCommand(args);
+    const launch = tariaCommand(args);
     const p = spawn(launch.command, launch.args, { env: testEnv(home, opts.env), cwd: home });
     let out = '';
     let err = '';
@@ -26,10 +26,10 @@ function run(args: string[], opts: { stdin?: string; home?: string; env?: Record
   });
 }
 
-beforeAll(() => void parleyCommand());
+beforeAll(() => void tariaCommand());
 afterAll(() => homes.forEach((h) => rmSync(h, { recursive: true, force: true })));
 
-describe('parley -p', () => {
+describe('taria -p', () => {
   it('prints the answer without colour or spinner when piped', async () => {
     const r = await run(['-p', 'hello there', '-m', 'mock/echo']);
     expect(r.code).toBe(0);
@@ -64,7 +64,7 @@ describe('parley -p', () => {
     await run(['-p', 'first', '-s', 'be brief'], { home });
     const r = await run(['-p', 'second', '-c'], { home });
     expect(r.code).toBe(0);
-    const dir = join(home, 'data', 'parley', 'conversations');
+    const dir = join(home, 'data', 'taria', 'conversations');
     const files = readdirSync(dir).filter((f) => f.endsWith('.jsonl'));
     expect(files).toHaveLength(1);
     const text = readFileSync(join(dir, files[0]!), 'utf8');
@@ -87,8 +87,8 @@ describe('parley -p', () => {
 
   it('answers --help and --version quickly without loading the interface', async () => {
     const v = await run(['--version']);
-    const kind = process.env.PARLEY_BIN ? 'standalone binary' : 'node package';
-    expect(v.out).toMatch(new RegExp(`^parley \\d+\\.\\d+\\.\\d+ \\(${kind}, Node v\\d+\\.\\d+\\.\\d+, (linux|darwin)-(x64|arm64)\\)\\n$`));
+    const kind = process.env.TARIA_BIN ?? process.env.PARLEY_BIN ? 'standalone binary' : 'node package';
+    expect(v.out).toMatch(new RegExp(`^taria \\d+\\.\\d+\\.\\d+ \\(${kind}, Node v\\d+\\.\\d+\\.\\d+, (linux|darwin)-(x64|arm64)\\)\\n$`));
     const h = await run(['--help']);
     expect(h.out).toContain('Usage');
     expect(h.ms).toBeLessThan(2000);
@@ -191,9 +191,9 @@ describe('providers over HTTP', () => {
 
   it('sends requests through HTTP_PROXY and honours NO_PROXY', async () => {
     seen.length = 0;
-    const viaProxy = makeHome(`default_model: r/m\nproviders:\n  r:\n    type: openai-compatible\n    base_url: http://upstream.parley.invalid/v1\n`);
+    const viaProxy = makeHome(`default_model: r/m\nproviders:\n  r:\n    type: openai-compatible\n    base_url: http://upstream.taria.invalid/v1\n`);
     const a = await run(['-p', 'hi'], { home: viaProxy, env: { HTTP_PROXY: proxyUrl } });
-    expect(a.out).toBe('via http://upstream.parley.invalid/v1/chat/completions\n');
+    expect(a.out).toBe('via http://upstream.taria.invalid/v1/chat/completions\n');
     expect(seen.at(-1)?.via).toBe('proxy');
     const bypass = makeHome(`default_model: r/m\nproviders:\n  r:\n    type: openai-compatible\n    base_url: ${directUrl}/v1\n`);
     const b = await run(['-p', 'hi'], { home: bypass, env: { HTTP_PROXY: proxyUrl, NO_PROXY: '127.0.0.1' } });
@@ -202,10 +202,10 @@ describe('providers over HTTP', () => {
   });
 });
 
-describe('parley doctor', () => {
+describe('taria doctor', () => {
   it('runs without a terminal and reports providers', async () => {
     const r = await run(['doctor']);
-    expect(r.out).toContain('parley doctor');
+    expect(r.out).toContain('taria doctor');
     expect(r.out).toMatch(/✓ mock\s+mock · reachable/);
     expect(r.code).toBe(0);
   });

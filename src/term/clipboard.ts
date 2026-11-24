@@ -253,7 +253,7 @@ export interface ClipboardImage {
 export async function readImage(): Promise<ClipboardImage | null> {
   if (overSsh()) throw new ClipboardError('Image paste is not available over SSH — the clipboard is on your local machine. Attach the file with @ instead.');
   if (process.platform === 'darwin') {
-    const dir = mkdtempSync(join(tmpdir(), 'parley-'));
+    const dir = mkdtempSync(join(tmpdir(), 'taria-'));
     const out = join(dir, 'clip.png');
     try {
       const script = `set f to POSIX file "${out}"\ntry\nset d to the clipboard as «class PNGf»\non error\nreturn "none"\nend try\nset h to open for access f with write permission\nwrite d to h\nclose access h\nreturn "ok"`;

@@ -2,7 +2,7 @@
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { DEFAULT_CONFIG, makeHome, spawnParley, sleep, type Session } from './harness.js';
+import { DEFAULT_CONFIG, makeHome, spawnTaria, sleep, type Session } from './harness.js';
 
 let s: Session | undefined;
 afterEach(async () => {
@@ -11,13 +11,13 @@ afterEach(async () => {
 });
 
 const input = (text: string) => `│ > ${text}`;
-const draftsDir = (home: string) => join(home, 'data', 'parley', 'drafts');
+const draftsDir = (home: string) => join(home, 'data', 'taria', 'drafts');
 const drafts = (home: string) => (existsSync(draftsDir(home)) ? readdirSync(draftsDir(home)).filter((f) => f.endsWith('.json')) : []);
 
 describe('unsent draft', () => {
   it('survives a killed process (no chance to clean up) and comes back in the input box', async () => {
     const home = makeHome();
-    s = spawnParley({ home });
+    s = spawnTaria({ home });
     await s.waitFor('Send a message');
     s.write('half a thought, not sent');
     await s.waitFor(input('half a thought, not sent'));
@@ -26,7 +26,7 @@ describe('unsent draft', () => {
     await s.exited;
     await s.close(true);
 
-    s = spawnParley({ home });
+    s = spawnTaria({ home });
     await s.waitFor(input('half a thought, not sent'));
     await s.waitFor('unsent draft restored');
     // Editing continues where it stopped, and sending clears the draft.
@@ -37,7 +37,7 @@ describe('unsent draft', () => {
 
   it('is flushed on SIGTERM even inside the debounce window, and belongs to its conversation', async () => {
     const home = makeHome();
-    s = spawnParley({ home });
+    s = spawnTaria({ home });
     await s.waitFor('Send a message');
     s.write('first');
     await sleep(50); // typed, then sent: the draft write is still pending
@@ -56,7 +56,7 @@ describe('unsent draft', () => {
     expect(drafts(home).length).toBe(1);
 
     // A fresh conversation does not get another conversation's draft…
-    s = spawnParley({ home });
+    s = spawnTaria({ home });
     await s.waitFor('Send a message');
     await sleep(300);
     expect(s.screen().join('\n')).not.toContain('reply in progress');
@@ -65,7 +65,7 @@ describe('unsent draft', () => {
     await s.close(true);
 
     // …the conversation it was typed in does.
-    s = spawnParley({ home, args: ['-c'] });
+    s = spawnTaria({ home, args: ['-c'] });
     await s.waitFor(input('reply in progress'));
     // Ctrl+C clears the input and with it the draft.
     s.write('\x03');
@@ -75,10 +75,10 @@ describe('unsent draft', () => {
 
 describe('desktop notification', () => {
   const config = DEFAULT_CONFIG + 'notifications: osc9\nbell_after_seconds: 0\n';
-  const OSC9 = '\x1b]9;parley: Reply ready';
+  const OSC9 = '\x1b]9;taria: Reply ready';
 
   it('is sent when a long reply finishes while the terminal is unfocused, and only then', async () => {
-    s = spawnParley({ home: makeHome(config) });
+    s = spawnTaria({ home: makeHome(config) });
     await s.waitFor('Send a message');
     expect(s.raw).toContain('\x1b[?1004h');
     // Focused (or unknown): no notification.
@@ -106,28 +106,28 @@ describe('desktop notification', () => {
   const focusOff = (raw: string) => raw.lastIndexOf('\x1b[?1004l') > raw.lastIndexOf('\x1b[?1004h');
 
   it('turns focus reporting off again on a normal exit, on SIGTERM and after a crash', async () => {
-    s = spawnParley({ home: makeHome(config) });
+    s = spawnTaria({ home: makeHome(config) });
     await s.waitFor('Send a message');
     s.write('\x04');
     await s.exited;
     expect(focusOff(s.raw)).toBe(true);
     await s.close();
 
-    s = spawnParley({ home: makeHome(config) });
+    s = spawnTaria({ home: makeHome(config) });
     await s.waitFor('Send a message');
     s.proc.kill('SIGTERM');
     await s.exited;
     await s.waitFor(() => focusOff(s!.raw));
     await s.close();
 
-    s = spawnParley({ home: makeHome(config), env: { PARLEY_DEBUG_CRASH: 'uncaught:300' } });
+    s = spawnTaria({ home: makeHome(config), env: { TARIA_DEBUG_CRASH: 'uncaught:300' } });
     await s.waitFor('Send a message');
     await s.exited;
     await s.waitFor(() => focusOff(s!.raw));
   }, 30_000);
 
   it('asks for nothing in a terminal with no known notification protocol', async () => {
-    s = spawnParley({});
+    s = spawnTaria({});
     await s.waitFor('Send a message');
     expect(s.raw).not.toContain('\x1b[?1004h');
   }, 30_000);
@@ -145,7 +145,7 @@ providers:
       echo:
         context_window: 400
 `;
-    s = spawnParley({ cols: 100, rows: 30, home: makeHome(config) });
+    s = spawnTaria({ cols: 100, rows: 30, home: makeHome(config) });
     await s.waitFor('Send a message');
     s.write('hi\r');
     await s.waitFor('You said: hi');

@@ -14,7 +14,7 @@ describe('drafts', () => {
   let data: string;
   let mod: typeof Drafts;
   beforeAll(async () => {
-    data = mkdtempSync(join(tmpdir(), 'parley-drafts-'));
+    data = mkdtempSync(join(tmpdir(), 'taria-drafts-'));
     process.env.XDG_DATA_HOME = data;
     mod = await import('../../src/core/drafts.js');
   });
@@ -22,7 +22,7 @@ describe('drafts', () => {
     if (saved === undefined) delete process.env.XDG_DATA_HOME;
     else process.env.XDG_DATA_HOME = saved;
   });
-  const dir = () => join(data, 'parley', 'drafts');
+  const dir = () => join(data, 'taria', 'drafts');
   const draft = (text: string) => ({ text, pastes: { '1': 'pasted\nlines' }, attachments: { '[Image #1]': { type: 'image' as const, hash: 'abc', mediaType: 'image/png' } }, counters: { paste: 1, image: 1, file: 0 } });
 
   it('round-trips text, pastes and attachments; an empty draft removes the file', () => {
@@ -100,10 +100,10 @@ describe('notifications', () => {
   it('never lets the text end the sequence or start another', () => {
     const evil = 'title\x07\x1b]0;pwned\x1b\\ \x9c;x';
     for (const p of ['osc9', 'osc777', 'osc99'] as const) {
-      const seq = notificationSequence(p, 'parley', evil);
+      const seq = notificationSequence(p, 'taria', evil);
       const body = seq.replace(/^\x1b\]\d+;/, '').replace(/(\x07|\x1b\\)$/, '');
       // One ESC only where the protocol itself puts one (kitty's second chunk).
-      expect(body.replace(/\x1b\\\x1b\]99;i=parley:d=1:p=body;/, '')).not.toMatch(/[\x00-\x1f\x7f-\x9f]/);
+      expect(body.replace(/\x1b\\\x1b\]99;i=taria:d=1:p=body;/, '')).not.toMatch(/[\x00-\x1f\x7f-\x9f]/);
     }
     expect(notificationSequence('osc777', 'a;b', 'c;d')).toBe('\x1b]777;notify;a,b;c,d\x07');
     expect(notificationSequence('osc9', '4', 'x')).toBe('\x1b]9;4: x\x07');

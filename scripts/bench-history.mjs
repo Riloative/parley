@@ -1,8 +1,8 @@
-// Long-history cost: how parley behaves for someone with a lot of saved
+// Long-history cost: how taria behaves for someone with a lot of saved
 // conversations and one very long one. Generates the history (schema v1
-// files, shaped like what parley writes, including the delta lines a streamed
+// files, shaped like what taria writes, including the delta lines a streamed
 // reply leaves), then measures in a pseudo-terminal:
-//   - `parley -p -c` (continue the latest conversation)
+//   - `taria -p -c` (continue the latest conversation)
 //   - opening the /resume picker
 //   - resuming the long conversation (time to first frame)
 //   - a resize that reprints the long conversation
@@ -35,7 +35,7 @@ const root = new URL("..", import.meta.url).pathname;
 const bins = process.argv.flatMap((a, i) =>
   a === "--bin" ? [resolve(process.argv[i + 1])] : [],
 );
-const targets = (bins.length ? bins : [join(root, "bin", "parley.js")]).map(
+const targets = (bins.length ? bins : [join(root, "bin", "taria.js")]).map(
   (b) =>
     b.endsWith(".js")
       ? { label: `node build ${b}`, command: process.execPath, args: [b] }
@@ -78,7 +78,7 @@ function reply(i) {
 
 function writeConversation(dir, id, turns, ts) {
   const lines = [
-    { type: "meta", v: 1, id, createdAt: ts, app: "parley", cwd: "/tmp" },
+    { type: "meta", v: 1, id, createdAt: ts, app: "taria", cwd: "/tmp" },
     { type: "model", model: "mock/echo" },
   ];
   let parent = null;
@@ -124,13 +124,13 @@ function writeConversation(dir, id, turns, ts) {
   utimesSync(file, new Date(ts + turns * 1000), new Date(ts + turns * 1000));
 }
 
-const home = mkdtempSync(join(tmpdir(), "parley-bench-history-"));
-mkdirSync(join(home, "config", "parley"), { recursive: true });
+const home = mkdtempSync(join(tmpdir(), "taria-bench-history-"));
+mkdirSync(join(home, "config", "taria"), { recursive: true });
 writeFileSync(
-  join(home, "config", "parley", "config.yaml"),
+  join(home, "config", "taria", "config.yaml"),
   "default_model: mock/echo\nbell: false\nproviders:\n  mock:\n    type: mock\n",
 );
-const convDir = join(home, "data", "parley", "conversations");
+const convDir = join(home, "data", "taria", "conversations");
 mkdirSync(convDir, { recursive: true });
 const base = Date.UTC(2026, 0, 1);
 let bytes = 0;
@@ -165,7 +165,7 @@ const env = {
   XDG_STATE_HOME: join(home, "state"),
   TERM: "xterm-256color",
   COLORTERM: "truecolor",
-  PARLEY_NO_KEYCHAIN: "1",
+  TARIA_NO_KEYCHAIN: "1",
 };
 for (const k of [
   "CI",
@@ -312,7 +312,7 @@ else rmSync(home, { recursive: true, force: true });
 for (const [k, t] of targets.entries()) {
   const r = res[k];
   console.log(t.label);
-  console.log(`  parley -p -c                 ${med(r.cont).toFixed(0)} ms`);
+  console.log(`  taria -p -c                 ${med(r.cont).toFixed(0)} ms`);
   console.log(`  /resume picker open          ${med(r.picker).toFixed(0)} ms`);
   console.log(
     `  resume long conversation     ${med(r.first).toFixed(0)} ms to the prompt`,

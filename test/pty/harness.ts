@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import * as pty from 'node-pty';
 import xtermHeadless from '@xterm/headless';
 import type { Terminal as XTerminal } from '@xterm/headless';
-import { parleyCommand } from '../build-once.js';
+import { tariaCommand } from '../build-once.js';
 
 const { Terminal } = xtermHeadless as unknown as { Terminal: typeof XTerminal };
 
@@ -72,9 +72,9 @@ providers:
 `;
 
 export function makeHome(config = DEFAULT_CONFIG): string {
-  const home = mkdtempSync(join(tmpdir(), 'parley-test-'));
-  mkdirSync(join(home, 'config', 'parley'), { recursive: true });
-  if (config) writeFileSync(join(home, 'config', 'parley', 'config.yaml'), config);
+  const home = mkdtempSync(join(tmpdir(), 'taria-test-'));
+  mkdirSync(join(home, 'config', 'taria'), { recursive: true });
+  if (config) writeFileSync(join(home, 'config', 'taria', 'config.yaml'), config);
   return home;
 }
 
@@ -82,7 +82,7 @@ export function testEnv(home: string, extra: Record<string, string> = {}): Recor
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) {
     if (v === undefined) continue;
-    if (/^(CI|GITHUB_ACTIONS|TMUX|TERM_PROGRAM|COLORFGBG|NO_COLOR|FORCE_COLOR|SSH_.*|.*_API_KEY)$/.test(k)) continue;
+    if (/^(CI|GITHUB_ACTIONS|TMUX|TERM_PROGRAM|COLORFGBG|NO_COLOR|FORCE_COLOR|SSH_.*|.*_API_KEY|PARLEY_.*|TARIA_.*)$/.test(k)) continue;
     // Tests set proxies explicitly when they need one.
     if (/^(https?_proxy|no_proxy|all_proxy)$/i.test(k)) continue;
     env[k] = v;
@@ -97,7 +97,7 @@ export function testEnv(home: string, extra: Record<string, string> = {}): Recor
     TERM: 'xterm-256color',
     COLORTERM: 'truecolor',
     LANG: 'en_US.UTF-8',
-    PARLEY_NO_KEYCHAIN: '1',
+    TARIA_NO_KEYCHAIN: '1',
     EDITOR: 'true',
     ...extra,
   };
@@ -113,9 +113,9 @@ function fixSpawnHelper(): void {
   }
 }
 
-export function spawnParley(opts: SpawnOptions = {}): Session {
+export function spawnTaria(opts: SpawnOptions = {}): Session {
   fixSpawnHelper();
-  const launch = parleyCommand(opts.args ?? []);
+  const launch = tariaCommand(opts.args ?? []);
   const cols = opts.cols ?? 80;
   const rows = opts.rows ?? 24;
   const home = opts.home ?? makeHome(opts.noConfig ? '' : (opts.config ?? DEFAULT_CONFIG));

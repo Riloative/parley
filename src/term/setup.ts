@@ -1,5 +1,5 @@
 // /terminal-setup: the two common setups where Shift+Enter can't reach
-// parley, and the configuration that fixes each.
+// taria, and the configuration that fixes each.
 //   - VS Code's integrated terminal (and its forks) sends a plain Enter for
 //     Shift+Enter. A keybinding that sends ESC + CR instead (what Alt+Enter
 //     sends) makes it insert a new line.
@@ -21,7 +21,7 @@ export const SHIFT_ENTER_BINDING = {
 };
 
 export const TMUX_LINES = [
-  '# parley: pass Shift+Enter and other modified keys through to programs (tmux 3.2+)',
+  '# taria: pass Shift+Enter and other modified keys through to programs (tmux 3.2+)',
   'set -s extended-keys on',
   "set -as terminal-features 'xterm*:extkeys'",
 ];
@@ -159,12 +159,14 @@ export function writeConfigFile(file: string, text: string): { backup?: string }
     target = realpathSync(file);
     mode = statSync(target).mode & 0o777;
     // Never overwrite an earlier backup: it may be the only copy of the
-    // file as it was before parley first touched it.
-    backup = `${file}.parley-backup`;
-    for (let n = 2; existsSync(backup); n++) backup = `${file}.parley-backup-${n}`;
+    // file as it was before taria first touched it.
+    // Backups parley made (.parley-backup) count as taken too.
+    const taken = (b: string) => existsSync(b) || existsSync(b.replace(/\.taria-backup/, '.parley-backup'));
+    backup = `${file}.taria-backup`;
+    for (let n = 2; taken(backup); n++) backup = `${file}.taria-backup-${n}`;
     copyFileSync(target, backup);
   }
-  const tmp = `${target}.parley-${process.pid}.tmp`;
+  const tmp = `${target}.taria-${process.pid}.tmp`;
   try {
     writeFileSync(tmp, text, mode === undefined ? {} : { mode });
     if (mode !== undefined) chmodSync(tmp, mode);

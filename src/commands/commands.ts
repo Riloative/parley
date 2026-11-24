@@ -87,7 +87,7 @@ function terminalSetup(ui: UiApi, target = ''): void {
     '```',
   ];
   if (target) {
-    // Settings for a terminal parley is not necessarily running in: show
+    // Settings for a terminal taria is not necessarily running in: show
     // them, then offer to write each file (never without asking).
     ui.info((target === 'vscode' ? vscodeText : tmuxText).join('\n'));
     const wanted: Array<{ question: string; apply: () => void }> = [];
@@ -119,7 +119,7 @@ function terminalSetup(ui: UiApi, target = ''): void {
     ].join('\n'),
   );
 
-  // Offer to write only the files for the terminal parley is running in,
+  // Offer to write only the files for the terminal taria is running in,
   // one question at a time; "no" (the default) moves on.
   const offers: Array<{ question: string; apply: () => void }> = [];
   if (env.TERM_PROGRAM === 'vscode' && !kitty) {
@@ -184,7 +184,7 @@ export function codeBlocks(md: string): string[] {
 export function exportMarkdown(session: Session): string {
   const c = session.conv;
   const lines: string[] = [`# ${c.title ?? 'Conversation'}`, ''];
-  lines.push(`_Exported from parley on ${new Date().toLocaleString()}_`, '');
+  lines.push(`_Exported from taria on ${new Date().toLocaleString()}_`, '');
   if (c.systemPrompt) lines.push('**System prompt:**', '', '> ' + c.systemPrompt.split('\n').join('\n> '), '');
   for (const m of c.path()) {
     if (m.role === 'user') {
@@ -485,7 +485,7 @@ export function builtinCommands(): CommandDef[] {
     {
       name: 'exit',
       aliases: ['quit'],
-      description: 'Exit parley',
+      description: 'Exit taria',
       noArgs: true,
       run(ui) {
         ui.exit();
