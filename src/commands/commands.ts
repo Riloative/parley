@@ -21,6 +21,7 @@ import { paths } from '../config/paths.js';
 import { costOf, formatTokens, priceFor } from '../core/usage.js';
 import type { StoredMessage } from '../core/conversation.js';
 import { parseModelRef } from '../providers/types.js';
+import { mdCode, mdTable } from '../render/markdown.js';
 
 export interface UiApi {
   session: Session;
@@ -169,23 +170,23 @@ function slug(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'conversation';
 }
 
-export const HELP_KEYS = `| Key | Action |
-| --- | --- |
-| Enter | Send (queues while a reply is streaming) |
-| Shift+Enter, Alt+Enter, Ctrl+J, \\ then Enter | New line |
-| Esc | Interrupt the reply; when idle, clear the input |
-| Esc Esc | Rewind: edit an earlier message and branch from it |
-| ↑ / ↓ | Input history (on the first/last line); ↑ withdraws a queued message |
-| Ctrl+R | Search input history |
-| Ctrl+C | Clear input; press twice to exit |
-| Ctrl+D | Exit (on empty input) |
-| Ctrl+L | Clear the screen |
-| Shift+Tab | Cycle reasoning effort |
-| Ctrl+O | Expand or collapse reasoning |
-| Ctrl+V | Paste an image from the clipboard |
-| Ctrl+G | Edit the input in $EDITOR |
-| @ | Attach a file |
-| Ctrl+A/E/W/K/U/Y, Alt+B/F/D | Readline editing |`;
+export const HELP_KEYS: Array<[string, string]> = [
+  ['Enter', 'Send (queues while a reply is streaming)'],
+  ['Shift+Enter, Alt+Enter, Ctrl+J, \\ then Enter', 'New line'],
+  ['Esc', 'Interrupt the reply; when idle, clear the input'],
+  ['Esc Esc', 'Rewind: edit an earlier message and branch from it'],
+  ['↑ / ↓', 'Input history (on the first/last line); ↑ withdraws a queued message'],
+  ['Ctrl+R', 'Search input history'],
+  ['Ctrl+C', 'Clear input; press twice to exit'],
+  ['Ctrl+D', 'Exit (on empty input)'],
+  ['Ctrl+L', 'Clear the screen'],
+  ['Shift+Tab', 'Cycle reasoning effort'],
+  ['Ctrl+O', 'Expand or collapse reasoning'],
+  ['Ctrl+V', 'Paste an image from the clipboard'],
+  ['Ctrl+G', 'Edit the input in $EDITOR'],
+  ['@', 'Attach a file'],
+  ['Ctrl+A/E/W/K/U/Y, Alt+B/F/D', 'Readline editing'],
+];
 
 export function builtinCommands(): CommandDef[] {
   return [
@@ -356,16 +357,16 @@ export function builtinCommands(): CommandDef[] {
         if (!rows.length) return ui.notice('No requests in this session yet.');
         let total = 0;
         let anyPrice = false;
-        const lines = ['| Model | Requests | Input | Output | Cache read | Cost |', '| --- | ---: | ---: | ---: | ---: | ---: |'];
+        const table: string[][] = [];
         for (const [model, u] of rows) {
           const c = costOf(u, priceFor(ui.config.prices, model));
           if (c !== undefined) {
             total += c;
             anyPrice = true;
           }
-          lines.push(`| ${model} | ${u.requests} | ${formatTokens(u.inputTokens)}${u.estimated ? '~' : ''} | ${formatTokens(u.outputTokens)} | ${formatTokens(u.cacheReadTokens)} | ${c === undefined ? '—' : `$${c.toFixed(4)}`} |`);
+          table.push([model, String(u.requests), `${formatTokens(u.inputTokens)}${u.estimated ? '~' : ''}`, formatTokens(u.outputTokens), formatTokens(u.cacheReadTokens), c === undefined ? '—' : `$${c.toFixed(4)}`]);
         }
-        let md = lines.join('\n');
+        let md = mdTable(['Model', 'Requests', 'Input', 'Output', 'Cache read', 'Cost'], table, ['left', 'right', 'right', 'right', 'right', 'right']);
         if (anyPrice) md += `\n\n**Estimated total: $${total.toFixed(4)}**`;
         else md += '\n\nNo prices are configured, so cost is not estimated. Add a `prices` table to the config file.';
         if (rows.some(([, u]) => u.estimated)) md += '\n\n~ marks estimates for providers that do not report usage.';
@@ -410,11 +411,10 @@ export function builtinCommands(): CommandDef[] {
       description: 'Commands and keyboard shortcuts',
       noArgs: true,
       run(ui) {
-        const cmds = ui
-          .commands()
-          .map((c) => `| /${c.name}${c.argHint ? ` ${c.argHint}` : ''} | ${c.description}${c.aliases?.length ? ` (also /${c.aliases.join(', /')})` : ''} |`)
-          .join('\n');
-        ui.info(`**Commands**\n\n| Command | Description |\n| --- | --- |\n${cmds}\n\n**Keys**\n\n${HELP_KEYS}\n\nConfig: \`${paths.configFile}\` · Custom commands: \`${paths.commandsDir}/*.md\``);
+        const cmds = ui.commands().map((c) => [`/${c.name}${c.argHint ? ` ${c.argHint}` : ''}`, `${c.description}${c.aliases?.length ? ` (also /${c.aliases.join(', /')})` : ''}`]);
+        ui.info(
+          `**Commands**\n\n${mdTable(['Command', 'Description'], cmds)}\n\n**Keys**\n\n${mdTable(['Key', 'Action'], HELP_KEYS)}\n\nConfig: ${mdCode(paths.configFile)} · Custom commands: ${mdCode(`${paths.commandsDir}/*.md`)}`,
+        );
       },
     },
     {

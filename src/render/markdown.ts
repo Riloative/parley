@@ -499,3 +499,35 @@ export function warmRenderer(): () => void {
     clearTimeout(timer);
   };
 }
+
+/**
+ * Plain text as Markdown that renders as exactly that text: every ASCII
+ * punctuation character is backslash-escaped, so nothing in it can start
+ * emphasis, code, a link, an autolink, an entity or a table cell.
+ */
+export function mdEscape(text: string): string {
+  return text
+    .replace(/\s*\n\s*/g, ' ')
+    .trim()
+    .replace(/[!-/:-@[-`{-~]/g, '\\$&');
+}
+
+/**
+ * A Markdown table whose cells are plain text. Build every table that holds
+ * dynamic text (command hints, model names, user-written descriptions) with
+ * this instead of joining strings with `|`: a pipe in a cell would otherwise
+ * split the row.
+ */
+export function mdTable(header: string[], rows: string[][], align: Array<'left' | 'right'> = []): string {
+  const line = (cells: string[]) => `| ${cells.map((c) => mdEscape(c) || ' ').join(' | ')} |`;
+  const rule = `| ${header.map((_, i) => (align[i] === 'right' ? '---:' : '---')).join(' | ')} |`;
+  return [line(header), rule, ...rows.map((r) => line(header.map((_, i) => r[i] ?? '')))].join('\n');
+}
+
+/** Text as an inline code span, whatever backticks it contains. */
+export function mdCode(text: string): string {
+  const longest = Math.max(0, ...(text.match(/`+/g) ?? []).map((r) => r.length));
+  const fence = '`'.repeat(longest + 1);
+  const pad = text.startsWith('`') || text.endsWith('`') ? ' ' : '';
+  return `${fence}${pad}${text.replace(/\n/g, ' ')}${pad}${fence}`;
+}
