@@ -7,7 +7,7 @@ import { appendFileSync, writeSync } from 'node:fs';
 import type { Args } from './cli.js';
 import { boot, chooseModel, resolveTheme } from './bootstrap.js';
 import { getTheme, setTheme } from './render/theme.js';
-import { Session } from './core/session.js';
+import { Session, repairNotice } from './core/session.js';
 import { InputHistory } from './core/history.js';
 import { paths } from './config/paths.js';
 import { TerminalController, installExitHandlers, restoreTerminal } from './term/terminal.js';
@@ -79,6 +79,8 @@ export async function runInteractive(args: Args, probe?: EarlyProbe): Promise<vo
   if (args.continue && !initialConv) notes.push({ text: 'No previous conversation to continue.', tone: 'dim' });
   const resumeFailed = initialConv ? !session.resume(initialConv) : false;
   if (resumeFailed) notes.push({ text: `Could not open conversation ${initialConv}.`, tone: 'error' });
+  // Said here: at this point nothing listens to the session's notices yet.
+  if (!resumeFailed && session.file?.repaired) notes.push({ text: repairNotice(session.file.repaired), tone: 'success' });
   if (args.model) session.setModel(args.model);
   if (!session.model && b.configExists) notes.push({ text: 'No model selected yet. Pick one with /model (or set default_model in the config).', tone: 'warning' });
 

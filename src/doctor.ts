@@ -6,6 +6,7 @@ import { APP, OLD_APP, OLD_NAMES_REMOVED_IN, legacyEnvNotice } from './brand.js'
 import { DIR_KINDS } from './config/paths.js';
 import { spawnSync } from 'node:child_process';
 import { boot } from './bootstrap.js';
+import { Store, scanForRepairs } from './core/store.js';
 import { paths } from './config/paths.js';
 import { colorLevel, inTmux, likelySupportsSyncOutput, overSsh, terminalName, unicodeOk } from './term/caps.js';
 import { copyText, currentContext, detectClipboardHelper, readBackText } from './term/clipboard.js';
@@ -131,8 +132,47 @@ function realpathSafe(f: string): string {
   }
 }
 
+/** `taria doctor repair`: list the conversations the 0.0.1–0.2.0 crash bug
+ * hid messages in, and record the lost replies after the user agrees. */
+async function repairConversations(): Promise<number> {
+  const store = new Store(paths.dataDir);
+  const hit = scanForRepairs(store);
+  process.stdout.write('taria doctor repair\n\n');
+  if (!hit.length) {
+    process.stdout.write('No conversation needs repair.\n');
+    return 0;
+  }
+  for (const h of hit) process.stdout.write(`  ${h.title ?? h.id} (${h.id}): ${h.lost} cut-off repl${h.lost === 1 ? 'y' : 'ies'}, ${h.hidden} earlier message${h.hidden === 1 ? '' : 's'} hidden\n`);
+  process.stdout.write('\nRepair records each cut-off reply as a message (marked as interrupted) at the end of its file.\nNothing already in the files is changed or deleted.\n');
+  if (!process.stdin.isTTY) {
+    process.stdout.write('Run this in a terminal to confirm. (Opening a conversation in taria also repairs it.)\n');
+    return 1;
+  }
+  const { createInterface } = await import('node:readline/promises');
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const answer = (await rl.question(`Repair ${hit.length} conversation${hit.length === 1 ? '' : 's'}? [y/N] `)).trim().toLowerCase();
+  rl.close();
+  if (answer !== 'y' && answer !== 'yes') {
+    process.stdout.write('Nothing changed.\n');
+    return 0;
+  }
+  let failed = 0;
+  for (const h of hit) {
+    try {
+      const f = store.open(h.id);
+      f.releaseLock();
+      process.stdout.write(`  repaired ${h.title ?? h.id}: ${f.repaired} repl${f.repaired === 1 ? 'y' : 'ies'} recorded\n`);
+    } catch (e) {
+      failed++;
+      process.stdout.write(`  skipped ${h.title ?? h.id}: ${(e as Error).message}\n`);
+    }
+  }
+  return failed ? 1 : 0;
+}
+
 export async function runDoctor(rest: string[] = []): Promise<number> {
   if (rest[0] === 'clipboard') return clipboardTest();
+  if (rest[0] === 'repair') return repairConversations();
   failures = 0;
   process.stdout.write('taria doctor\n');
 
@@ -196,6 +236,15 @@ export async function runDoctor(rest: string[] = []): Promise<number> {
     line(v === 'off' ? 'warn' : 'ok', 'tmux set-clipboard', v || 'unknown', v === 'off' ? 'set -s set-clipboard external   (in ~/.tmux.conf) so tmux passes copies on to the terminal' : undefined);
   }
   line('info', 'Test it', 'taria doctor clipboard   (copies a test line and reads it back)');
+
+  section('Conversations');
+  const hit = scanForRepairs(new Store(paths.dataDir));
+  if (!hit.length) line('ok', 'Crash damage', 'none (no conversation is missing earlier messages)');
+  else {
+    for (const h of hit.slice(0, 10)) line('warn', 'Needs repair', `${h.title ?? h.id}: ${h.hidden} earlier message${h.hidden === 1 ? '' : 's'} hidden by a reply cut off in parley before 0.2.0`);
+    if (hit.length > 10) line('warn', 'Needs repair', `… and ${hit.length - 10} more`);
+    line('info', 'Repair', `taria doctor repair   (asks first; only adds lines, never changes or deletes any). Opening a conversation also repairs it.`);
+  }
 
   section('Storage');
   const kc = await detectKeychain();
