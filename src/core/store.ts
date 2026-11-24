@@ -333,15 +333,19 @@ function readFileSafe(p: string): string {
 interface CachedSummary {
   size: number;
   mtimeMs: number;
+  /** Change time and inode: a rewrite that keeps size and mtime (a restore,
+   * a sync tool) still changes one of them. */
+  ctimeMs: number;
+  ino: number;
   title: string;
   model?: string;
   updatedAt: number;
   messageCount: number;
 }
 
-const SUMMARY_CACHE_VERSION = 1;
+const SUMMARY_CACHE_VERSION = 2;
 
-function summarize(conv: Conversation): Omit<CachedSummary, 'size' | 'mtimeMs'> {
+function summarize(conv: Conversation): Omit<CachedSummary, 'size' | 'mtimeMs' | 'ctimeMs' | 'ino'> {
   const path = conv.path();
   const first = path.find((m) => m.role === 'user');
   const firstText = first?.content.map((p) => (p.type === 'text' ? p.text : '')).join('') ?? '';
@@ -359,6 +363,8 @@ function validCached(c: unknown): c is CachedSummary {
   return (
     typeof o.size === 'number' &&
     typeof o.mtimeMs === 'number' &&
+    typeof o.ctimeMs === 'number' &&
+    typeof o.ino === 'number' &&
     typeof o.title === 'string' &&
     (o.model === undefined || typeof o.model === 'string') &&
     typeof o.updatedAt === 'number' &&
@@ -457,7 +463,8 @@ export class Store {
   /**
    * All conversations, most recently updated first.
    *
-   * Summaries are cached in `summary-cache.json`, keyed by each file's size
+   * Summaries are cached in `summary-cache.json`, keyed by each file's size,
+   * modification and change time and inode
    * and modification time, so with a long history only conversations that
    * changed since the last listing are read again (about 130 ms saved for
    * 1,000 conversations, on every `-c` and `/resume`). Files are only ever
@@ -481,8 +488,8 @@ export class Store {
         // see a different size and read the file again.
         const st = statSync(file);
         let c = cache[id];
-        if (!c || c.size !== st.size || c.mtimeMs !== st.mtimeMs) {
-          c = { size: st.size, mtimeMs: st.mtimeMs, ...summarize(replay(id, readFileSync(file, 'utf8')).conv) };
+        if (!c || c.size !== st.size || c.mtimeMs !== st.mtimeMs || c.ctimeMs !== st.ctimeMs || c.ino !== st.ino) {
+          c = { size: st.size, mtimeMs: st.mtimeMs, ctimeMs: st.ctimeMs, ino: st.ino, ...summarize(replay(id, readFileSync(file, 'utf8')).conv) };
           changed = true;
         }
         next[id] = c;

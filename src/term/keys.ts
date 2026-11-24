@@ -2,7 +2,7 @@
 // keyboard protocol (CSI u), xterm modifyOtherKeys (CSI 27;m;c~), bracketed
 // paste, and capability query responses. Pure and synchronous: feed bytes,
 // get events; the caller arranges a short timer to flush a lone ESC.
-import { backgroundFromRgb, type Background } from './probe.js';
+import { parseBackgroundReply, type Background } from './probe.js';
 
 export interface Key {
   name: string; // 'char' for text input, otherwise a key name
@@ -234,8 +234,9 @@ export class KeyDecoder {
       // background colour; skip the rest to ST or BEL.
       const st = b.search(/\x07|\x1b\\/);
       if (st < 0) return b.length > 4096 ? b.length : 0;
-      const bg = /^\x1b\]11;rgb:([0-9a-f]{1,4})\/([0-9a-f]{1,4})\/([0-9a-f]{1,4})$/i.exec(b.slice(0, st));
-      if (bg) out.push({ type: 'background', background: backgroundFromRgb(bg[1]!, bg[2]!, bg[3]!) });
+      const body = /^\x1b\]11;(.*)$/s.exec(b.slice(0, st))?.[1];
+      const bg = body === undefined ? undefined : parseBackgroundReply(body);
+      if (bg) out.push({ type: 'background', background: bg });
       return st + (b[st] === '\x07' ? 1 : 2);
     }
     if (n === '\x1b') {
