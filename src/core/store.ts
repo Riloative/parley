@@ -96,7 +96,7 @@ function processStart(pid: number): number | undefined {
 }
 
 /** Whether the process that wrote a lock is still the one running. */
-function holderAlive(info: LockInfo): boolean {
+export function holderAlive(info: LockInfo): boolean {
   if (!pidAlive(info.pid)) return false;
   if (info.started === undefined) return true;
   const started = processStart(info.pid);

@@ -1,9 +1,10 @@
 // `taria doctor`: check the environment and explain how to fix problems.
 
-import { accessSync, constants, existsSync, lstatSync, readFileSync, realpathSync, statSync, type Stats } from 'node:fs';
+import { accessSync, constants, existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { delimiter, dirname, join } from 'node:path';
 import { APP, OLD_APP, OLD_NAMES_REMOVED_IN, legacyEnvNotice, renameNotices } from './brand.js';
 import { DIR_KINDS, dirIsExplicit } from './config/paths.js';
+import { oldFolderReport } from './config/migrate.js';
 import { spawnSync } from 'node:child_process';
 import { boot } from './bootstrap.js';
 import { Store, scanForRepairs } from './core/store.js';
@@ -134,15 +135,9 @@ function oldInstallReport(): void {
   for (const kind of DIR_KINDS) {
     const old = paths.legacyDir(kind);
     const current = paths[`${kind}Dir` as 'dataDir'];
-    let st: Stats | undefined;
-    try {
-      st = lstatSync(old);
-    } catch {
-      continue;
-    }
-    if (st.isSymbolicLink()) line('info', `Old ${kind} folder`, `${old} → ${current} (a link, for an old parley)`);
-    else if (existsSync(current) && current !== old) line('warn', `Old ${kind} folder`, `${old} still exists next to ${current}; taria uses ${current}`, `Compare them, and delete ${old} when you no longer need it.`);
-    else line('info', `Old ${kind} folder`, `${old}: moves to ${current} the next time taria starts (doctor changes nothing)`);
+    // Reads the link's real target: it may be the user's own, not the move's.
+    const report = oldFolderReport(old, current);
+    if (report) line(report.level, `Old ${kind} folder`, report.text, report.hint);
   }
 }
 
