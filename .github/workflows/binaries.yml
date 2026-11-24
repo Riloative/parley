@@ -26,11 +26,10 @@ jobs:
           - target: darwin-arm64
             runner: macos-latest
     steps:
-      - uses: actions/checkout@v5
-
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       # Node here only runs the build script and the tests; the runtime
       # embedded in the binary is pinned in scripts/binary-runtime.json.
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: 22
           cache: npm
@@ -129,7 +128,7 @@ jobs:
           [ "$("$RUNNER_TEMP/bin/parley" --version 2>/dev/null)" = "$("$RUNNER_TEMP/bin/taria" --version)" ]
           "$RUNNER_TEMP/bin/parley" --version 2>&1 >/dev/null | grep -q 'parley is now taria'
 
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: taria-${{ matrix.target }}
           path: build/bin/taria-${{ matrix.target }}.tar.gz
@@ -141,14 +140,13 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: 22
 
       - name: Download the binaries
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
         with:
           pattern: taria-*
           path: assets
@@ -172,7 +170,7 @@ jobs:
           TARIA_RELEASES_URL="file://$RUNNER_TEMP/releases" TARIA_INSTALL_DIR="$RUNNER_TEMP/bin" sh install.sh
           "$RUNNER_TEMP/bin/taria" --version
 
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: release-assets
           path: assets/

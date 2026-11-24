@@ -1,0 +1,22 @@
+# Everything users run is bundled from devDependencies, so those are kept
+# current too; actions are pinned by commit and updated the same way.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      dev-dependencies:
+        dependency-type: development
+        update-types: [minor, patch]
+    # A bump changes dist/: the PR needs `npm run build` and a commit of dist/
+    # before CI passes (the stale-bundle check fails otherwise).
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ['*']

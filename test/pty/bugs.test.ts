@@ -136,6 +136,7 @@ describe('resize and reprint', () => {
     s.resize(64, 30);
     await sleep(500);
     await s.waitFor('Select a model');
+    await s!.waitStable();
     expect(s.all().filter((l) => l.includes('You said: first')).length).toBe(1);
     for (const l of s.all()) expect(l.length).toBeLessThanOrEqual(64);
     s.write('mark\r');

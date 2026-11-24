@@ -1,6 +1,6 @@
 // 0.2 input: editing queued messages in place, undo/redo.
 import { afterEach, describe, expect, it } from 'vitest';
-import { spawnTaria, sleep, type Session } from './harness.js';
+import { spawnTaria, sleep, type Session, belowSpinner } from './harness.js';
 
 let s: Session | undefined;
 afterEach(async () => {
@@ -26,6 +26,7 @@ describe('queued messages', () => {
     await s.waitFor(() => queued().length === 1);
     s.write('second queued\r');
     await s.waitFor(() => queued().length === 2);
+    await s!.waitStable({ region: () => belowSpinner(s!) });
     expect(queued()).toEqual(['> first queued', '> second queued']);
 
     // Something is being typed when the user decides to fix a queued message.
@@ -34,6 +35,7 @@ describe('queued messages', () => {
     s.write(UP);
     await s.waitFor('│ > second queued');
     await s.waitFor('editing queued message');
+    await s!.waitStable({ region: () => belowSpinner(s!) });
     expect(queued()).toEqual(['> first queued', '✎ second queued']);
     s.write(UP);
     await s.waitFor('│ > first queued');
@@ -42,6 +44,7 @@ describe('queued messages', () => {
     s.write('\r');
     // Saved in its slot; the set-aside text is back in the input box.
     await s.waitFor('│ > my draft');
+    await s!.waitStable({ region: () => belowSpinner(s!) });
     expect(queued()).toEqual(['> first queued EDITED', '> second queued']);
 
     // Ctrl+C while editing puts the message back as it was.
@@ -51,6 +54,7 @@ describe('queued messages', () => {
     await s.waitFor('✎ second queued oops');
     s.write('\x03');
     await s.waitFor('│ > my draft');
+    await s!.waitStable({ region: () => belowSpinner(s!) });
     expect(queued()).toEqual(['> first queued EDITED', '> second queued']);
 
     // Emptying a queued message and saving removes it; Down leaves the queue.
@@ -58,11 +62,13 @@ describe('queued messages', () => {
     await s.waitFor('│ > second queued');
     s.write('\x15\r');
     await s.waitFor(() => queued().length === 1);
+    await s!.waitStable({ region: () => belowSpinner(s!) });
     expect(queued()).toEqual(['> first queued EDITED']);
     s.write(UP);
     await s.waitFor('│ > first queued EDITED');
     s.write(DOWN);
     await s.waitFor('│ > my draft');
+    await s!.waitStable({ region: () => belowSpinner(s!) });
     expect(queued()).toEqual(['> first queued EDITED']);
 
     // The reply is still streaming: nothing was sent or interrupted meanwhile.
@@ -73,6 +79,7 @@ describe('queued messages', () => {
     await s.waitFor('Interrupted');
     // An interrupted reply hands the queue back to the input, edited text included.
     await s.waitFor('first queued EDITED');
+    await s!.waitStable();
     expect(screen()).toContain('my draft');
   }, 60_000);
 
@@ -88,6 +95,7 @@ describe('queued messages', () => {
     // The first reply finishes while the edit is open.
     await s.waitFor('The end.', 20_000);
     await sleep(700);
+    await s!.waitStable();
     expect(all().filter((l) => l.startsWith('> queued')).length).toBe(0);
     expect(queued()).toEqual(['✎ queued']);
     s.write(' and fixed\r');
@@ -116,12 +124,14 @@ describe('undo and redo', () => {
     await s.waitFor('│ > hello there');
     s.write('\x1bz');
     await sleep(200);
+    await s!.waitStable();
     expect(screen()).toContain('│ > hello there');
     s.write('\r');
     await s.waitFor('You said: hello there');
     await s.waitFor(() => /Send a message/.test(screen()));
     s.write('\x1f');
     await sleep(200);
+    await s!.waitStable();
     expect(screen()).toContain('Send a message');
   }, 30_000);
 });

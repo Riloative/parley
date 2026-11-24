@@ -16,9 +16,8 @@ jobs:
         os: [ubuntu-latest, macos-latest]
         node: [22, lts/*]
     steps:
-      - uses: actions/checkout@v5
-
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: ${{ matrix.node }}
           cache: npm
@@ -56,11 +55,43 @@ jobs:
           [ "$(parley --version 2>/dev/null)" = "$(taria --version)" ]
           parley --version 2>&1 >/dev/null | grep -q 'parley is now taria'
 
+  stress:
+    # Runs the PTY test files this branch changed, several times, with every
+    # CPU kept busy, to catch races that only show on slow machines. It does
+    # not block merging (yet): a failure here is a warning to look at.
+    name: stress · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Install tmux (for the tmux rendering test)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y tmux
+
+      - run: npm ci
+
+      - run: npm run build
+
+      - name: Changed PTY tests, 5 times under CPU load
+        run: node scripts/stress-pty.mjs --runs 5 --base "origin/${{ github.base_ref || 'main' }}"
+
   shellcheck:
     name: shellcheck install.sh
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - run: shellcheck --version && shellcheck -s sh install.sh
 
   binaries:

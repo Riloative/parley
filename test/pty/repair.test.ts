@@ -56,6 +56,7 @@ describe('repairing crash-hit conversations', () => {
     const before = readFileSync(file, 'utf8');
     s = spawnTaria({ cols: 120, rows: 30, home, args: ['doctor', 'repair'] });
     await s.waitFor('Repair 1 conversation? [y/N]');
+    await s!.waitStable();
     expect(s.screen().join('\n')).toMatch(/Crash-hit chat \(20250601-120000-dead\): 2 cut-off replies, 2 earlier messages hidden/);
     s.write('n\r');
     await s.waitFor('Nothing changed.');

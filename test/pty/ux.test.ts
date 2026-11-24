@@ -59,6 +59,7 @@ describe('unsent draft', () => {
     s = spawnTaria({ home });
     await s.waitFor('Send a message');
     await sleep(300);
+    await s!.waitStable();
     expect(s.screen().join('\n')).not.toContain('reply in progress');
     s.write('\x04');
     await s.exited;
@@ -90,6 +91,7 @@ describe('desktop notification', () => {
     s.write('\x1b[O\x1b[I\x1b[O');
     s.write('two');
     await s.waitFor(input('two')); // focus reports never reach the input box
+    await s!.waitStable();
     expect(s.screen().join('\n')).not.toMatch(/\[O|\[I/);
     s.write('\r');
     await s.waitFor('You said: two');
@@ -150,9 +152,11 @@ providers:
     s.write('hi\r');
     await s.waitFor('You said: hi');
     await s.waitFor(() => /Send a message/.test(s!.screen().join('\n')));
+    await s!.waitStable();
     expect(s.screen().join('\n')).not.toContain('tab to compact');
     s.write('\t');
     await sleep(300);
+    await s!.waitStable();
     expect(s.all().join('\n')).not.toMatch(/Compact|compact/);
 
     s.write(`${'lorem ipsum dolor '.repeat(37)}\r`);

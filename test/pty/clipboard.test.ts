@@ -204,6 +204,7 @@ describe('/copy elsewhere', () => {
     await s.waitStable({ lastLine: 'Send a message' });
     s.write('/copy\r');
     await s.waitFor('Nothing was copied');
+    await s!.waitStable();
     expect(flat()).toMatch(/OSC 52: too large/);
     expect(s.raw).not.toContain('\x1b]52;');
     await s.waitFor('Write it to a file instead?');

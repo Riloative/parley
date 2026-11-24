@@ -31,10 +31,15 @@ export interface Session {
    * Wait until the frame is complete: nothing new has arrived for `quietMs`
    * and everything received has been parsed, and (if given) some line of the
    * screen matches `lastLine`. Assert on the screen only after this.
+   * While a reply streams the screen never settles: pass `region` (the part
+   * asserted on, e.g. the queue and input box) to wait for that part only.
    */
-  waitStable(opts?: { quietMs?: number; lastLine?: string | RegExp; timeoutMs?: number }): Promise<void>;
+  waitStable(opts?: { quietMs?: number; lastLine?: string | RegExp; timeoutMs?: number; region?: () => string }): Promise<void>;
   resize(cols: number, rows: number): void;
-  exited: Promise<number>;
+  /** Resolves with the exit code; rejects with the screen if the program has
+   * not exited 15 s after this is read (a hang must fail with something to
+   * look at, not a bare test timeout). */
+  readonly exited: Promise<number>;
   close(keepHome?: boolean): Promise<void>;
   rawSince(mark: number): string;
 }
@@ -190,9 +195,10 @@ export function spawnTaria(opts: SpawnOptions = {}): Session {
       }
       throw new Error(`Timed out waiting for ${String(pred)}\n--- screen ---\n${s.screen().join('\n')}\n--------------`);
     },
-    async waitStable({ quietMs = 150, lastLine, timeoutMs = 10_000 } = {}) {
+    async waitStable({ quietMs = 150, lastLine, timeoutMs = 10_000, region } = {}) {
       const start = Date.now();
-      let seen = raw.length;
+      const snapshot = () => (region ? region() : String(raw.length));
+      let seen = snapshot();
       let since = Date.now();
       const lineOk = () => {
         if (lastLine === undefined) return true;
@@ -200,10 +206,11 @@ export function spawnTaria(opts: SpawnOptions = {}): Session {
       };
       while (Date.now() - start < timeoutMs) {
         await pending;
-        if (raw.length !== seen) {
-          seen = raw.length;
+        const now = snapshot();
+        if (now !== seen) {
+          seen = now;
           since = Date.now();
-        } else if (parsed.length === raw.length && Date.now() - since >= quietMs && lineOk()) return;
+        } else if ((region || parsed.length === raw.length) && Date.now() - since >= quietMs && lineOk()) return;
         await new Promise((r) => setTimeout(r, 20));
       }
       throw new Error(`Timed out waiting for a stable frame${lastLine === undefined ? '' : ` with ${String(lastLine)}`}\n--- screen ---\n${s.screen().join('\n')}\n--------------`);
@@ -212,7 +219,14 @@ export function spawnTaria(opts: SpawnOptions = {}): Session {
       proc.resize(c, r);
       term.resize(c, r);
     },
-    exited,
+    get exited() {
+      return Promise.race([
+        exited,
+        new Promise<number>((_, reject) =>
+          setTimeout(() => reject(new Error(`The program did not exit within 15 s\n--- screen ---\n${s.screen().join('\n')}\n--------------`)), 15_000).unref(),
+        ),
+      ]);
+    },
     async close(keepHome = false) {
       try {
         proc.kill();
@@ -220,7 +234,10 @@ export function spawnTaria(opts: SpawnOptions = {}): Session {
         /* already gone */
       }
       await Promise.race([exited, new Promise((r) => setTimeout(r, 2000))]);
-      if (!keepHome) rmSync(home, { recursive: true, force: true });
+      // A child that is still shutting down (tmux's pane after kill-server)
+      // can write its drafts and state while the folder is being removed;
+      // retry rather than fail the test with ENOTEMPTY.
+      if (!keepHome) rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     },
     rawSince: (mark) => raw.slice(mark),
   };
@@ -228,3 +245,14 @@ export function spawnTaria(opts: SpawnOptions = {}): Session {
 }
 
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** The screen below the spinner (queue, input box, status line): the part
+ * that can settle while a reply is still streaming above it. */
+export function belowSpinner(s: Session): string {
+  const l = s.screen();
+  let i = -1;
+  l.forEach((x, k) => {
+    if (/esc to (interrupt|cancel)\)/.test(x)) i = k;
+  });
+  return l.slice(i + 1).join('\n');
+}
