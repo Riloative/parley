@@ -218,3 +218,35 @@ describe('session', () => {
     expect(textOf(session).at(-1)).toMatch(/^assistant:You said: Summary of the conversation so far:[\s\S]*queued$/);
   });
 });
+
+describe('branches', () => {
+  it('lists siblings and leaves, and switching branches is persisted and replayed', async () => {
+    const { session, store } = make();
+    await session.submit({ text: 'one' });
+    await session.submit({ text: 'two' });
+    const first = session.conv.path();
+    expect(session.conv.leaves().map((m) => m.id)).toEqual([first[3]!.id]);
+    expect(session.conv.siblings(first[2]!).length).toBe(1);
+
+    session.rewindTo(first[2]!.id);
+    await session.submit({ text: 'two again' });
+    const second = session.conv.path();
+    expect(second.map((m) => (m.content[0] as { text: string }).text)).toEqual(['one', 'You said: one', 'two again', 'You said: two again']);
+    expect(session.conv.siblings(second[2]!).map((m) => m.id)).toEqual([first[2]!.id, second[2]!.id]);
+    expect(session.conv.leaves().map((m) => m.id).sort()).toEqual([first[3]!.id, second[3]!.id].sort());
+
+    expect(session.switchBranch(second[3]!.id)).toBe(false); // already there
+    expect(session.switchBranch('no-such-id')).toBe(false);
+    expect(session.switchBranch(first[3]!.id)).toBe(true);
+    expect(session.conv.path().map((m) => m.id)).toEqual(first.map((m) => m.id));
+    // A message sent now continues the branch that was switched to.
+    await session.submit({ text: 'three' });
+    expect(session.conv.path().slice(0, 4).map((m) => m.id)).toEqual(first.map((m) => m.id));
+
+    const id = session.file!.id;
+    session.close();
+    const reopened = store.open(id);
+    expect(reopened.conv.path().map((m) => m.id)).toEqual(session.conv.path().map((m) => m.id));
+    reopened.releaseLock();
+  });
+});

@@ -97,7 +97,7 @@ export function statsLine(s: TurnStats): string {
 function assistantBody(m: StoredMessage, cols: number): string {
   const text = m.content.map((p) => (p.type === 'text' ? p.text : '')).join('');
   if (!text.trim()) return '';
-  const lines = renderMarkdown(text, { width: contentWidth(cols) });
+  const lines = renderMarkdown(text, { width: contentWidth(cols), numberCode: true });
   return prefixLines(lines, [{ text: `${BULLET} ` }]);
 }
 

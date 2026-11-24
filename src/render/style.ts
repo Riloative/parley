@@ -14,6 +14,9 @@ export interface Style {
   underline?: boolean;
   strike?: boolean;
   inverse?: boolean;
+  /** Target of a terminal hyperlink (OSC 8). Only set when the terminal
+   * supports them; see hyperlinksEnabled(). */
+  href?: string;
 }
 
 export interface Span {
@@ -116,7 +119,10 @@ export function lineToAnsi(line: Line): string {
   let out = '';
   for (const s of line) {
     const open = sgr(s.style);
-    out += open ? `${open}${s.text}\x1b[0m` : s.text;
+    const text = open ? `${open}${s.text}\x1b[0m` : s.text;
+    // OSC 8: the link wraps the styled text and is closed in the same span,
+    // so a link can never leak into whatever is printed next.
+    out += s.style?.href ? `\x1b]8;;${s.style.href}\x1b\\${text}\x1b]8;;\x1b\\` : text;
   }
   return out;
 }

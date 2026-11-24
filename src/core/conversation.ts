@@ -84,6 +84,21 @@ export class Conversation {
     return p.slice(start);
   }
 
+  /** Messages that share `m`'s parent (the alternatives at a branch point),
+   * oldest first; `m` itself included. */
+  siblings(m: StoredMessage): StoredMessage[] {
+    const out: StoredMessage[] = [];
+    for (const x of this.messages.values()) if (x.parentId === m.parentId) out.push(x);
+    return out;
+  }
+
+  /** The newest message of every branch: messages nothing continues from. */
+  leaves(): StoredMessage[] {
+    const parents = new Set<string>();
+    for (const m of this.messages.values()) if (m.parentId) parents.add(m.parentId);
+    return [...this.messages.values()].filter((m) => !parents.has(m.id));
+  }
+
   get messageCount(): number {
     return this.path().filter((m) => m.role !== 'summary').length;
   }

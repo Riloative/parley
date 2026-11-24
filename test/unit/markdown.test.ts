@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { renderMarkdown, StreamingMarkdown } from '../../src/render/markdown.js';
 import { loadHighlighter } from '../../src/render/highlight.js';
-import { plainText, type Line } from '../../src/render/style.js';
+import { lineToAnsi, plainText, type Line } from '../../src/render/style.js';
 import { lineWidth } from '../../src/render/width.js';
 import { MARKDOWN_SAMPLE } from '../../src/providers/mock.js';
 
@@ -157,6 +157,92 @@ describe('soft_line_breaks', () => {
       expect(lines.map(plainText)).toEqual(text(md));
     } finally {
       setSoftLineBreaks('keep');
+    }
+  });
+});
+
+describe('numbered code blocks', () => {
+  const CODE_DOCS = [
+    ...NASTY,
+    ...DOCS,
+    'One:\n\n```js\na()\n```\n\nTwo, nested:\n\n- item\n\n  ```py\n  b()\n  ```\n\n> quoted\n>\n> ```\n> c()\n> ```\n\n    indented()\n\nFive, unclosed:\n\n```sh\nd\n',
+  ];
+  const numbered = (lines: Line[]) => plain(lines).flatMap((l) => (/ · (\d+)$/.exec(l) ? [Number(/ · (\d+)$/.exec(l)![1])] : []));
+
+  it('labels every code block 1..n in the order /copy code uses', async () => {
+    const { codeBlockTexts } = await import('../../src/render/markdown.js');
+    for (const doc of CODE_DOCS) {
+      const blocks = codeBlockTexts(doc);
+      const lines = renderMarkdown(doc, { width: 60, numberCode: true });
+      expect(numbered(lines), doc).toEqual(blocks.map((_, i) => i + 1));
+      // Without the option nothing changes.
+      expect(numbered(renderMarkdown(doc, { width: 60 }))).toEqual([]);
+    }
+    expect(codeBlockTexts(CODE_DOCS[CODE_DOCS.length - 1]!)).toEqual(['a()', 'b()', 'c()', 'indented()', 'd']);
+  });
+
+  it('streams to the same numbered output as a one-shot render, for any chunking', () => {
+    let seed = 7;
+    const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+    for (const doc of CODE_DOCS) {
+      for (const width of [12, 30, 80]) {
+        const expected = plain(renderMarkdown(doc, { width, numberCode: true }));
+        for (const chunk of [() => 1, () => 7, () => 1 + Math.floor(rnd() * 40)]) {
+          const md = new StreamingMarkdown(width, { numberCode: true });
+          const committed: Line[] = [];
+          for (let i = 0; i < doc.length; ) {
+            i = Math.min(doc.length, i + chunk());
+            committed.push(...md.update(doc.slice(0, i)).commit);
+          }
+          committed.push(...md.update(doc, true).commit);
+          expect(plain(committed), `${width}: ${JSON.stringify(doc)}`).toEqual(expected);
+        }
+      }
+    }
+  });
+});
+
+describe('hyperlinks (OSC 8)', () => {
+  const OPEN = (url: string) => `\x1b]8;;${url}\x1b\\`;
+  const CLOSE = '\x1b]8;;\x1b\\';
+  const ansi = (src: string, width = 80) => renderMarkdown(src, { width }).map(lineToAnsi).join('\n');
+
+  it('makes web and mail links clickable and hides the URL; everything else keeps "text (url)"', async () => {
+    const { setHyperlinks } = await import('../../src/term/caps.js');
+    const { setColorLevel } = await import('../../src/term/caps.js');
+    setColorLevel(3);
+    try {
+      setHyperlinks(true);
+      const on = ansi('See [the docs](https://example.com/a?b=1&c=2) and <https://auto.link> and [mail](mailto:me@example.com).');
+      expect(on).toContain(OPEN('https://example.com/a?b=1&c=2'));
+      expect(on).toContain(OPEN('https://auto.link'));
+      expect(on).toContain(OPEN('mailto:me@example.com'));
+      expect(on.split(CLOSE).length - 1).toBe(on.split('\x1b]8;;h').length - 1 + on.split('\x1b]8;;m').length - 1);
+      expect(plain(renderMarkdown('See [the docs](https://example.com/a).', { width: 80 }))).toEqual(['See the docs.']);
+
+      // Not clickable: other schemes, and anything that could end the sequence.
+      for (const bad of ['[x](file:///etc/passwd)', '[x](javascript:alert(1))', '[x](myapp://do)', '[x](<https://a.b/\x1b]0;t\x07>)', '[x](<https://a.b/ c>)']) {
+        expect(ansi(bad), bad).not.toContain('\x1b]8;');
+      }
+      expect(plain(renderMarkdown('[x](file:///etc/passwd)', { width: 80 }))).toEqual(['x (file:///etc/passwd)']);
+
+      // A wrapped link: every piece is its own closed link, and no line is too wide.
+      const long = `[${'word '.repeat(20).trim()}](https://example.com/long)`;
+      const lines = renderMarkdown(long, { width: 30 });
+      expect(lines.length).toBeGreaterThan(2);
+      for (const l of lines) {
+        expect(lineWidth(l)).toBeLessThanOrEqual(30);
+        const a = lineToAnsi(l);
+        expect(a.split(OPEN('https://example.com/long')).length - 1).toBe(a.split(CLOSE).length - 1);
+      }
+
+      setHyperlinks(false);
+      const off = ansi('See [the docs](https://example.com/a).');
+      expect(off).not.toContain('\x1b]8;');
+      expect(plain(renderMarkdown('See [the docs](https://example.com/a).', { width: 80 }))).toEqual(['See the docs (https://example.com/a).']);
+    } finally {
+      setHyperlinks(undefined);
+      setColorLevel(undefined);
     }
   });
 });

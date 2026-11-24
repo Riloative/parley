@@ -111,6 +111,38 @@ export function supportsHyperlinks(env: NodeJS.ProcessEnv = process.env): boolea
   return ['iTerm2', 'WezTerm', 'Ghostty', 'kitty', 'VS Code', 'GNOME Terminal (VTE)', 'Alacritty'].includes(n);
 }
 
+let hyperlinkOverride: boolean | undefined;
+
+/** Force hyperlinks on or off (tests); undefined restores detection. */
+export function setHyperlinks(on: boolean | undefined): void {
+  hyperlinkOverride = on;
+}
+
+/**
+ * Whether links are written as OSC 8 hyperlinks (clickable, URL hidden)
+ * instead of "text (url)". FORCE_HYPERLINK=1/0 overrides detection, as in
+ * other command-line tools. Off inside tmux and over SSH unless forced: an
+ * older tmux drops the sequence, and the URL would be lost with it.
+ */
+export function hyperlinksEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  if (hyperlinkOverride !== undefined) return hyperlinkOverride;
+  if (env.FORCE_HYPERLINK !== undefined && env.FORCE_HYPERLINK !== '') return env.FORCE_HYPERLINK !== '0' && colorLevel() > 0;
+  return supportsHyperlinks(env);
+}
+
+/**
+ * A URL that is safe to put in an OSC 8 sequence, or undefined. Only web and
+ * mail links become clickable: other schemes (file:, javascript:, app
+ * handlers) keep the visible "text (url)" form, so the reader sees where
+ * they lead. Control characters would end the sequence, so they disqualify
+ * the URL.
+ */
+export function linkTarget(href: string): string | undefined {
+  if (!/^(https?:\/\/|mailto:)/i.test(href)) return undefined;
+  if (/[\x00-\x20\x7f-\x9f]/.test(href) || href.length > 2000) return undefined;
+  return href;
+}
+
 /** True when glyphs such as ✻ and ● are likely to render. */
 export function unicodeOk(env: NodeJS.ProcessEnv = process.env): boolean {
   const lang = `${env.LC_ALL ?? ''}${env.LC_CTYPE ?? ''}${env.LANG ?? ''}`;
