@@ -2,26 +2,19 @@
 // headless xterm.js emulator in sync, so tests can assert on what a user
 // would actually see (and on the raw bytes written).
 
-import {
-  chmodSync,
-  existsSync,
-  mkdtempSync,
-  mkdirSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from "node:fs";
-import { createRequire } from "node:module";
-import { dirname } from "node:path";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import * as pty from "node-pty";
-import xtermHeadless from "@xterm/headless";
-import type { Terminal as XTerminal } from "@xterm/headless";
-import { onTestFailed } from "vitest";
-import { tariaCommand } from "../build-once.js";
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { dirname } from 'node:path';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import * as pty from 'node-pty';
+import xtermHeadless from '@xterm/headless';
+import type { Terminal as XTerminal } from '@xterm/headless';
+import { onTestFailed } from 'vitest';
+import { tariaCommand } from '../build-once.js';
 
 const { Terminal } = xtermHeadless as unknown as { Terminal: typeof XTerminal };
+
 
 export interface Session {
   term: InstanceType<typeof Terminal>;
@@ -34,10 +27,7 @@ export interface Session {
   screen(): string[];
   /** Scrollback + screen. */
   all(): string[];
-  waitFor(
-    pred: string | RegExp | (() => boolean),
-    timeoutMs?: number,
-  ): Promise<void>;
+  waitFor(pred: string | RegExp | (() => boolean), timeoutMs?: number): Promise<void>;
   /**
    * Wait until the frame is complete: nothing new has arrived for `quietMs`
    * and everything received has been parsed, and (if given) some line of the
@@ -45,12 +35,7 @@ export interface Session {
    * While a reply streams the screen never settles: pass `region` (the part
    * asserted on, e.g. the queue and input box) to wait for that part only.
    */
-  waitStable(opts?: {
-    quietMs?: number;
-    lastLine?: string | RegExp;
-    timeoutMs?: number;
-    region?: () => string;
-  }): Promise<void>;
+  waitStable(opts?: { quietMs?: number; lastLine?: string | RegExp; timeoutMs?: number; region?: () => string }): Promise<void>;
   resize(cols: number, rows: number): void;
   /** Resolves with the exit code; rejects with the screen if the program has
    * not exited 15 s after this is read (a hang must fail with something to
@@ -93,26 +78,17 @@ providers:
 `;
 
 export function makeHome(config = DEFAULT_CONFIG): string {
-  const home = mkdtempSync(join(tmpdir(), "taria-test-"));
-  mkdirSync(join(home, "config", "taria"), { recursive: true });
-  if (config)
-    writeFileSync(join(home, "config", "taria", "config.yaml"), config);
+  const home = mkdtempSync(join(tmpdir(), 'taria-test-'));
+  mkdirSync(join(home, 'config', 'taria'), { recursive: true });
+  if (config) writeFileSync(join(home, 'config', 'taria', 'config.yaml'), config);
   return home;
 }
 
-export function testEnv(
-  home: string,
-  extra: Record<string, string> = {},
-): Record<string, string> {
+export function testEnv(home: string, extra: Record<string, string> = {}): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) {
     if (v === undefined) continue;
-    if (
-      /^(CI|GITHUB_ACTIONS|TMUX|TERM_PROGRAM|COLORFGBG|NO_COLOR|FORCE_COLOR|SSH_.*|.*_API_KEY|PARLEY_.*|TARIA_.*)$/.test(
-        k,
-      )
-    )
-      continue;
+    if (/^(CI|GITHUB_ACTIONS|TMUX|TERM_PROGRAM|COLORFGBG|NO_COLOR|FORCE_COLOR|SSH_.*|.*_API_KEY|PARLEY_.*|TARIA_.*)$/.test(k)) continue;
     // Tests set proxies explicitly when they need one.
     if (/^(https?_proxy|no_proxy|all_proxy)$/i.test(k)) continue;
     env[k] = v;
@@ -120,15 +96,15 @@ export function testEnv(
   return {
     ...env,
     HOME: home,
-    XDG_CONFIG_HOME: join(home, "config"),
-    XDG_DATA_HOME: join(home, "data"),
-    XDG_STATE_HOME: join(home, "state"),
-    XDG_CACHE_HOME: join(home, "cache"),
-    TERM: "xterm-256color",
-    COLORTERM: "truecolor",
-    LANG: "en_US.UTF-8",
-    TARIA_NO_KEYCHAIN: "1",
-    EDITOR: "true",
+    XDG_CONFIG_HOME: join(home, 'config'),
+    XDG_DATA_HOME: join(home, 'data'),
+    XDG_STATE_HOME: join(home, 'state'),
+    XDG_CACHE_HOME: join(home, 'cache'),
+    TERM: 'xterm-256color',
+    COLORTERM: 'truecolor',
+    LANG: 'en_US.UTF-8',
+    TARIA_NO_KEYCHAIN: '1',
+    EDITOR: 'true',
     ...extra,
   };
 }
@@ -136,17 +112,10 @@ export function testEnv(
 // node-pty's prebuilt macOS spawn-helper is sometimes installed without its
 // execute bit, which makes every spawn fail with "posix_spawnp failed".
 function fixSpawnHelper(): void {
-  const root = dirname(
-    createRequire(import.meta.url).resolve("node-pty/package.json"),
-  );
-  for (const dir of [
-    "prebuilds/darwin-arm64",
-    "prebuilds/darwin-x64",
-    "build/Release",
-  ]) {
-    const helper = join(root, dir, "spawn-helper");
-    if (existsSync(helper) && !(statSync(helper).mode & 0o111))
-      chmodSync(helper, 0o755);
+  const root = dirname(createRequire(import.meta.url).resolve('node-pty/package.json'));
+  for (const dir of ['prebuilds/darwin-arm64', 'prebuilds/darwin-x64', 'build/Release']) {
+    const helper = join(root, dir, 'spawn-helper');
+    if (existsSync(helper) && !(statSync(helper).mode & 0o111)) chmodSync(helper, 0o755);
   }
 }
 
@@ -155,27 +124,17 @@ export function spawnTaria(opts: SpawnOptions = {}): Session {
   const launch = tariaCommand(opts.args ?? []);
   const cols = opts.cols ?? 80;
   const rows = opts.rows ?? 24;
-  const home =
-    opts.home ?? makeHome(opts.noConfig ? "" : (opts.config ?? DEFAULT_CONFIG));
-  const term = new Terminal({
+  const home = opts.home ?? makeHome(opts.noConfig ? '' : (opts.config ?? DEFAULT_CONFIG));
+  const term = new Terminal({ cols, rows, scrollback: 5000, allowProposedApi: true });
+  const proc = pty.spawn(opts.command ?? launch.command, opts.commandArgs ?? launch.args, {
+    name: 'xterm-256color',
     cols,
     rows,
-    scrollback: 5000,
-    allowProposedApi: true,
+    cwd: opts.cwd ?? home,
+    env: testEnv(home, opts.env),
   });
-  const proc = pty.spawn(
-    opts.command ?? launch.command,
-    opts.commandArgs ?? launch.args,
-    {
-      name: "xterm-256color",
-      cols,
-      rows,
-      cwd: opts.cwd ?? home,
-      env: testEnv(home, opts.env),
-    },
-  );
-  let raw = "";
-  let parsed = "";
+  let raw = '';
+  let parsed = '';
   let pending = Promise.resolve();
   proc.onData((d) => {
     raw += d;
@@ -190,27 +149,21 @@ export function spawnTaria(opts: SpawnOptions = {}): Session {
     );
     // Answer the terminal queries the way a basic xterm does (DA1 only, no
     // kitty keyboard protocol) so behaviour is deterministic.
-    if (opts.background && d.includes("\x1b]11;?")) {
+    if (opts.background && d.includes('\x1b]11;?')) {
       const reply = `\x1b]11;${opts.background}\x1b\\`;
-      if (opts.backgroundDelayMs)
-        setTimeout(() => proc.write(reply), opts.backgroundDelayMs);
+      if (opts.backgroundDelayMs) setTimeout(() => proc.write(reply), opts.backgroundDelayMs);
       else proc.write(reply);
     }
-    if (opts.identifyAsXterm && d.includes("\x1b[>c"))
-      proc.write("\x1b[>41;370;0c");
-    if (opts.identifyAsXterm && d.includes("\x1b[>q"))
-      proc.write("\x1bP>|XTerm(370)\x1b\\");
-    if (opts.kitty && d.includes("\x1b[?u")) proc.write("\x1b[?0u");
-    if (d.includes("\x1b[c")) proc.write("\x1b[?62;22c");
+    if (opts.identifyAsXterm && d.includes('\x1b[>c')) proc.write('\x1b[>41;370;0c');
+    if (opts.identifyAsXterm && d.includes('\x1b[>q')) proc.write('\x1bP>|XTerm(370)\x1b\\');
+    if (opts.kitty && d.includes('\x1b[?u')) proc.write('\x1b[?0u');
+    if (d.includes('\x1b[c')) proc.write('\x1b[?62;22c');
   });
-  const exited = new Promise<number>((resolve) =>
-    proc.onExit((e) => resolve(e.exitCode)),
-  );
+  const exited = new Promise<number>((resolve) => proc.onExit((e) => resolve(e.exitCode)));
   const lines = (from: number, to: number) => {
     const out: string[] = [];
     const buf = term.buffer.active;
-    for (let i = from; i < to; i++)
-      out.push(buf.getLine(i)?.translateToString(true) ?? "");
+    for (let i = from; i < to; i++) out.push(buf.getLine(i)?.translateToString(true) ?? '');
     return out;
   };
   // When a test fails (a bare test timeout included), say how long each wait
@@ -220,19 +173,13 @@ export function spawnTaria(opts: SpawnOptions = {}): Session {
   const timeline: string[] = [];
   const timed = async (label: string, run: () => Promise<void>) => {
     const start = Date.now();
-    const entry =
-      timeline.push(
-        `  +${String(start - t0).padStart(6)} ms  ${label}  (not finished)`,
-      ) - 1;
+    const entry = timeline.push(`  +${String(start - t0).padStart(6)} ms  ${label}  (not finished)`) - 1;
     await run();
-    timeline[entry] =
-      `  +${String(start - t0).padStart(6)} ms  ${label}  took ${Date.now() - start} ms`;
+    timeline[entry] = `  +${String(start - t0).padStart(6)} ms  ${label}  took ${Date.now() - start} ms`;
   };
   try {
     onTestFailed(() => {
-      console.error(
-        `--- PTY session timeline (failed ${Date.now() - t0} ms after spawn) ---\n${timeline.join("\n")}\n--- screen at failure ---\n${s.screen().join("\n")}\n--------------`,
-      );
+      console.error(`--- PTY session timeline (failed ${Date.now() - t0} ms after spawn) ---\n${timeline.join('\n')}\n--- screen at failure ---\n${s.screen().join('\n')}\n--------------`);
     });
   } catch {
     // Spawned outside a test (a hook, or a script): nothing to report to.
@@ -253,67 +200,40 @@ export function spawnTaria(opts: SpawnOptions = {}): Session {
       return lines(buf.viewportY, buf.viewportY + term.rows);
     },
     all: () => lines(0, term.buffer.active.length),
-    waitFor: (pred, timeoutMs = 10_000) =>
-      timed(`waitFor ${String(pred).slice(0, 60)}`, async () => {
-        const start = Date.now();
-        const test = () => {
-          if (typeof pred === "function") return pred();
-          const text = s.all().join("\n");
-          return typeof pred === "string"
-            ? text.includes(pred)
-            : pred.test(text);
-        };
-        while (Date.now() - start < timeoutMs) {
-          await pending;
-          if (test()) return;
-          await new Promise((r) => setTimeout(r, 25));
-        }
-        throw new Error(
-          `Timed out waiting for ${String(pred)}\n--- screen ---\n${s.screen().join("\n")}\n--------------`,
-        );
-      }),
-    waitStable: ({
-      quietMs = 150,
-      lastLine,
-      timeoutMs = 10_000,
-      region,
-    } = {}) =>
-      timed(
-        `waitStable ${lastLine === undefined ? "" : String(lastLine).slice(0, 60)}`,
-        async () => {
-          const start = Date.now();
-          const snapshot = () => (region ? region() : String(raw.length));
-          let seen = snapshot();
-          let since = Date.now();
-          const lineOk = () => {
-            if (lastLine === undefined) return true;
-            return s
-              .screen()
-              .some((l) =>
-                typeof lastLine === "string"
-                  ? l.includes(lastLine)
-                  : lastLine.test(l),
-              );
-          };
-          while (Date.now() - start < timeoutMs) {
-            await pending;
-            const now = snapshot();
-            if (now !== seen) {
-              seen = now;
-              since = Date.now();
-            } else if (
-              (region || parsed.length === raw.length) &&
-              Date.now() - since >= quietMs &&
-              lineOk()
-            )
-              return;
-            await new Promise((r) => setTimeout(r, 20));
-          }
-          throw new Error(
-            `Timed out waiting for a stable frame${lastLine === undefined ? "" : ` with ${String(lastLine)}`}\n--- screen ---\n${s.screen().join("\n")}\n--------------`,
-          );
-        },
-      ),
+    waitFor: (pred, timeoutMs = 10_000) => timed(`waitFor ${String(pred).slice(0, 60)}`, async () => {
+      const start = Date.now();
+      const test = () => {
+        if (typeof pred === 'function') return pred();
+        const text = s.all().join('\n');
+        return typeof pred === 'string' ? text.includes(pred) : pred.test(text);
+      };
+      while (Date.now() - start < timeoutMs) {
+        await pending;
+        if (test()) return;
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      throw new Error(`Timed out waiting for ${String(pred)}\n--- screen ---\n${s.screen().join('\n')}\n--------------`);
+    }),
+    waitStable: ({ quietMs = 150, lastLine, timeoutMs = 10_000, region } = {}) => timed(`waitStable ${lastLine === undefined ? '' : String(lastLine).slice(0, 60)}`, async () => {
+      const start = Date.now();
+      const snapshot = () => (region ? region() : String(raw.length));
+      let seen = snapshot();
+      let since = Date.now();
+      const lineOk = () => {
+        if (lastLine === undefined) return true;
+        return s.screen().some((l) => (typeof lastLine === 'string' ? l.includes(lastLine) : lastLine.test(l)));
+      };
+      while (Date.now() - start < timeoutMs) {
+        await pending;
+        const now = snapshot();
+        if (now !== seen) {
+          seen = now;
+          since = Date.now();
+        } else if ((region || parsed.length === raw.length) && Date.now() - since >= quietMs && lineOk()) return;
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      throw new Error(`Timed out waiting for a stable frame${lastLine === undefined ? '' : ` with ${String(lastLine)}`}\n--- screen ---\n${s.screen().join('\n')}\n--------------`);
+    }),
     resize(c, r) {
       proc.resize(c, r);
       term.resize(c, r);
@@ -322,15 +242,7 @@ export function spawnTaria(opts: SpawnOptions = {}): Session {
       return Promise.race([
         exited,
         new Promise<number>((_, reject) =>
-          setTimeout(
-            () =>
-              reject(
-                new Error(
-                  `The program did not exit within 15 s\n--- screen ---\n${s.screen().join("\n")}\n--------------`,
-                ),
-              ),
-            15_000,
-          ).unref(),
+          setTimeout(() => reject(new Error(`The program did not exit within 15 s\n--- screen ---\n${s.screen().join('\n')}\n--------------`)), 15_000).unref(),
         ),
       ]);
     },
@@ -344,13 +256,7 @@ export function spawnTaria(opts: SpawnOptions = {}): Session {
       // A child that is still shutting down (tmux's pane after kill-server)
       // can write its drafts and state while the folder is being removed;
       // retry rather than fail the test with ENOTEMPTY.
-      if (!keepHome)
-        rmSync(home, {
-          recursive: true,
-          force: true,
-          maxRetries: 10,
-          retryDelay: 100,
-        });
+      if (!keepHome) rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     },
     rawSince: (mark) => raw.slice(mark),
   };
@@ -367,5 +273,5 @@ export function belowSpinner(s: Session): string {
   l.forEach((x, k) => {
     if (/esc to (interrupt|cancel)\)/.test(x)) i = k;
   });
-  return l.slice(i + 1).join("\n");
+  return l.slice(i + 1).join('\n');
 }
