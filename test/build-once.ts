@@ -21,14 +21,15 @@ export function ensureBuilt(): void {
 }
 
 /**
- * How to launch the parley under test: the standalone binary named by
- * PARLEY_BIN, or the Node build (bin/parley.js, rebuilt when stale).
+ * How to launch the taria under test: the standalone binary named by
+ * TARIA_BIN, or the Node build (bin/taria.js, rebuilt when stale).
  */
-export function parleyCommand(args: string[] = []): { command: string; args: string[]; shell: string } {
+export function tariaCommand(args: string[] = []): { command: string; args: string[]; shell: string } {
   const root = new URL('..', import.meta.url).pathname;
-  const bin = process.env.PARLEY_BIN;
+  // PARLEY_BIN is the name from before the rename.
+  const bin = process.env.TARIA_BIN ?? process.env.PARLEY_BIN;
   if (bin) return { command: bin, args, shell: `'${bin}'` };
   ensureBuilt();
-  const script = join(root, 'bin', 'parley.js');
+  const script = join(root, 'bin', 'taria.js');
   return { command: process.execPath, args: [script, ...args], shell: `'${process.execPath}' '${script}'` };
 }

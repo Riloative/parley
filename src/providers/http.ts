@@ -40,7 +40,7 @@ export function getFetch(): Promise<FetchFn> {
       // Without undici there is no proxy support and fetch's default
       // timeouts apply; say so rather than failing silently.
       debug('undici unavailable; using the built-in fetch (no proxy support, default timeouts)', { error: (e as Error).message });
-      if (hasProxyEnv()) process.emitWarning('parley could not load its HTTP client; HTTPS_PROXY/HTTP_PROXY will be ignored.');
+      if (hasProxyEnv()) process.emitWarning('taria could not load its HTTP client; HTTPS_PROXY/HTTP_PROXY will be ignored.');
       return globalThis.fetch.bind(globalThis);
     }
   })();

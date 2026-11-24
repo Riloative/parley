@@ -1,12 +1,12 @@
-# parley
+# taria
 
 A terminal chat client for Claude, OpenAI, Mistral and local models (llama.cpp, Ollama, LM Studio) — and anything else that speaks the OpenAI chat-completions protocol.
 
-parley looks and behaves like a terminal coding assistant, but it only converses: no file editing, no shell, no agent loop. It streams without flicker, writes every conversation to disk as it happens, and never makes you reach for the mouse.
+taria looks and behaves like a terminal coding assistant, but it only converses: no file editing, no shell, no agent loop. It streams without flicker, writes every conversation to disk as it happens, and never makes you reach for the mouse.
 
 ```
 ╭──────────────────────────────────────────────────────────────────────╮
-│ ◆ Welcome to parley                                                  │
+│ ◆ Welcome to taria                                                   │
 │                                                                      │
 │   model: local/qwen3-30b                                             │
 │   /help for commands · /model to switch · esc to interrupt           │
@@ -39,16 +39,28 @@ parley looks and behaves like a terminal coding assistant, but it only converses
 
 ## Install
 
+### Upgrading from parley
+
+taria was called parley until 0.2.0. Upgrading keeps everything:
+
+- **Your files move once, on the first start of taria.** `~/.config/parley`, `~/.local/share/parley`, `~/.local/state/parley` and `~/.cache/parley` become the `taria` folders (renamed in one step, so nothing is ever half-moved). The old paths become links to the new folders, so an old parley binary still finds everything. taria says in one line what it moved. If a parley window still has a conversation open, the move waits until the next start, and taria uses the old folder meanwhile. A read-only folder is copied and left as it was. Conversations are never rewritten: files parley wrote open as they are.
+- **API keys** stored with `parley key set` are found under the old keychain name and copied to a `taria` entry the first time they are used. The old entry stays, for an old parley; `taria key status <provider>` mentions it and `taria key remove-old <provider>` removes it.
+- **Environment variables:** every `PARLEY_*` variable works as `TARIA_*` (the new name wins when both are set). taria mentions the old names once per run, on stderr (never on stdout in `-p` mode).
+- **The `parley` command** still works in 0.3.x: it prints one line on stderr and runs taria with the same arguments and exit status. It goes away in 0.4.0.
+- **Binary installs:** run the install command above. It installs `taria`, and replaces an old `parley` binary in the same folder with the alias.
+- **npm installs:** remove the old package first, because it owns the `parley` command: `npm uninstall -g parley`, then install taria as above.
+- `taria doctor` lists what is left of parley (an old binary on your `PATH`, old folders) without changing anything.
+
 ### Standalone binary (no Node.js needed)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Riloative/parley/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Riloative/taria/main/install.sh | sh
 ```
 
-The script picks the build for your OS and CPU, downloads it from the latest [release](https://github.com/Riloative/parley/releases), verifies its SHA-256 against the release's `SHA256SUMS`, and installs it to `~/.local/bin/parley` without sudo. It prints a hint if that directory isn't on your `PATH`.
+The script picks the build for your OS and CPU, downloads it from the latest [release](https://github.com/Riloative/taria/releases), verifies its SHA-256 against the release's `SHA256SUMS`, and installs it to `~/.local/bin/taria` without sudo. It prints a hint if that directory isn't on your `PATH`.
 
-- **Choose a version:** `curl -fsSL …/install.sh | PARLEY_VERSION=v0.2.0 sh`
-- **Choose a directory:** `PARLEY_INSTALL_DIR=~/bin`
+- **Choose a version:** `curl -fsSL …/install.sh | TARIA_VERSION=v0.3.0 sh`
+- **Choose a directory:** `TARIA_INSTALL_DIR=~/bin`
 
 | Target | Built and tested on | Notes |
 | --- | --- | --- |
@@ -61,47 +73,47 @@ On Linux the binary needs glibc 2.28 or newer (Debian 10, Ubuntu 20.04, RHEL 8 a
 
 The binary embeds the Node.js runtime, so it is large: about 150 MB on disk and about 48 MB to download. There are no musl (Alpine) or Windows builds; on Alpine use the npm package below with Alpine's `nodejs`.
 
-**macOS Gatekeeper.** The binaries are signed ad hoc but not notarized (that needs a paid Apple Developer ID). Files downloaded with `curl`, as `install.sh` does, are not quarantined, so they run normally. If you downloaded the archive with a browser and macOS refuses to open `parley`, remove the quarantine flag:
+**macOS Gatekeeper.** The binaries are signed ad hoc but not notarized (that needs a paid Apple Developer ID). Files downloaded with `curl`, as `install.sh` does, are not quarantined, so they run normally. If you downloaded the archive with a browser and macOS refuses to open `taria`, remove the quarantine flag:
 
 ```bash
-xattr -d com.apple.quarantine ~/.local/bin/parley
+xattr -d com.apple.quarantine ~/.local/bin/taria
 ```
 
-To install a release archive by hand, download `parley-<os>-<arch>.tar.gz` and `SHA256SUMS` from the release, check the archive with `shasum -a 256 -c SHA256SUMS --ignore-missing`, then unpack it and move `parley` onto your `PATH`. To upgrade, run the install command again. To uninstall, delete the file.
+To install a release archive by hand, download `taria-<os>-<arch>.tar.gz` and `SHA256SUMS` from the release, check the archive with `shasum -a 256 -c SHA256SUMS --ignore-missing`, then unpack it and move `taria` onto your `PATH`. To upgrade, run the install command again. To uninstall, delete the file.
 
 ### npm (Node.js 22 or newer)
 
 From a clone:
 
 ```bash
-git clone https://github.com/Riloative/parley.git
-cd parley
+git clone https://github.com/Riloative/taria.git
+cd taria
 npm install -g .
 ```
 
 Or from a release, without cloning:
 
 ```bash
-npm install -g https://github.com/Riloative/parley/releases/download/v0.2.0/parley-0.2.0.tgz
+npm install -g https://github.com/Riloative/taria/releases/download/v0.3.0/taria-0.3.0.tgz
 ```
 
 The repository ships a prebuilt, self-contained bundle in `dist/`, so the global install has no dependencies and needs no compiler.
 
 ### Check the install
 
-`parley --version` shows the version, whether you're running the standalone binary or the npm package, and the Node.js runtime. `parley doctor` checks your environment and shows the install method and location:
+`taria --version` shows the version, whether you're running the standalone binary or the npm package, and the Node.js runtime. `taria doctor` checks your environment and shows the install method and location:
 
 ```bash
-parley doctor
+taria doctor
 ```
 
 ## Quick start
 
 ```bash
-parley
+taria
 ```
 
-The first time you run it, parley looks for API keys in your environment (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `MISTRAL_API_KEY`, …) and probes the usual local ports for llama.cpp (8080 and 9931), Ollama (11434) and LM Studio (1234). Pick one, choose a default model, and you're chatting. The setup writes a commented config file you can edit later.
+The first time you run it, taria looks for API keys in your environment (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `MISTRAL_API_KEY`, …) and probes the usual local ports for llama.cpp (8080 and 9931), Ollama (11434) and LM Studio (1234). Pick one, choose a default model, and you're chatting. The setup writes a commented config file you can edit later.
 
 Some things to try:
 
@@ -109,11 +121,11 @@ Some things to try:
 - Press `Esc` to stop a reply; the partial answer is kept.
 - Keep typing while a reply streams; `Enter` queues your next message.
 - `Esc` `Esc` on an empty prompt to edit an earlier message and branch from there.
-- Quit with `Ctrl+D` and come back with `parley -c` (continue) or `parley -r` (pick a conversation).
+- Quit with `Ctrl+D` and come back with `taria -c` (continue) or `taria -r` (pick a conversation).
 
 ## Setting up providers
 
-Every model is addressed as `provider/model-id`, where `provider` is a name you choose in the config file. You can define as many providers as you like — for example two local servers. You can add providers interactively with `/providers`, or edit `~/.config/parley/config.yaml`. Model names are never hard-coded: parley fetches each provider's model list at runtime (cached briefly), and you can always type any model id by hand in `/model`.
+Every model is addressed as `provider/model-id`, where `provider` is a name you choose in the config file. You can define as many providers as you like — for example two local servers. You can add providers interactively with `/providers`, or edit `~/.config/taria/config.yaml`. Model names are never hard-coded: taria fetches each provider's model list at runtime (cached briefly), and you can always type any model id by hand in `/model`.
 
 ### Anthropic
 
@@ -124,7 +136,7 @@ providers:
 default_model: anthropic/claude-opus-5-5
 ```
 
-Uses the Messages API through the official SDK, with streaming, adaptive thinking (reasoning summaries shown dimmed, collapsed to "Thought for Ns"), reasoning effort, image input and prompt caching on the conversation prefix. Context size and capabilities come from the Models API. Key: `ANTHROPIC_API_KEY`, or `parley key set anthropic`.
+Uses the Messages API through the official SDK, with streaming, adaptive thinking (reasoning summaries shown dimmed, collapsed to "Thought for Ns"), reasoning effort, image input and prompt caching on the conversation prefix. Context size and capabilities come from the Models API. Key: `ANTHROPIC_API_KEY`, or `taria key set anthropic`.
 
 ### OpenAI
 
@@ -163,7 +175,7 @@ providers:
 default_model: local/qwen3-30b-q4_k_m.gguf
 ```
 
-No key is needed for local addresses. The context size is read from the server's `/props`; reasoning arrives as `reasoning_content` (or inside `<think>` tags, which parley also understands). Newer llama.cpp builds default to port 9931 — use whichever your server prints.
+No key is needed for local addresses. The context size is read from the server's `/props`; reasoning arrives as `reasoning_content` (or inside `<think>` tags, which taria also understands). Newer llama.cpp builds default to port 9931 — use whichever your server prints.
 
 ### Ollama
 
@@ -197,7 +209,7 @@ providers:
     base_url: https://openrouter.ai/api/v1
     api_key_env: OPENROUTER_API_KEY
     headers:
-      X-Title: parley
+      X-Title: taria
   groq:
     type: openai-compatible
     base_url: https://api.groq.com/openai/v1
@@ -247,15 +259,15 @@ Keys are looked up in this order, and never written to the config file, a transc
 
 1. **Environment variable** — `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `MISTRAL_API_KEY`, `OPENROUTER_API_KEY`, `GROQ_API_KEY`, or the variable named by `api_key_env`. For other providers the default is `<NAME>_API_KEY`.
 2. **OS keychain** — macOS Keychain, or the Secret Service (GNOME Keyring/KWallet via `secret-tool`) on Linux.
-3. **Credentials file** — `~/.config/parley/credentials`, mode 0600, for headless and SSH machines without a keychain.
+3. **Credentials file** — `~/.config/taria/credentials`, mode 0600, for headless and SSH machines without a keychain.
 
 ```bash
-parley key set anthropic        # prompts without echo; stores in the keychain (or the file)
-parley key status anthropic     # shows which store is in use
-parley key remove anthropic
+taria key set anthropic        # prompts without echo; stores in the keychain (or the file)
+taria key status anthropic     # shows which store is in use
+taria key remove anthropic
 ```
 
-`/providers` inside parley shows where each provider's key comes from and checks connectivity live.
+`/providers` inside taria shows where each provider's key comes from and checks connectivity live.
 
 ## Keys
 
@@ -308,12 +320,12 @@ Large pastes collapse to `[Pasted text #1 +42 lines]` and are expanded when sent
 | `/config` | Settings screen (edits the config file in place, keeping comments) |
 | `/providers` | Providers with a live connectivity check; add or remove one |
 | `/theme` | Dark, light, ANSI-16 or auto |
-| `/terminal-setup [vscode\|tmux]` | Make Shift+Enter insert a new line in VS Code (and forks) and tmux: shows the settings, and writes them only if you confirm. With `vscode` or `tmux` it shows and offers that one even when parley is running somewhere else |
+| `/terminal-setup [vscode\|tmux]` | Make Shift+Enter insert a new line in VS Code (and forks) and tmux: shows the settings, and writes them only if you confirm. With `vscode` or `tmux` it shows and offers that one even when taria is running somewhere else |
 | `/help`, `/exit` | |
 
 ### Custom commands
 
-Any Markdown file in `~/.config/parley/commands/` becomes a command. `$ARGUMENTS` is replaced with whatever follows the command; without it, the arguments are appended.
+Any Markdown file in `~/.config/taria/commands/` becomes a command. `$ARGUMENTS` is replaced with whatever follows the command; without it, the arguments are appended.
 
 ```markdown
 ---
@@ -327,7 +339,7 @@ Saved as `explain.md`, this is used as `/explain recursion`.
 
 ## Configuration file
 
-`~/.config/parley/config.yaml` (honours `XDG_CONFIG_HOME`). Mistakes are reported with the line number and a plain explanation, and the rest of the file still loads.
+`~/.config/taria/config.yaml` (honours `XDG_CONFIG_HOME`). Mistakes are reported with the line number and a plain explanation, and the rest of the file still loads.
 
 ```yaml
 default_model: anthropic/claude-opus-5-5
@@ -376,11 +388,11 @@ prices:                              # USD per million tokens, for /cost
 ## Non-interactive use
 
 ```bash
-parley -p "what is 2^20?"
-cat notes.md | parley -p "summarise in three bullets"
-git diff | parley -p -m local/qwen3 -s "You are a code reviewer" "review this"
-parley -p --json "hello" | jq .text
-parley -c -p "and in French?"       # continue the most recent conversation
+taria -p "what is 2^20?"
+cat notes.md | taria -p "summarise in three bullets"
+git diff | taria -p -m local/qwen3 -s "You are a code reviewer" "review this"
+taria -p --json "hello" | jq .text
+taria -c -p "and in French?"       # continue the most recent conversation
 ```
 
 | Option | |
@@ -393,7 +405,7 @@ parley -c -p "and in French?"       # continue the most recent conversation
 | `--json` | One JSON object: text, reasoning, usage, stop reason, conversation id |
 | `--theme name`, `--no-color` | Appearance |
 | `--debug [file]` | Log requests, responses and timings, keys redacted |
-| `parley doctor` | Check terminal, clipboard, keychain and each provider |
+| `taria doctor` | Check terminal, clipboard, keychain and each provider |
 
 When stdout isn't a terminal there is no colour and no spinner. Failures exit non-zero with the error on stderr (2 for usage errors, 130 when interrupted).
 
@@ -401,29 +413,29 @@ When stdout isn't a terminal there is no colour and no spinner. Failures exit no
 
 | Path | Contents |
 | --- | --- |
-| `~/.config/parley/config.yaml` | Configuration |
-| `~/.config/parley/credentials` | Keys for machines without a keychain (0600) |
-| `~/.config/parley/commands/*.md` | Custom commands |
-| `~/.local/share/parley/conversations/*.jsonl` | One append-only file per conversation |
-| `~/.local/share/parley/attachments/` | Attached images, by content hash |
-| `~/.local/share/parley/history.jsonl` | Input history, shared by all instances |
-| `~/.local/share/parley/trash/` | Deleted conversations |
-| `~/.local/state/parley/logs/` | `--debug` logs |
+| `~/.config/taria/config.yaml` | Configuration |
+| `~/.config/taria/credentials` | Keys for machines without a keychain (0600) |
+| `~/.config/taria/commands/*.md` | Custom commands |
+| `~/.local/share/taria/conversations/*.jsonl` | One append-only file per conversation |
+| `~/.local/share/taria/attachments/` | Attached images, by content hash |
+| `~/.local/share/taria/history.jsonl` | Input history, shared by all instances |
+| `~/.local/share/taria/trash/` | Deleted conversations |
+| `~/.local/state/taria/logs/` | `--debug` logs |
 
-All honour the `XDG_*` variables (the same layout is used on macOS). Conversations are written event by event — the user message as soon as you send it, and streamed text every fraction of a second — so a crash or a closed terminal loses at most the last moment of a reply, which is recovered and marked as interrupted. Rewinding and regenerating add branches; nothing is ever deleted. Several parley windows can run at once: each conversation file is locked by the instance that has it open.
+All honour the `XDG_*` variables (the same layout is used on macOS). Conversations are written event by event — the user message as soon as you send it, and streamed text every fraction of a second — so a crash or a closed terminal loses at most the last moment of a reply, which is recovered and marked as interrupted. Rewinding and regenerating add branches; nothing is ever deleted. Several taria windows can run at once: each conversation file is locked by the instance that has it open.
 
 ## Troubleshooting
 
 **Shift+Enter inserts nothing / sends the message.** Your terminal doesn't report Shift+Enter distinctly. `Ctrl+J`, `Alt+Enter` and `\` then `Enter` always work, and the hint line shows which one to use. Shift+Enter works natively in kitty, WezTerm, Ghostty, iTerm2 and recent Alacritty. In VS Code and its forks, and in tmux, run `/terminal-setup`: it shows the keybinding (Shift+Enter sends `\u001b\r` when `terminalFocus`) and the tmux lines (`set -s extended-keys on`), and adds them to the right file if you confirm. In Terminal.app, enable *Use Option as Meta key* for Option+Enter.
 
-**"Nothing is listening at http://localhost:8080".** The local server isn't running, or it's on another port (newer llama.cpp uses 9931). Fix `base_url` and check with `parley doctor`.
+**"Nothing is listening at http://localhost:8080".** The local server isn't running, or it's on another port (newer llama.cpp uses 9931). Fix `base_url` and check with `taria doctor`.
 
-**The first reply from a local model takes a long time.** The spinner says *Waiting for the first token* while the model loads; parley never times out during a load.
+**The first reply from a local model takes a long time.** The spinner says *Waiting for the first token* while the model loads; taria never times out during a load.
 
-**"No API key found".** Set the environment variable, or `parley key set <provider>`. `parley key status <provider>` shows what was found.
+**"No API key found".** Set the environment variable, or `taria key set <provider>`. `taria key status <provider>` shows what was found.
 
-**`/copy` copies nothing.** Run `parley doctor clipboard`: it says which method `/copy` uses, copies a test line and, where a paste tool exists, reads it back. parley reports *Copied … via wl-copy* only when a tool confirmed the copy; *Sent … (OSC 52)* means the text was handed to the terminal, which never confirms it.
-- **Linux desktop:** install `wl-clipboard` (Wayland) or `xclip` (X11). Without them, parley would fall back to OSC 52, which VTE-based terminals (GNOME Terminal, Ptyxis, Tilix, Terminator) ignore, so there it says nothing was copied and offers to write the text to a file instead.
+**`/copy` copies nothing.** Run `taria doctor clipboard`: it says which method `/copy` uses, copies a test line and, where a paste tool exists, reads it back. taria reports *Copied … via wl-copy* only when a tool confirmed the copy; *Sent … (OSC 52)* means the text was handed to the terminal, which never confirms it.
+- **Linux desktop:** install `wl-clipboard` (Wayland) or `xclip` (X11). Without them, taria would fall back to OSC 52, which VTE-based terminals (GNOME Terminal, Ptyxis, Tilix, Terminator) ignore, so there it says nothing was copied and offers to write the text to a file instead.
 - **WSL:** `clip.exe` is used (the text is sent as UTF-16, so accents and symbols survive).
 - **SSH:** OSC 52 to the terminal on your own machine. Windows Terminal, iTerm2, kitty, WezTerm, Ghostty, foot and Alacritty accept it; some need it enabled (iTerm2: *Applications in terminal may access clipboard*). Texts over about 73 KB are not sent, because terminals drop larger ones silently.
 - **tmux:** the text goes into tmux's paste buffer (`prefix ]`) with `load-buffer -w`, which also passes it to the terminal unless `set-clipboard` is `off`.
@@ -431,9 +443,9 @@ All honour the `XDG_*` variables (the same layout is used on macOS). Conversatio
 
 **Odd characters or boxes instead of glyphs.** Use a UTF-8 locale (`export LANG=en_US.UTF-8`) and a font with box-drawing characters.
 
-**Colours look wrong.** Try `/theme` (light, or ANSI to use only your terminal's palette). parley uses truecolour when `COLORTERM=truecolor` is set.
+**Colours look wrong.** Try `/theme` (light, or ANSI to use only your terminal's palette). taria uses truecolour when `COLORTERM=truecolor` is set.
 
-**Config errors at start-up.** They are printed with the file and line; fix them or run `parley doctor`.
+**Config errors at start-up.** They are printed with the file and line; fix them or run `taria doctor`.
 
 **Something else.** Run with `--debug` and look at the log (keys are redacted).
 

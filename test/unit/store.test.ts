@@ -7,7 +7,7 @@ import { Store, replay, ConversationLockedError, SCHEMA_VERSION } from '../../sr
 import { toChatMessages, newId } from '../../src/core/conversation.js';
 import { InputHistory } from '../../src/core/history.js';
 
-const tmp = () => mkdtempSync(join(tmpdir(), 'parley-store-'));
+const tmp = () => mkdtempSync(join(tmpdir(), 'taria-store-'));
 
 describe('conversation store', () => {
   it('writes a schema version and one JSON line per event', () => {
@@ -15,7 +15,7 @@ describe('conversation store', () => {
     const f = store.create('/x');
     f.append({ type: 'message', id: 'u1', parentId: null, role: 'user', content: [{ type: 'text', text: 'hi' }], ts: 1 });
     const lines = readFileSync(f.file, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
-    expect(lines[0]).toMatchObject({ type: 'meta', v: SCHEMA_VERSION, app: 'parley' });
+    expect(lines[0]).toMatchObject({ type: 'meta', v: SCHEMA_VERSION, app: 'taria' });
     expect(lines[1]).toMatchObject({ type: 'message', id: 'u1' });
     f.releaseLock();
   });

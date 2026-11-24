@@ -4,15 +4,15 @@ import { spawn } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
-import { parleyCommand } from '../build-once.js';
-import { makeHome, sleep, spawnParley, testEnv, type Session } from './harness.js';
+import { tariaCommand } from '../build-once.js';
+import { makeHome, sleep, spawnTaria, testEnv, type Session } from './harness.js';
 
 const homes: string[] = [];
 afterAll(() => homes.forEach((h) => rmSync(h, { recursive: true, force: true })));
 
 function run(args: string[], home: string, env: Record<string, string> = {}): Promise<{ code: number; out: string; err: string }> {
   return new Promise((resolve) => {
-    const launch = parleyCommand(args);
+    const launch = tariaCommand(args);
     const p = spawn(launch.command, launch.args, { env: testEnv(home, env), cwd: home });
     let out = '';
     let err = '';
@@ -30,17 +30,17 @@ afterEach(async () => {
 });
 
 describe('persistence races', () => {
-  it('parley -p -c explains when the latest conversation is open in another window', async () => {
+  it('taria -p -c explains when the latest conversation is open in another window', async () => {
     const home = makeHome();
     homes.push(home);
     await run(['-p', 'first'], home);
-    const dir = join(home, 'data', 'parley', 'conversations');
+    const dir = join(home, 'data', 'taria', 'conversations');
     const file = readdirSync(dir).find((f) => f.endsWith('.jsonl'))!;
     // Another live process (our parent) holds the lock.
     writeFileSync(join(dir, `${file}.lock`), String(process.pid));
     const r = await run(['-p', 'second', '-c'], home);
     expect(r.code).toBe(1);
-    expect(r.err).toMatch(/open in another parley window/);
+    expect(r.err).toMatch(/open in another taria window/);
   });
 });
 
@@ -50,11 +50,11 @@ describe('terminal restore', () => {
   const restored = (raw: string) => raw.lastIndexOf('\x1b[?2004l') > raw.lastIndexOf('\x1b[?2004h') && raw.lastIndexOf('\x1b[?25h') > raw.lastIndexOf('\x1b[?25l');
 
   it('an exception while rendering restores the terminal and exits non-zero with a redacted error', async () => {
-    s = spawnParley({ env: { PARLEY_DEBUG_CRASH: 'render' } });
+    s = spawnTaria({ env: { TARIA_DEBUG_CRASH: 'render' } });
     const code = await Promise.race([s.exited, sleep(10_000).then(() => -999)]);
     expect(code).toBe(1);
     expect(restored(s.raw)).toBe(true);
-    await s.waitFor(/parley crashed: .*debug crash \(render\)/);
+    await s.waitFor(/taria crashed: .*debug crash \(render\)/);
     // Not Ink's error screen: it printed the message unredacted and, in the
     // standalone binary, a "source excerpt" of raw executable bytes.
     expect(s.raw).not.toContain(' ERROR ');
@@ -63,21 +63,21 @@ describe('terminal restore', () => {
   });
 
   it('an uncaught exception restores the terminal, saves the partial reply and exits non-zero', async () => {
-    s = spawnParley({ args: ['-m', 'mock/long?lines=400&tps=300'], env: { PARLEY_DEBUG_CRASH: 'uncaught:1500' } });
+    s = spawnTaria({ args: ['-m', 'mock/long?lines=400&tps=300'], env: { TARIA_DEBUG_CRASH: 'uncaught:1500' } });
     await s.waitFor('Send a message');
     s.write('go\r');
     const code = await Promise.race([s.exited, sleep(10_000).then(() => -999)]);
     expect(code).toBe(1);
     expect(restored(s.raw)).toBe(true);
-    await s.waitFor(/parley crashed: .*debug crash \(uncaught\)/);
-    const dir = join(s.home, 'data', 'parley', 'conversations');
+    await s.waitFor(/taria crashed: .*debug crash \(uncaught\)/);
+    const dir = join(s.home, 'data', 'taria', 'conversations');
     const text = readFileSync(join(dir, readdirSync(dir).find((f) => f.endsWith('.jsonl'))!), 'utf8');
     expect(text).toContain('"type":"delta"');
     expect(readdirSync(dir).some((f) => f.endsWith('.lock'))).toBe(false);
   });
 
   it('closing the terminal mid-reply (SIGHUP) saves what streamed, releases the lock and exits', async () => {
-    s = spawnParley({ args: ['-m', 'mock/long?lines=400&tps=300'] });
+    s = spawnTaria({ args: ['-m', 'mock/long?lines=400&tps=300'] });
     await s.waitFor('Send a message');
     s.write('go\r');
     await s.waitFor('Section 2');
@@ -86,14 +86,14 @@ describe('terminal restore', () => {
     s.proc.kill('SIGHUP');
     const code = await Promise.race([s.exited, sleep(10_000).then(() => -999)]);
     expect(code).not.toBe(-999);
-    const dir = join(s.home, 'data', 'parley', 'conversations');
+    const dir = join(s.home, 'data', 'taria', 'conversations');
     const text = readFileSync(join(dir, readdirSync(dir).find((f) => f.endsWith('.jsonl'))!), 'utf8');
     expect(text).toContain('Section 1');
     expect(readdirSync(dir).some((f) => f.endsWith('.lock'))).toBe(false);
   });
 
-  it('Ctrl+C sent to the whole process group while $EDITOR runs does not kill parley', async () => {
-    s = spawnParley({ env: { EDITOR: 'kill -INT 0; sleep 0.2; true', VISUAL: '' } });
+  it('Ctrl+C sent to the whole process group while $EDITOR runs does not kill taria', async () => {
+    s = spawnTaria({ env: { EDITOR: 'kill -INT 0; sleep 0.2; true', VISUAL: '' } });
     await s.waitFor('Send a message');
     s.write('draft text');
     await s.waitFor('│ > draft text');
@@ -106,12 +106,12 @@ describe('terminal restore', () => {
 
 describe('key routing', () => {
   it('keys typed ahead across screens inside an overlay reach the next screen', async () => {
-    s = spawnParley({ cols: 100, rows: 30 });
+    s = spawnTaria({ cols: 100, rows: 30 });
     await s.waitFor('Send a message');
     // /providers → "+ Add a provider" (after the mock row) → first preset
     // (Anthropic) → replace the suggested name → skip the key prompt.
     s.write('/providers\r' + '\x1b[B' + '\r' + '\r' + '\x15mine\r' + '\r');
-    const cfg = join(s.home, 'config', 'parley', 'config.yaml');
+    const cfg = join(s.home, 'config', 'taria', 'config.yaml');
     try {
       await s.waitFor(() => /\n  mine:\n    type: anthropic/.test(readFileSync(cfg, 'utf8')), 10_000);
     } catch (e) {
@@ -121,13 +121,13 @@ describe('key routing', () => {
     // The key prompt was left empty: nothing typed into the name prompt may
     // leak into it (they used to share one component and its text).
     await s.waitFor('Added provider "mine"');
-    expect(existsSync(join(s.home, 'config', 'parley', 'credentials'))).toBe(false);
+    expect(existsSync(join(s.home, 'config', 'taria', 'credentials'))).toBe(false);
   });
 });
 
 describe('resize and reprint', () => {
   it('resizing with a picker open keeps the picker working and the transcript intact', async () => {
-    s = spawnParley({ cols: 100, rows: 30 });
+    s = spawnTaria({ cols: 100, rows: 30 });
     await s.waitFor('Send a message');
     s.write('first\r');
     await s.waitFor('You said: first');
@@ -143,7 +143,7 @@ describe('resize and reprint', () => {
   });
 
   it('resizing during compaction leaves one clean copy and finishes the compaction', async () => {
-    s = spawnParley({ cols: 90, rows: 30, config: 'default_model: mock/echo\ncompact_model: mock/echo?delay=1500\nbell: false\nproviders:\n  mock:\n    type: mock\n' });
+    s = spawnTaria({ cols: 90, rows: 30, config: 'default_model: mock/echo\ncompact_model: mock/echo?delay=1500\nbell: false\nproviders:\n  mock:\n    type: mock\n' });
     await s.waitFor('Send a message');
     s.write('one\r');
     await s.waitFor('You said: one');
@@ -157,11 +157,11 @@ describe('resize and reprint', () => {
     // (The mock's summary quotes the conversation, so count the prompt lines.)
     expect(all.filter((l) => l.startsWith('> one')).length).toBe(1);
     expect(all.filter((l) => l.startsWith('> two')).length).toBe(1);
-    expect(all.filter((l) => l.includes('Welcome to parley')).length).toBe(1);
+    expect(all.filter((l) => l.includes('Welcome to taria')).length).toBe(1);
   });
 
   it('after Ctrl+L, a resize does not bring the cleared conversation back', async () => {
-    s = spawnParley({ cols: 90, rows: 30 });
+    s = spawnTaria({ cols: 90, rows: 30 });
     await s.waitFor('Send a message');
     s.write('before clear\r');
     await s.waitFor('You said: before clear');
@@ -184,7 +184,7 @@ describe('kitty keyboard protocol layout', () => {
     // parsed frames showed no occurrence, live or replayed; the sightings
     // came from sampling the emulator before it had parsed a frame. Kept as
     // a regression check, comparing the live screen with a fresh replay.
-    s = spawnParley({ cols: 90, rows: 30, kitty: true });
+    s = spawnTaria({ cols: 90, rows: 30, kitty: true });
     await s.waitFor('shift+⏎ for newline');
     await s.waitFor(() => s!.parsed.length === s!.raw.length && s!.parsed.lastIndexOf('\x1b[?2026h') < s!.parsed.lastIndexOf('\x1b[?2026l'));
     await sleep(200);

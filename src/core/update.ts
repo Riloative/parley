@@ -1,15 +1,15 @@
 // Opt-in "a newer version exists" notice (`check_for_updates: true`). At most
-// once a day parley asks GitHub for the latest release; it never downloads or
+// once a day taria asks GitHub for the latest release; it never downloads or
 // installs anything. The request carries nothing about the user: a URL and a
-// User-Agent with parley's own version. Any failure is silent.
+// User-Agent with taria's own version. Any failure is silent.
 
 import { getFetch } from '../providers/http.js';
 import { debug } from '../debug.js';
 import { VERSION } from '../version.js';
 import { loadState, saveState } from './state.js';
 
-const LATEST_URL = 'https://api.github.com/repos/Riloative/parley/releases/latest';
-export const RELEASES_PAGE = 'https://github.com/Riloative/parley/releases';
+const LATEST_URL = 'https://api.github.com/repos/Riloative/taria/releases/latest';
+export const RELEASES_PAGE = 'https://github.com/Riloative/taria/releases';
 const DAY_MS = 24 * 60 * 60 * 1000;
 const TIMEOUT_MS = 5000;
 
@@ -41,13 +41,13 @@ export async function newerVersion(opts: UpdateOptions): Promise<string | undefi
   if (!opts.enabled) return undefined;
   const current = opts.current ?? VERSION;
   const now = opts.now ?? Date.now();
-  const url = opts.url ?? process.env.PARLEY_UPDATE_URL ?? LATEST_URL;
+  const url = opts.url ?? process.env.TARIA_UPDATE_URL ?? LATEST_URL;
   try {
     let check = loadState().updateCheck;
     if (!check || now - check.at >= DAY_MS || now < check.at) {
       const f = await getFetch();
       const res = await f(url, {
-        headers: { accept: 'application/vnd.github+json', 'user-agent': `parley/${current}` },
+        headers: { accept: 'application/vnd.github+json', 'user-agent': `taria/${current}` },
         signal: AbortSignal.timeout(TIMEOUT_MS),
       });
       let latest: string | undefined;

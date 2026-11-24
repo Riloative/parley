@@ -84,7 +84,7 @@ function useForceUpdate(): () => void {
 }
 
 export function App(props: AppProps): React.ReactElement {
-  if (process.env.PARLEY_DEBUG_CRASH === 'render') throw new Error('debug crash (render) key=sk-ant-api03-DEBUGCRASHSECRETVALUE0123456789');
+  if (process.env.TARIA_DEBUG_CRASH === 'render') throw new Error('debug crash (render) key=sk-ant-api03-DEBUGCRASHSECRETVALUE0123456789');
   const { session, transcript, terminal, history, store } = props;
   const app = useApp();
   const force = useForceUpdate();
@@ -135,7 +135,7 @@ export function App(props: AppProps): React.ReactElement {
 
   // ------------------------------------------------------------------ draft
   // The unsent text is saved (debounced) under the conversation it belongs
-  // to and put back when parley next opens that conversation.
+  // to and put back when taria next opens that conversation.
   const draftKey = session.file?.id ?? 'new';
   const lastDraftKey = useRef<string | null>(null);
   useEffect(() => {
@@ -250,7 +250,7 @@ export function App(props: AppProps): React.ReactElement {
       if (e.type === 'busy') setBusyLabel(e.busy ? e.label : undefined);
       if (e.type === 'title' && configRef.current.terminalTitle) terminal.setTitle(e.title);
       if (e.type === 'reset') {
-        if (!session.conv.title) terminal.setTitle('parley');
+        if (!session.conv.title) terminal.setTitle('taria');
         else if (configRef.current.terminalTitle) terminal.setTitle(session.conv.title);
       }
       if (e.type === 'model') rememberModel(e.model);
@@ -262,7 +262,7 @@ export function App(props: AppProps): React.ReactElement {
         // about the window you are looking at is noise.
         const protocol = notifier(cfg);
         if (protocol && long && terminal.focused === false) {
-          terminal.notify(protocol, 'parley', e.outcome === 'error' ? 'The reply stopped with an error' : `Reply ready${session.conv.title ? `: ${session.conv.title}` : ''}`);
+          terminal.notify(protocol, 'taria', e.outcome === 'error' ? 'The reply stopped with an error' : `Reply ready${session.conv.title ? `: ${session.conv.title}` : ''}`);
         }
       }
       force();
@@ -286,7 +286,7 @@ export function App(props: AppProps): React.ReactElement {
       // changed the palette. If the welcome box is still the only thing
       // printed, directly above the input box, draw it again where it is:
       // cursor up, erase down, print. Nothing is scrolled or cleared, so the
-      // shell history above parley is untouched. In any other situation the
+      // shell history above taria is untouched. In any other situation the
       // box keeps its colours.
       const first = firstPrint.current;
       const items = transcript.items;
@@ -418,7 +418,7 @@ export function App(props: AppProps): React.ReactElement {
 
   const openEditor = useCallback(() => {
     const editor = process.env.VISUAL || process.env.EDITOR || 'vi';
-    const dir = mkdtempSync(join(tmpdir(), 'parley-edit-'));
+    const dir = mkdtempSync(join(tmpdir(), 'taria-edit-'));
     const file = join(dir, 'prompt.md');
     writeFileSync(file, edRef.current.text);
     terminal.suspend();
@@ -839,13 +839,13 @@ export function App(props: AppProps): React.ReactElement {
           if (r.status === 'copied') return notice(`Copied ${what} (${size}) via ${r.via}.`, 'success');
           if (r.status === 'off') return notice('Copying is turned off (clipboard: off). Change it with /config or in the config file.', 'dim');
           if (r.status === 'sent' && r.via === 'tmux') {
-            return notice(`Copied ${what} (${size}) to tmux's paste buffer, and asked tmux to pass it to the terminal's clipboard. The terminal does not confirm that; if nothing pastes outside tmux, see \`parley doctor\`.`, 'success');
+            return notice(`Copied ${what} (${size}) to tmux's paste buffer, and asked tmux to pass it to the terminal's clipboard. The terminal does not confirm that; if nothing pastes outside tmux, see \`taria doctor\`.`, 'success');
           }
           if (r.status === 'sent') {
-            return notice(`Sent ${what} (${size}) to the terminal's clipboard (OSC 52). The terminal does not confirm this; if nothing pastes, see \`parley doctor\`.`, 'success');
+            return notice(`Sent ${what} (${size}) to the terminal's clipboard (OSC 52). The terminal does not confirm this; if nothing pastes, see \`taria doctor\`.`, 'success');
           }
           notice(`Nothing was copied. Tried ${r.tried.join('; ')}.${r.hint ? ` ${r.hint}` : ''}`, 'error');
-          const file = join(tmpdir(), `parley-copy-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.${/code/.test(what) ? 'txt' : 'md'}`);
+          const file = join(tmpdir(), `taria-copy-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.${/code/.test(what) ? 'txt' : 'md'}`);
           confirm(`Write it to a file instead? (${file})`, () => {
             try {
               writeFileSync(file, text, { mode: 0o600 });

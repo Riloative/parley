@@ -3,7 +3,7 @@
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { makeHome, spawnParley, sleep, type Session } from './harness.js';
+import { makeHome, spawnTaria, sleep, type Session } from './harness.js';
 
 let s: Session | undefined;
 afterEach(async () => {
@@ -29,7 +29,7 @@ describe('links', () => {
   const OPEN = '\x1b]8;;https://example.com/guide\x1b\\';
 
   it('are clickable (OSC 8) with the URL hidden when the terminal supports it, also after a reprint', async () => {
-    s = spawnParley({ cols: 80, rows: 24, env: { FORCE_HYPERLINK: '1' } });
+    s = spawnTaria({ cols: 80, rows: 24, env: { FORCE_HYPERLINK: '1' } });
     await s.waitFor('Send a message');
     await say(md, 'You said: see the docs now');
     expect(s.raw).toContain(OPEN);
@@ -48,7 +48,7 @@ describe('links', () => {
   }, 30_000);
 
   it('fall back to "text (url)" elsewhere', async () => {
-    s = spawnParley({ cols: 80, rows: 24 });
+    s = spawnTaria({ cols: 80, rows: 24 });
     await s.waitFor('Send a message');
     await say(md, 'You said: see the docs (https://example.com/guide) now');
     expect(s.raw).not.toContain('\x1b]8;');
@@ -57,7 +57,7 @@ describe('links', () => {
 
 describe('numbered code blocks', () => {
   it('are labelled in the transcript, and /copy code N copies that one', async () => {
-    s = spawnParley({ cols: 80, rows: 30, env: { SSH_TTY: '/dev/pts/9', DISPLAY: '', WAYLAND_DISPLAY: '' } });
+    s = spawnTaria({ cols: 80, rows: 30, env: { SSH_TTY: '/dev/pts/9', DISPLAY: '', WAYLAND_DISPLAY: '' } });
     await s.waitFor('Send a message');
     s.write(paste('two blocks\n```js\nfirst()\n```\nand\n```py\nsecond()\n```'));
     await sleep(100);
@@ -84,7 +84,7 @@ describe('numbered code blocks', () => {
 
 describe('/find', () => {
   it('lists the messages containing the text and shows the chosen one again', async () => {
-    s = spawnParley({ cols: 90, rows: 30 });
+    s = spawnTaria({ cols: 90, rows: 30 });
     await s.waitFor('Send a message');
     await say('alpha one');
     await say('the needle is here');
@@ -99,7 +99,7 @@ describe('/find', () => {
     s.write('/find nothing-like-this\r');
     await s.waitFor('"nothing-like-this" does not appear in this conversation');
     // Nothing was added to the conversation itself.
-    const dir = join(s.home, 'data', 'parley', 'conversations');
+    const dir = join(s.home, 'data', 'taria', 'conversations');
     const text = readFileSync(join(dir, readdirSync(dir).find((f) => f.endsWith('.jsonl'))!), 'utf8');
     expect(text.split('\n').filter((l) => l.includes('"type":"message"')).length).toBe(6);
   }, 30_000);
@@ -107,7 +107,7 @@ describe('/find', () => {
 
 describe('branches', () => {
   it('marks a branch point after a rewind, and /branches switches back and forth', async () => {
-    s = spawnParley({ cols: 90, rows: 30 });
+    s = spawnTaria({ cols: 90, rows: 30 });
     await s.waitFor('Send a message');
     await say('first question');
     await say('second original');
@@ -141,7 +141,7 @@ describe('branches', () => {
     s.write('\x04');
     await s.exited;
     await s.close(true);
-    s = spawnParley({ cols: 90, rows: 30, home, args: ['-c'] });
+    s = spawnTaria({ cols: 90, rows: 30, home, args: ['-c'] });
     await s.waitFor('You said: second original');
     expect(all().join('\n')).not.toContain('second rewritten');
   }, 40_000);
@@ -150,10 +150,10 @@ describe('branches', () => {
 describe('very long conversations', () => {
   it('show the recent part on reprint, say how much is hidden, and /history shows everything', async () => {
     const home = makeHome();
-    const dir = join(home, 'data', 'parley', 'conversations');
+    const dir = join(home, 'data', 'taria', 'conversations');
     mkdirSync(dir, { recursive: true });
     const id = '20260101-000000-long';
-    const lines: object[] = [{ type: 'meta', v: 1, id, createdAt: 1, app: 'parley' }];
+    const lines: object[] = [{ type: 'meta', v: 1, id, createdAt: 1, app: 'taria' }];
     let parent: string | null = null;
     for (let t = 0; t < 150; t++) {
       lines.push({ type: 'message', id: `u${t}`, parentId: parent, role: 'user', content: [{ type: 'text', text: `question ${t}` }], ts: t });
@@ -162,7 +162,7 @@ describe('very long conversations', () => {
     }
     writeFileSync(join(dir, `${id}.jsonl`), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
 
-    s = spawnParley({ cols: 80, rows: 24, home, args: ['-r', id] });
+    s = spawnTaria({ cols: 80, rows: 24, home, args: ['-r', id] });
     await s.waitFor('Send a message');
     await s.waitFor('answer 149');
     const questions = () => all().flatMap((l) => (/^> question (\d+)$/.exec(l) ? [Number(/^> question (\d+)$/.exec(l)![1])] : []));
@@ -186,7 +186,7 @@ describe('very long conversations', () => {
   }, 60_000);
 
   it('/history says so when nothing is hidden', async () => {
-    s = spawnParley({});
+    s = spawnTaria({});
     await s.waitFor('Send a message');
     s.write('/history\r');
     await s.waitFor('Nothing is hidden');

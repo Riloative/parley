@@ -4,8 +4,9 @@
 
 import { execFile } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import { paths } from './paths.js';
+import { APP, OLD_APP } from '../brand.js';
 import type { ProviderConfig } from './config.js';
 
 export type KeySource = 'env' | 'keychain' | 'file' | 'none';
@@ -17,7 +18,9 @@ export interface ResolvedKey {
   detail?: string;
 }
 
-const SERVICE = 'parley';
+const SERVICE = APP;
+/** Keys stored by parley 0.2.0 and earlier: read when there is no taria entry. */
+const OLD_SERVICE = OLD_APP;
 
 export function defaultKeyEnv(p: Pick<ProviderConfig, 'type' | 'baseUrl' | 'name'>): string | undefined {
   if (p.type === 'anthropic') return 'ANTHROPIC_API_KEY';
@@ -41,7 +44,21 @@ export function isLocalUrl(url: string | undefined): boolean {
   }
 }
 
+type Runner = (cmd: string, args: string[], input?: string, timeoutMs?: number) => Promise<{ code: number; stdout: string; stderr: string }>;
+
+let runner: Runner = execRun;
+/** Tests replace the keychain commands; nothing else should. */
+export function _setKeychainRunner(r: Runner | undefined, kind?: KeychainKind): void {
+  runner = r ?? execRun;
+  keychainKind = kind === undefined ? undefined : Promise.resolve(kind);
+  cache.clear();
+}
+
 function run(cmd: string, args: string[], input?: string, timeoutMs = 4000): Promise<{ code: number; stdout: string; stderr: string }> {
+  return runner(cmd, args, input, timeoutMs);
+}
+
+function execRun(cmd: string, args: string[], input?: string, timeoutMs = 4000): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
     const child = execFile(cmd, args, { timeout: timeoutMs, encoding: 'utf8' }, (err, stdout, stderr) => {
       const code = err ? (typeof (err as NodeJS.ErrnoException & { code?: unknown }).code === 'number' ? ((err as unknown as { code: number }).code) : 1) : 0;
@@ -59,7 +76,7 @@ let keychainKind: Promise<KeychainKind> | undefined;
 
 export function detectKeychain(): Promise<KeychainKind> {
   keychainKind ??= (async () => {
-    if (process.env.PARLEY_NO_KEYCHAIN) return 'none';
+    if (process.env.TARIA_NO_KEYCHAIN) return 'none';
     if (process.platform === 'darwin') return 'macos';
     if (process.platform === 'linux') {
       // secret-tool needs a running Secret Service (GNOME Keyring/KWallet),
@@ -78,17 +95,41 @@ export function keychainLabel(kind: KeychainKind): string {
   return kind === 'macos' ? 'macOS Keychain' : kind === 'libsecret' ? 'Secret Service (libsecret)' : 'none';
 }
 
-async function keychainGet(provider: string): Promise<string | undefined> {
+async function keychainLookup(service: string, provider: string): Promise<string | undefined> {
   const kind = await detectKeychain();
   if (kind === 'macos') {
-    const r = await run('security', ['find-generic-password', '-s', SERVICE, '-a', provider, '-w']);
+    const r = await run('security', ['find-generic-password', '-s', service, '-a', provider, '-w']);
     return r.code === 0 ? r.stdout.replace(/\n$/, '') || undefined : undefined;
   }
   if (kind === 'libsecret') {
-    const r = await run('secret-tool', ['lookup', 'service', SERVICE, 'account', provider]);
+    const r = await run('secret-tool', ['lookup', 'service', service, 'account', provider]);
     return r.code === 0 ? r.stdout.replace(/\n$/, '') || undefined : undefined;
   }
   return undefined;
+}
+
+/** The key under taria's name, else under parley's. A key found only under
+ * parley's name is also stored under taria's (the old entry is left, so an
+ * old parley keeps working; `taria key status` mentions it). */
+async function keychainGet(provider: string): Promise<{ key: string; migrated: boolean } | undefined> {
+  const key = await keychainLookup(SERVICE, provider);
+  if (key) return { key, migrated: false };
+  const old = await keychainLookup(OLD_SERVICE, provider);
+  if (!old) return undefined;
+  const copied = await keychainSet(provider, old).catch(() => false);
+  return { key: old, migrated: copied };
+}
+
+export async function deleteOldKeychainEntry(provider: string): Promise<boolean> {
+  const kind = await detectKeychain();
+  if (kind === 'macos') return (await run('security', ['delete-generic-password', '-s', OLD_SERVICE, '-a', provider])).code === 0;
+  if (kind === 'libsecret') return (await run('secret-tool', ['clear', 'service', OLD_SERVICE, 'account', provider])).code === 0;
+  return false;
+}
+
+/** Is there still a key under parley's name? (For `key status` and doctor.) */
+export async function hasOldKeychainEntry(provider: string): Promise<boolean> {
+  return !!(await keychainLookup(OLD_SERVICE, provider).catch(() => undefined));
 }
 
 async function keychainSet(provider: string, key: string): Promise<boolean> {
@@ -97,11 +138,11 @@ async function keychainSet(provider: string, key: string): Promise<boolean> {
     // -U updates an existing item. The key is passed as an argument, which is
     // briefly visible to the local user's own processes; `security` offers no
     // stdin option for -w without an interactive prompt.
-    const r = await run('security', ['add-generic-password', '-U', '-s', SERVICE, '-a', provider, '-l', `parley: ${provider}`, '-w', key]);
+    const r = await run('security', ['add-generic-password', '-U', '-s', SERVICE, '-a', provider, '-l', `taria: ${provider}`, '-w', key]);
     return r.code === 0;
   }
   if (kind === 'libsecret') {
-    const r = await run('secret-tool', ['store', '--label', `parley: ${provider}`, 'service', SERVICE, 'account', provider], key);
+    const r = await run('secret-tool', ['store', '--label', `taria: ${provider}`, 'service', SERVICE, 'account', provider], key);
     return r.code === 0;
   }
   return false;
@@ -136,7 +177,7 @@ function readCredentialsFile(file = paths.credentialsFile): Record<string, strin
 function writeCredentialsFile(entries: Record<string, string>, file = paths.credentialsFile): void {
   mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
   const body =
-    '# parley credentials — API keys for machines without a keychain.\n# Format: provider-name = key. This file must stay private (mode 0600).\n' +
+    '# taria credentials — API keys for machines without a keychain.\n# Format: provider-name = key. This file must stay private (mode 0600).\n' +
     Object.entries(entries)
       .map(([k, v]) => `${k} = ${v}`)
       .join('\n') +
@@ -158,10 +199,17 @@ export async function resolveKey(p: ProviderConfig): Promise<ResolvedKey> {
   if (envVal) res = { key: envVal.trim(), source: 'env', detail: envName };
   else {
     const kc = await keychainGet(p.name).catch(() => undefined);
-    if (kc) res = { key: kc, source: 'keychain', detail: keychainLabel(await detectKeychain()) };
+    if (kc) res = { key: kc.key, source: 'keychain', detail: `${keychainLabel(await detectKeychain())}${kc.migrated ? ` (copied from the ${OLD_APP} entry)` : ''}` };
     else {
       const f = readCredentialsFile()[p.name];
       if (f) res = { key: f, source: 'file', detail: paths.credentialsFile };
+      else {
+        // parley's credentials file, when its config folder was not moved
+        // (both folders existed).
+        const oldFile = join(paths.legacyDir('config'), 'credentials');
+        const o = oldFile !== paths.credentialsFile ? readCredentialsFile(oldFile)[p.name] : undefined;
+        if (o) res = { key: o, source: 'file', detail: oldFile };
+      }
     }
   }
   if (res.key) cache.set(p.name, res);

@@ -1,6 +1,6 @@
 // 0.2 input: editing queued messages in place, undo/redo.
 import { afterEach, describe, expect, it } from 'vitest';
-import { spawnParley, sleep, type Session } from './harness.js';
+import { spawnTaria, sleep, type Session } from './harness.js';
 
 let s: Session | undefined;
 afterEach(async () => {
@@ -16,7 +16,7 @@ const queued = () => s!.screen().map((l) => l.trimEnd()).filter((l) => /^(>|✎)
 
 describe('queued messages', () => {
   it('are edited in place: order kept, input text set aside, empty removes, Ctrl+C keeps the original', async () => {
-    s = spawnParley({ cols: 80, rows: 24, args: ['-m', 'mock/long?lines=400&tps=250'] });
+    s = spawnTaria({ cols: 80, rows: 24, args: ['-m', 'mock/long?lines=400&tps=250'] });
     await s.waitFor('Send a message');
     s.write('go\r');
     await s.waitFor('Section 1');
@@ -77,7 +77,7 @@ describe('queued messages', () => {
   }, 60_000);
 
   it('are not sent while one is being edited, and go out edited afterwards', async () => {
-    s = spawnParley({ cols: 80, rows: 24, args: ['-m', 'mock/long?lines=12&tps=60'] });
+    s = spawnTaria({ cols: 80, rows: 24, args: ['-m', 'mock/long?lines=12&tps=60'] });
     await s.waitFor('Send a message');
     s.write('go\r');
     await s.waitFor('A very long answer');
@@ -97,7 +97,7 @@ describe('queued messages', () => {
 
 describe('undo and redo', () => {
   it('Ctrl+_ and Ctrl+Z undo edits in groups, Alt+Z redoes, and sending clears the history', async () => {
-    s = spawnParley({ cols: 80, rows: 24 });
+    s = spawnTaria({ cols: 80, rows: 24 });
     await s.waitFor('Send a message');
     s.write('hello world');
     await s.waitFor('│ > hello world');

@@ -40,7 +40,7 @@ function expectFits(md: string): void {
 }
 
 function customCommands(): CommandDef[] {
-  const dir = mkdtempSync(join(tmpdir(), 'parley-cmds-'));
+  const dir = mkdtempSync(join(tmpdir(), 'taria-cmds-'));
   writeFileSync(join(dir, 'pipe.md'), '---\ndescription: a | b || c, *stars*, `ticks`, [link](http://x.y), <tag> & \\ end\nargument-hint: <a|b> [--x|--y]\n---\nBody');
   writeFileSync(join(dir, 'plain.md'), 'First line | with a pipe and https://example.com/a_b_c and user@example.com\n');
   return loadCustomCommands(dir);

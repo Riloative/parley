@@ -85,7 +85,7 @@ export interface SessionOptions {
   registry: Registry;
   store: Store | null;
   model: string;
-  /** Do not write anything to disk (e.g. `parley -p` without persistence). */
+  /** Do not write anything to disk (e.g. `taria -p` without persistence). */
   ephemeral?: boolean;
 }
 

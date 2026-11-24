@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+**parley is now taria.** The command, the npm package and the release archives are called `taria`. See *Upgrading from parley* below.
+
+### Upgrading from parley
+
+- **Files move on the first start of taria:** `~/.config/parley`, `~/.local/share/parley`, `~/.local/state/parley` and `~/.cache/parley` become the `taria` folders, and the old paths become links to them, so an old parley still finds everything. taria says in one line what it moved. The move waits while a parley window has a conversation open, and a read-only folder is copied and left as it was. Conversations are never rewritten.
+- **Keys** stored by parley are read under the old keychain name and copied to a taria entry when first used; the old entry stays until `taria key remove-old <provider>`. A credentials file moves with the config folder.
+- **`PARLEY_*` environment variables** still work, as `TARIA_*`, with one notice per run on stderr.
+- **The `parley` command** still works in 0.3.x (one line on stderr, then taria with the same arguments and exit status). **It will be removed in 0.4.0**, together with the `PARLEY_*` names.
+- **npm:** run `npm uninstall -g parley` before installing taria; the old package owns the `parley` command.
+- Conversation files written by parley open unchanged (`meta.app` may be `parley` or `taria`; the schema version stays 1). `/terminal-setup` backups are now `.taria-backup`, and existing `.parley-backup` files are never overwritten.
+- 0.2.0 with `check_for_updates: true` is told about 0.3.0: GitHub redirects the old repository's API address to the renamed one.
+- `taria doctor` reports an old parley binary on `PATH` and old folders, and changes nothing.
+
 ### Fixed
 
 - **`/copy` said it copied when it had not.** On a Linux desktop without `wl-clipboard` or `xclip`, `/copy` fell back to OSC 52 and reported "Copied … via OSC 52", but VTE-based terminals (GNOME Terminal, Ptyxis, Tilix, Terminator) ignore OSC 52, so nothing reached the clipboard. parley now says *Copied* only when a tool confirmed it, *Sent … (OSC 52)* when it handed the text to the terminal, and *Nothing was copied* (with what it tried, what to install, and an offer to write the text to a file) when no method applies.

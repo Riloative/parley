@@ -4,8 +4,8 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'n
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { makeHome, spawnParley, sleep, testEnv, type Session } from './harness.js';
-import { parleyCommand } from '../build-once.js';
+import { makeHome, spawnTaria, sleep, testEnv, type Session } from './harness.js';
+import { tariaCommand } from '../build-once.js';
 
 let s: Session | undefined;
 afterEach(async () => {
@@ -47,7 +47,7 @@ const onLinux = process.platform === 'linux';
 describe.runIf(onLinux)('/copy on a Linux desktop', () => {
   it('without wl-copy or xclip, in a VTE terminal (Ptyxis, GNOME Terminal), says nothing was copied instead of claiming it was', async () => {
     const home = makeHome();
-    s = spawnParley({ cols: 100, rows: 30, home, args: ['-m', 'mock/code'], env: { ...DESKTOP, VTE_VERSION: '8002', PATH: fakeBin(home) } });
+    s = spawnTaria({ cols: 100, rows: 30, home, args: ['-m', 'mock/code'], env: { ...DESKTOP, VTE_VERSION: '8002', PATH: fakeBin(home) } });
     await s.waitFor('Send a message');
     await reply();
     s.write('/copy code\r');
@@ -70,7 +70,7 @@ describe.runIf(onLinux)('/copy on a Linux desktop', () => {
   it('uses wl-copy when it is installed, passing the text on stdin', async () => {
     const home = makeHome();
     const bin = fakeBin(home, { 'wl-copy': 0 });
-    s = spawnParley({ cols: 100, rows: 30, home, args: ['-m', 'mock/code'], env: { ...DESKTOP, VTE_VERSION: '8002', PATH: bin } });
+    s = spawnTaria({ cols: 100, rows: 30, home, args: ['-m', 'mock/code'], env: { ...DESKTOP, VTE_VERSION: '8002', PATH: bin } });
     await s.waitFor('Send a message');
     await reply();
     s.write('/copy code\r');
@@ -82,7 +82,7 @@ describe.runIf(onLinux)('/copy on a Linux desktop', () => {
   it('a native tool that fails is reported, and the next method is tried', async () => {
     const home = makeHome();
     const bin = fakeBin(home, { 'wl-copy': 1, xclip: 0 });
-    s = spawnParley({ cols: 100, rows: 30, home, args: ['-m', 'mock/code'], env: { ...DESKTOP, PATH: bin } });
+    s = spawnTaria({ cols: 100, rows: 30, home, args: ['-m', 'mock/code'], env: { ...DESKTOP, PATH: bin } });
     await s.waitFor('Send a message');
     await reply();
     s.write('/copy\r');
@@ -98,7 +98,7 @@ describe.runIf(process.platform === 'darwin')('/copy on macOS', () => {
     const bin = fakeBin(home, { pbcopy: 0 });
     writeFileSync(join(bin, 'pbpaste'), `#!/bin/sh\n/bin/cat "${bin}/pbcopy.stdin"\n`);
     chmodSync(join(bin, 'pbpaste'), 0o755);
-    s = spawnParley({ cols: 100, rows: 30, home, env: { PATH: bin } });
+    s = spawnTaria({ cols: 100, rows: 30, home, env: { PATH: bin } });
     await s.waitFor('Send a message');
     s.write('hi\r');
     await s.waitFor('You said: hi');
@@ -107,7 +107,7 @@ describe.runIf(process.platform === 'darwin')('/copy on macOS', () => {
     await s.waitFor(/Copied the last response \(12 characters\) via pbcopy\./);
     expect(readFileSync(join(bin, 'pbcopy.stdin'), 'utf8')).toBe('You said: hi');
     expect(s.raw).not.toContain('\x1b]52;');
-    const cmd = parleyCommand(['doctor', 'clipboard']);
+    const cmd = tariaCommand(['doctor', 'clipboard']);
     const r = spawnSync(cmd.command, cmd.args, { env: testEnv(home, { NO_COLOR: '1', PATH: bin }), encoding: 'utf8', timeout: 20_000 });
     expect(r.stdout).toMatch(/Test copy\s+copied with pbcopy and read back/);
   }, 30_000);
@@ -117,7 +117,7 @@ describe('/copy elsewhere', () => {
   it.runIf(onLinux)('WSL: uses clip.exe, with the text as UTF-16 so non-ASCII survives', async () => {
     const home = makeHome();
     const bin = fakeBin(home, { 'clip.exe': 0 });
-    s = spawnParley({ cols: 100, rows: 30, home, env: { WSL_DISTRO_NAME: 'Ubuntu', DISPLAY: '', WAYLAND_DISPLAY: '', PATH: bin } });
+    s = spawnTaria({ cols: 100, rows: 30, home, env: { WSL_DISTRO_NAME: 'Ubuntu', DISPLAY: '', WAYLAND_DISPLAY: '', PATH: bin } });
     await s.waitFor('Send a message');
     s.write('héllo ✓\r');
     await s.waitFor('You said: héllo ✓');
@@ -131,7 +131,7 @@ describe('/copy elsewhere', () => {
 
   it('SSH: sends OSC 52 (exact bytes) and says the terminal does not confirm it', async () => {
     const home = makeHome();
-    s = spawnParley({ cols: 100, rows: 30, home, env: { SSH_TTY: '/dev/pts/9', DISPLAY: '', WAYLAND_DISPLAY: '', PATH: fakeBin(home) } });
+    s = spawnTaria({ cols: 100, rows: 30, home, env: { SSH_TTY: '/dev/pts/9', DISPLAY: '', WAYLAND_DISPLAY: '', PATH: fakeBin(home) } });
     await s.waitFor('Send a message');
     s.write('hi\r');
     await s.waitFor('You said: hi');
@@ -146,7 +146,7 @@ describe('/copy elsewhere', () => {
   it('inside tmux: hands the text to tmux (load-buffer -w), and falls back to a passthrough-wrapped OSC 52', async () => {
     const home = makeHome();
     const bin = fakeBin(home, { tmux: 0 });
-    s = spawnParley({ cols: 100, rows: 30, home, env: { TMUX: '/tmp/tmux-1/default,1,0', DISPLAY: '', WAYLAND_DISPLAY: '', PATH: bin } });
+    s = spawnTaria({ cols: 100, rows: 30, home, env: { TMUX: '/tmp/tmux-1/default,1,0', DISPLAY: '', WAYLAND_DISPLAY: '', PATH: bin } });
     await s.waitFor('Send a message');
     s.write('hi\r');
     await s.waitFor('You said: hi');
@@ -160,7 +160,7 @@ describe('/copy elsewhere', () => {
 
     const home2 = makeHome();
     const bin2 = fakeBin(home2, { tmux: 1 });
-    s = spawnParley({ cols: 100, rows: 30, home: home2, env: { TMUX: '/tmp/tmux-1/default,1,0', DISPLAY: '', WAYLAND_DISPLAY: '', PATH: bin2 } });
+    s = spawnTaria({ cols: 100, rows: 30, home: home2, env: { TMUX: '/tmp/tmux-1/default,1,0', DISPLAY: '', WAYLAND_DISPLAY: '', PATH: bin2 } });
     await s.waitFor('Send a message');
     s.write('hi\r');
     await s.waitFor('You said: hi');
@@ -174,7 +174,7 @@ describe('/copy elsewhere', () => {
   it('a custom clipboard_command gets the text on stdin; clipboard: off disables /copy', async () => {
     const home = makeHome(`default_model: mock/echo\ntheme: dark\nbell: false\nclipboard_command: mycopy --primary\nproviders:\n  mock:\n    type: mock\n`);
     const bin = fakeBin(home, { mycopy: 0 });
-    s = spawnParley({ cols: 100, rows: 30, home, env: { DISPLAY: '', WAYLAND_DISPLAY: '', PATH: bin } });
+    s = spawnTaria({ cols: 100, rows: 30, home, env: { DISPLAY: '', WAYLAND_DISPLAY: '', PATH: bin } });
     await s.waitFor('Send a message');
     s.write('hi\r');
     await s.waitFor('You said: hi');
@@ -185,7 +185,7 @@ describe('/copy elsewhere', () => {
     expect(readFileSync(join(bin, 'mycopy.stdin'), 'utf8')).toBe('You said: hi');
     await s.close();
 
-    s = spawnParley({ cols: 100, rows: 30, config: `default_model: mock/echo\ntheme: dark\nbell: false\nclipboard: off\nproviders:\n  mock:\n    type: mock\n`, env: { SSH_TTY: '/dev/pts/9' } });
+    s = spawnTaria({ cols: 100, rows: 30, config: `default_model: mock/echo\ntheme: dark\nbell: false\nclipboard: off\nproviders:\n  mock:\n    type: mock\n`, env: { SSH_TTY: '/dev/pts/9' } });
     await s.waitFor('Send a message');
     s.write('hi\r');
     await s.waitFor('You said: hi');
@@ -197,7 +197,7 @@ describe('/copy elsewhere', () => {
 
   it('text too large for OSC 52 is not sent; a file is offered instead', async () => {
     const home = makeHome();
-    s = spawnParley({ cols: 100, rows: 30, home, args: ['-m', 'mock/long?lines=4000&tps=0'], env: { SSH_TTY: '/dev/pts/9', DISPLAY: '', WAYLAND_DISPLAY: '', PATH: fakeBin(home) } });
+    s = spawnTaria({ cols: 100, rows: 30, home, args: ['-m', 'mock/long?lines=4000&tps=0'], env: { SSH_TTY: '/dev/pts/9', DISPLAY: '', WAYLAND_DISPLAY: '', PATH: fakeBin(home) } });
     await s.waitFor('Send a message');
     s.write('go\r');
     await s.waitFor('The end.', 20_000);
@@ -211,9 +211,9 @@ describe('/copy elsewhere', () => {
   }, 40_000);
 });
 
-describe('parley doctor clipboard', () => {
+describe('taria doctor clipboard', () => {
   const doctor = (home: string, env: Record<string, string>) => {
-    const cmd = parleyCommand(['doctor', 'clipboard']);
+    const cmd = tariaCommand(['doctor', 'clipboard']);
     return spawnSync(cmd.command, cmd.args, { env: testEnv(home, { NO_COLOR: '1', ...env }), encoding: 'utf8', timeout: 20_000 });
   };
 
@@ -225,7 +225,7 @@ describe('parley doctor clipboard', () => {
     const r = doctor(home, { ...DESKTOP, PATH: bin });
     expect(r.stdout).toMatch(/\/copy uses|Method\s+wl-copy \(Wayland session\)/);
     expect(r.stdout).toMatch(/Test copy\s+copied with wl-copy and read back/);
-    expect(readFileSync(join(bin, 'wl-copy.stdin'), 'utf8')).toMatch(/^parley clipboard test \d\d:\d\d:\d\d$/);
+    expect(readFileSync(join(bin, 'wl-copy.stdin'), 'utf8')).toMatch(/^taria clipboard test \d\d:\d\d:\d\d$/);
     expect(r.status).toBe(0);
   });
 
@@ -241,7 +241,7 @@ describe('parley doctor clipboard', () => {
   it('for OSC 52, says it cannot be confirmed and what to paste to check', () => {
     const home = makeHome();
     const r = doctor(home, { SSH_TTY: '/dev/pts/9', DISPLAY: '', WAYLAND_DISPLAY: '', PATH: fakeBin(home) });
-    expect(r.stdout).toMatch(/sent "parley clipboard test [\d:]+" via OSC 52; the terminal does not confirm it/);
+    expect(r.stdout).toMatch(/sent "taria clipboard test [\d:]+" via OSC 52; the terminal does not confirm it/);
     expect(r.stdout).toMatch(/Paste now/);
     expect(r.stdout).toMatch(/\x1b\]52;c;[A-Za-z0-9+/=]+\x07/);
   });

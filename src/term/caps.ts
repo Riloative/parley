@@ -90,7 +90,7 @@ export function notificationSequence(protocol: NotifyProtocol, title: string, bo
   const b = clean(body);
   if (protocol === 'osc777') return `\x1b]777;notify;${t.replace(/;/g, ',')};${b.replace(/;/g, ',')}\x07`;
   // kitty: title and body are two chunks of one notification (same id).
-  if (protocol === 'osc99') return `\x1b]99;i=parley:d=0:p=title;${t}\x1b\\\x1b]99;i=parley:d=1:p=body;${b}\x1b\\`;
+  if (protocol === 'osc99') return `\x1b]99;i=taria:d=0:p=title;${t}\x1b\\\x1b]99;i=taria:d=1:p=body;${b}\x1b\\`;
   // OSC 9: a leading "<digits>;" would be read as a ConEmu/Windows Terminal
   // subcommand (9;4 is the progress bar), so the text never starts with one.
   return `\x1b]9;${`${t}: ${b}`.replace(/^(\d+);/, '$1,')}\x07`;

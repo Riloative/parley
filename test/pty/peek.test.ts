@@ -3,7 +3,7 @@
 // @sleep:<ms>, @key:<name> (enter, esc, up, down, ctrl-c, tab, shift-tab, ctrl-o),
 // @resize:<cols>x<rows>, @screen (print the screen), @all (print scrollback).
 import { it } from 'vitest';
-import { spawnParley, sleep } from './harness.js';
+import { spawnTaria, sleep } from './harness.js';
 
 const KEYS: Record<string, string> = {
   enter: '\r', esc: '\x1b', up: '\x1b[A', down: '\x1b[B', left: '\x1b[D', right: '\x1b[C', tab: '\t', 'shift-tab': '\x1b[Z',
@@ -12,9 +12,9 @@ const KEYS: Record<string, string> = {
 
 it.runIf(!!process.env.PEEK)('peek', async () => {
   const [c, r] = (process.env.PEEK_SIZE ?? '80x24').split('x').map(Number);
-  const s = spawnParley({ cols: c, rows: r, args: (process.env.PEEK_ARGS ?? '').split(' ').filter(Boolean), config: process.env.PEEK_CONFIG?.replace(/\\n/g, '\n') });
+  const s = spawnTaria({ cols: c, rows: r, args: (process.env.PEEK_ARGS ?? '').split(' ').filter(Boolean), config: process.env.PEEK_CONFIG?.replace(/\\n/g, '\n') });
   try {
-    await s.waitFor('Welcome to parley');
+    await s.waitFor('Welcome to taria');
     await sleep(300);
     for (const step of process.env.PEEK!.split('|')) {
       if (step.startsWith('@wait:')) await s.waitFor(step.slice(6), 20000);

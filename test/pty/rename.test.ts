@@ -1,0 +1,139 @@
+// The rename, end to end: a home directory as parley 0.2.0 left it, opened by
+// taria; the parley command; old variable names; doctor changing nothing.
+import { spawnSync } from 'node:child_process';
+import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { afterEach, describe, expect, it } from 'vitest';
+import { spawnTaria, testEnv, type Session } from './harness.js';
+import { tariaCommand } from '../build-once.js';
+
+let s: Session | undefined;
+afterEach(async () => {
+  await s?.close();
+  s = undefined;
+});
+
+const CONV = '20260102-030405-beef';
+
+/** A home directory with what parley 0.2.0 writes, and nothing of taria's. */
+function parleyHome(): string {
+  const home = mkdtempSync(join(tmpdir(), 'taria-rename-'));
+  mkdirSync(join(home, 'config', 'parley', 'commands'), { recursive: true });
+  writeFileSync(join(home, 'config', 'parley', 'config.yaml'), 'default_model: mock/echo\ntheme: dark\nbell: false\nproviders:\n  mock:\n    type: mock\n');
+  writeFileSync(join(home, 'config', 'parley', 'commands', 'shout.md'), '---\ndescription: Shout it\n---\nSHOUT $ARGUMENTS\n');
+  mkdirSync(join(home, 'data', 'parley', 'conversations'), { recursive: true });
+  const lines = [
+    { type: 'meta', v: 1, id: CONV, createdAt: 1_700_000_000_000, app: 'parley' },
+    { type: 'message', id: 'u1', parentId: null, role: 'user', content: [{ type: 'text', text: 'written by parley' }], ts: 1_700_000_000_000 },
+    { type: 'message', id: 'a1', parentId: 'u1', role: 'assistant', content: [{ type: 'text', text: 'You said: written by parley' }], ts: 1_700_000_000_001, model: 'mock/echo' },
+    { type: 'title', title: 'Old chat' },
+  ];
+  writeFileSync(join(home, 'data', 'parley', 'conversations', `${CONV}.jsonl`), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+  writeFileSync(join(home, 'data', 'parley', 'history.jsonl'), JSON.stringify({ text: 'written by parley', ts: 1 }) + '\n');
+  return home;
+}
+
+function run(home: string, args: string[], env: Record<string, string> = {}, input = '') {
+  const cmd = tariaCommand(args);
+  return spawnSync(cmd.command, cmd.args, { env: testEnv(home, env), input, encoding: 'utf8', timeout: 30_000 });
+}
+
+const flat = () => s!.all().map((l) => l.trim()).join(' ').replace(/\s+/g, ' ');
+
+describe('opening a parley install with taria', () => {
+  it('moves the files, says so once in the welcome box, and the old conversation, history and commands are there', async () => {
+    const home = parleyHome();
+    s = spawnTaria({ cols: 110, rows: 32, home, args: ['-c'] });
+    await s.waitFor('Send a message');
+    await s.waitStable({ lastLine: '% context' });
+    expect(flat()).toMatch(/parley is now taria: moved your files \(~\/config\/parley → ~\/config\/taria, ~\/data\/parley → ~\/data\/taria\)/);
+    expect(flat()).toContain('You said: written by parley');
+    expect(lstatSync(join(home, 'data', 'parley')).isSymbolicLink()).toBe(true);
+    expect(readFileSync(join(home, 'data', 'taria', 'conversations', `${CONV}.jsonl`), 'utf8')).toContain('"app":"parley"');
+    // Custom commands came along.
+    s.write('/sho');
+    await s.waitFor('Shout it');
+    s.write('\x15');
+    // Input history came along: ↑ on an empty input.
+    s.write('\x1b[A');
+    await s.waitFor('│ > written by parley');
+    s.write('\x15\x04');
+    await s.exited;
+    await s.close(true);
+
+    // The next start says nothing about it.
+    s = spawnTaria({ cols: 110, rows: 32, home });
+    await s.waitFor('Send a message');
+    await s.waitStable({ lastLine: '% context' });
+    expect(flat()).not.toContain('parley is now taria');
+  }, 40_000);
+
+  it('-p: the answer alone on stdout; the move and old variable names reported once on stderr', () => {
+    const home = parleyHome();
+    const r = run(home, ['-p', '-c', 'again'], { PARLEY_NO_KEYCHAIN: '1', PARLEY_UPDATE_URL: 'http://127.0.0.1:9/x' });
+    expect(r.status).toBe(0);
+    expect(r.stdout).toBe('You said: again\n');
+    expect(r.stderr).toMatch(/^taria: Renamed environment variables: PARLEY_NO_KEYCHAIN → TARIA_NO_KEYCHAIN, PARLEY_UPDATE_URL → TARIA_UPDATE_URL\./m);
+    expect(r.stderr.match(/Renamed environment variable/g)).toHaveLength(1);
+    expect(r.stderr).toMatch(/^taria: parley is now taria: moved your files/m);
+    // The reply was added to the parley conversation, now in taria's folder.
+    expect(readFileSync(join(home, 'data', 'taria', 'conversations', `${CONV}.jsonl`), 'utf8')).toContain('You said: again');
+  });
+
+  it('waits while a parley still has a conversation open, and uses the old folder meanwhile', () => {
+    const home = parleyHome();
+    // A lock held by a live process (this test runner).
+    writeFileSync(join(home, 'data', 'parley', 'conversations', `${CONV}.jsonl.lock`), JSON.stringify({ pid: process.pid, host: 'here', at: Date.now() }));
+    const r = run(home, ['-p', 'hello']);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toBe('You said: hello\n');
+    expect(r.stderr).toMatch(/Your parley data files stay in ~\/data\/parley for now: parley \(pid \d+\) has a conversation open/);
+    expect(lstatSync(join(home, 'data', 'parley')).isSymbolicLink()).toBe(false);
+    expect(existsSync(join(home, 'data', 'taria'))).toBe(false);
+    // The new conversation went to the old folder, with everything else.
+    expect(readdirSync(join(home, 'data', 'parley', 'conversations')).filter((f) => f.endsWith('.jsonl'))).toHaveLength(2);
+    // The config, which no lock protects, did move.
+    expect(lstatSync(join(home, 'config', 'parley')).isSymbolicLink()).toBe(true);
+  });
+
+  it('doctor reports the old folders and changes nothing', () => {
+    const home = parleyHome();
+    const r = run(home, ['doctor'], { NO_COLOR: '1' });
+    expect(r.stdout).toMatch(/Old config folder\s+.*config\/parley: moves to .*config\/taria the next time taria starts \(doctor changes nothing\)/);
+    expect(r.stdout).toMatch(/Old data folder/);
+    expect(lstatSync(join(home, 'data', 'parley')).isDirectory()).toBe(true);
+    expect(existsSync(join(home, 'data', 'taria'))).toBe(false);
+    expect(existsSync(join(home, 'config', 'taria'))).toBe(false);
+  });
+});
+
+describe('the parley command', () => {
+  /** A directory holding `parley` as the release ships it, next to `taria`. */
+  function aliasDir(): string {
+    const dir = mkdtempSync(join(tmpdir(), 'taria-alias-'));
+    const bin = process.env.TARIA_BIN ?? process.env.PARLEY_BIN;
+    if (bin) {
+      symlinkSync(bin, join(dir, 'taria'));
+      copyFileSync(new URL('../../scripts/parley-alias.sh', import.meta.url), join(dir, 'parley'));
+      chmodSync(join(dir, 'parley'), 0o755);
+    } else {
+      const js = new URL('../../bin/parley.js', import.meta.url).pathname;
+      writeFileSync(join(dir, 'parley'), `#!/bin/sh\nexec '${process.execPath}' '${js}' "$@"\n`);
+      chmodSync(join(dir, 'parley'), 0o755);
+    }
+    return join(dir, 'parley');
+  }
+
+  it('runs taria with the same arguments and exit status, after one line on stderr', () => {
+    const parley = aliasDir();
+    const home = parleyHome();
+    const ok = spawnSync(parley, ['-p', '-m', 'mock/echo', 'two words'], { env: testEnv(home), encoding: 'utf8', timeout: 30_000 });
+    expect(ok.status).toBe(0);
+    expect(ok.stdout).toBe('You said: two words\n');
+    expect(ok.stderr.split('\n')[0]).toBe('parley is now taria: run taria instead (the parley command goes away in 0.4.0).');
+    const bad = spawnSync(parley, ['--no-such-option'], { env: testEnv(home), encoding: 'utf8', timeout: 30_000 });
+    expect(bad.status).toBe(2);
+    expect(bad.stderr).toMatch(/Unknown option --no-such-option/);
+  });
+});

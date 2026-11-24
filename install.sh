@@ -1,47 +1,48 @@
 #!/bin/sh
-# Install the standalone parley binary.
+# Install the standalone taria binary.
 #
-#   curl -fsSL https://raw.githubusercontent.com/Riloative/parley/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/Riloative/taria/main/install.sh | sh
 #
 # Environment:
-#   PARLEY_VERSION      release tag to install, e.g. v0.2.0 (default: latest)
-#   PARLEY_INSTALL_DIR  where to put the binary (default: ~/.local/bin)
-#   PARLEY_RELEASES_URL base URL of the releases (default: GitHub); used for
+#   TARIA_VERSION      release tag to install, e.g. v0.2.0 (default: latest)
+#   TARIA_INSTALL_DIR  where to put the binary (default: ~/.local/bin)
+#   TARIA_RELEASES_URL base URL of the releases (default: GitHub); used for
 #                       mirrors and tests
 #
 # The whole script is a function that is only called on the last line, so a
 # download cut short never runs half a script. It never uses sudo.
 
-parley_install() {
+taria_install() {
   set -eu
 
-  repo_releases="${PARLEY_RELEASES_URL:-https://github.com/Riloative/parley/releases}"
-  install_dir="${PARLEY_INSTALL_DIR:-$HOME/.local/bin}"
-  version="${PARLEY_VERSION:-latest}"
+  # PARLEY_* are the names from before the rename; they still work.
+  repo_releases="${TARIA_RELEASES_URL:-${PARLEY_RELEASES_URL:-https://github.com/Riloative/taria/releases}}"
+  install_dir="${TARIA_INSTALL_DIR:-${PARLEY_INSTALL_DIR:-$HOME/.local/bin}}"
+  version="${TARIA_VERSION:-${PARLEY_VERSION:-latest}}"
 
   say() { printf '%s\n' "$*"; }
   die() {
-    printf 'parley install: %s\n' "$*" >&2
+    printf 'taria install: %s\n' "$*" >&2
     exit 1
   }
 
-  os="${PARLEY_OS:-$(uname -s)}"
-  arch="${PARLEY_ARCH:-$(uname -m)}"
+  os="${TARIA_OS:-${PARLEY_OS:-$(uname -s)}}"
+  arch="${TARIA_ARCH:-${PARLEY_ARCH:-$(uname -m)}}"
   case "$os" in
     Linux | linux) os=linux ;;
     Darwin | darwin) os=darwin ;;
-    *) die "unsupported operating system: $os (parley binaries exist for macOS and Linux)" ;;
+    *) die "unsupported operating system: $os (taria binaries exist for macOS and Linux)" ;;
   esac
   case "$arch" in
     x86_64 | amd64 | x64) arch=x64 ;;
     arm64 | aarch64) arch=arm64 ;;
-    *) die "unsupported architecture: $arch (parley binaries exist for x64 and arm64)" ;;
+    *) die "unsupported architecture: $arch (taria binaries exist for x64 and arm64)" ;;
   esac
   # An x64 shell under Rosetta on Apple Silicon still wants the arm64 build.
-  if [ "$os" = darwin ] && [ "$arch" = x64 ] && [ -z "${PARLEY_ARCH:-}" ]; then
+  if [ "$os" = darwin ] && [ "$arch" = x64 ] && [ -z "${TARIA_ARCH:-}${PARLEY_ARCH:-}" ]; then
     if [ "$(sysctl -n sysctl.proc_translated 2>/dev/null || echo 0)" = 1 ]; then arch=arm64; fi
   fi
-  asset="parley-$os-$arch.tar.gz"
+  asset="taria-$os-$arch.tar.gz"
 
   if command -v curl >/dev/null 2>&1; then
     fetch() { curl -fsSL --retry 3 -o "$2" "$1"; }
@@ -66,7 +67,7 @@ parley_install() {
     base="$repo_releases/download/$version"
   fi
 
-  tmp="$(mktemp -d 2>/dev/null || mktemp -d -t parley)"
+  tmp="$(mktemp -d 2>/dev/null || mktemp -d -t taria)"
   trap 'rm -rf "$tmp"' EXIT INT TERM
 
   say "Downloading $asset ($version)…"
@@ -78,25 +79,36 @@ parley_install() {
   actual="$(sha256 "$tmp/$asset")"
   [ "$expected" = "$actual" ] || die "checksum mismatch for $asset (expected $expected, got $actual); not installing"
 
-  tar -xzf "$tmp/$asset" -C "$tmp" parley || die "could not unpack $asset"
-  [ -f "$tmp/parley" ] || die "$asset does not contain a parley binary"
-  chmod 755 "$tmp/parley"
+  tar -xzf "$tmp/$asset" -C "$tmp" taria || die "could not unpack $asset"
+  [ -f "$tmp/taria" ] || die "$asset does not contain a taria binary"
+  chmod 755 "$tmp/taria"
 
   mkdir -p "$install_dir" || die "cannot create $install_dir"
   # Copy next to the destination first, then rename: the replacement is
-  # atomic, so a running parley or an interrupted install never sees a
+  # atomic, so a running taria or an interrupted install never sees a
   # half-written file.
-  staged="$install_dir/.parley.tmp.$$"
-  cp "$tmp/parley" "$staged" || die "cannot write to $install_dir"
-  mv -f "$staged" "$install_dir/parley" || {
+  staged="$install_dir/.taria.tmp.$$"
+  cp "$tmp/taria" "$staged" || die "cannot write to $install_dir"
+  mv -f "$staged" "$install_dir/taria" || {
     rm -f "$staged"
     die "cannot install into $install_dir"
   }
 
-  if installed="$("$install_dir/parley" --version 2>"$tmp/err")"; then
-    say "Installed $install_dir/parley — $installed"
+  # The `parley` alias (0.3.x only): replaces an old parley binary, so that
+  # command keeps working and runs taria.
+  if tar -xzf "$tmp/$asset" -C "$tmp" parley 2>/dev/null && [ -f "$tmp/parley" ]; then
+    alias_staged="$install_dir/.parley.tmp.$$"
+    if cp "$tmp/parley" "$alias_staged" && chmod 755 "$alias_staged" && mv -f "$alias_staged" "$install_dir/parley"; then
+      say "Installed $install_dir/parley as an alias for taria (until taria 0.4.0)."
+    else
+      rm -f "$alias_staged"
+    fi
+  fi
+
+  if installed="$("$install_dir/taria" --version 2>"$tmp/err")"; then
+    say "Installed $install_dir/taria — $installed"
   else
-    say "Installed $install_dir/parley, but it does not start on this system:"
+    say "Installed $install_dir/taria, but it does not start on this system:"
     sed 's/^/  /' "$tmp/err"
     if grep -q libatomic "$tmp/err"; then
       say "It needs the libatomic library: sudo apt install libatomic1 (Debian/Ubuntu) or sudo dnf install libatomic (Fedora/RHEL)."
@@ -106,7 +118,7 @@ parley_install() {
     exit 1
   fi
   if [ "$os" = darwin ]; then
-    say "(Downloaded with curl, so macOS does not quarantine it. If Gatekeeper ever blocks it: xattr -d com.apple.quarantine \"$install_dir/parley\")"
+    say "(Downloaded with curl, so macOS does not quarantine it. If Gatekeeper ever blocks it: xattr -d com.apple.quarantine \"$install_dir/taria\")"
   fi
   case ":$PATH:" in
     *":$install_dir:"*) ;;
@@ -118,4 +130,4 @@ parley_install() {
   esac
 }
 
-parley_install "$@"
+taria_install "$@"

@@ -1,9 +1,9 @@
 // Time to first frame, measured two ways over N runs in a pseudo-terminal:
-//   trace — the program's own PARLEY_STARTUP_TRACE (ms since process start)
+//   trace — the program's own TARIA_STARTUP_TRACE (ms since process start)
 //   wall  — from spawn until the prompt is visible in the output
 //
-// Usage: node scripts/bench-startup.mjs [--runs 20] [--bin path/to/parley]...
-// Without --bin it measures the Node build (node bin/parley.js). A --bin that
+// Usage: node scripts/bench-startup.mjs [--runs 20] [--bin path/to/taria]...
+// Without --bin it measures the Node build (node bin/taria.js). A --bin that
 // ends in .js is run with this Node. Repeat --bin to compare builds: their
 // runs alternate, so a busy machine slows them all alike.
 // Requires the dev dependencies (node-pty).
@@ -20,24 +20,24 @@ const arg = (name, def) => {
 const runs = Number(arg('runs', 20));
 const root = new URL('..', import.meta.url).pathname;
 const bins = process.argv.flatMap((a, i) => (a === '--bin' ? [resolve(process.argv[i + 1])] : []));
-const targets = (bins.length ? bins : [join(root, 'bin', 'parley.js')]).map((b) =>
+const targets = (bins.length ? bins : [join(root, 'bin', 'taria.js')]).map((b) =>
   b.endsWith('.js')
     ? { label: `node build ${b} (${process.version})`, command: process.execPath, args: [b] }
     : { label: `binary ${b}`, command: b, args: [] },
 );
 
-const home = mkdtempSync(join(tmpdir(), 'parley-bench-'));
-mkdirSync(join(home, 'config', 'parley'), { recursive: true });
-writeFileSync(join(home, 'config', 'parley', 'config.yaml'), 'default_model: mock/echo\nbell: false\nproviders:\n  mock:\n    type: mock\n');
+const home = mkdtempSync(join(tmpdir(), 'taria-bench-'));
+mkdirSync(join(home, 'config', 'taria'), { recursive: true });
+writeFileSync(join(home, 'config', 'taria', 'config.yaml'), 'default_model: mock/echo\nbell: false\nproviders:\n  mock:\n    type: mock\n');
 
-const env = { ...process.env, HOME: home, XDG_CONFIG_HOME: join(home, 'config'), XDG_DATA_HOME: join(home, 'data'), XDG_STATE_HOME: join(home, 'state'), TERM: 'xterm-256color', COLORTERM: 'truecolor', PARLEY_NO_KEYCHAIN: '1' };
+const env = { ...process.env, HOME: home, XDG_CONFIG_HOME: join(home, 'config'), XDG_DATA_HOME: join(home, 'data'), XDG_STATE_HOME: join(home, 'state'), TERM: 'xterm-256color', COLORTERM: 'truecolor', TARIA_NO_KEYCHAIN: '1' };
 for (const k of ['CI', 'GITHUB_ACTIONS']) delete env[k];
 
 function once(target, i, k = 0) {
   return new Promise((resolve, reject) => {
     const trace = join(home, `trace-${k}-${i}`);
     const started = performance.now();
-    const p = pty.spawn(target.command, target.args, { name: 'xterm-256color', cols: 100, rows: 30, cwd: home, env: { ...env, PARLEY_STARTUP_TRACE: trace } });
+    const p = pty.spawn(target.command, target.args, { name: 'xterm-256color', cols: 100, rows: 30, cwd: home, env: { ...env, TARIA_STARTUP_TRACE: trace } });
     let out = '';
     let wall;
     const timer = setTimeout(() => reject(new Error('timed out waiting for the prompt')), 15_000);

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { spawnParley, sleep, type Session } from './harness.js';
+import { spawnTaria, sleep, type Session } from './harness.js';
 
 let s: Session | undefined;
 afterEach(async () => {
@@ -9,8 +9,8 @@ afterEach(async () => {
 
 describe('interactive smoke', () => {
   it('shows the welcome box and echoes a message', async () => {
-    s = spawnParley({ cols: 80, rows: 24 });
-    await s.waitFor('Welcome to parley');
+    s = spawnTaria({ cols: 80, rows: 24 });
+    await s.waitFor('Welcome to taria');
     await s.waitFor('Send a message');
     s.write('hello there\r');
     await s.waitFor('You said: hello there');

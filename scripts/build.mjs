@@ -1,6 +1,6 @@
 // Bundles src/ into dist/ with esbuild. dist/ is committed so that
 // `npm install -g .` works from a fresh clone without a build step (npm packs
-// a folder before installing any dependencies). Everything parley needs at
+// a folder before installing any dependencies). Everything taria needs at
 // runtime is bundled, so the installed package has no dependencies. The entry (cli.js) stays tiny so that
 // --help/--version and cold start stay fast; the interface, providers and the
 // syntax highlighter are split into chunks that are loaded on demand.
@@ -19,20 +19,20 @@ await build({
   format: 'esm',
   platform: 'node',
   target: 'node22',
-  sourcemap: process.env.PARLEY_SOURCEMAP ? 'linked' : false,
+  sourcemap: process.env.TARIA_SOURCEMAP ? 'linked' : false,
   minify: true,
   keepNames: false,
   legalComments: 'none',
   jsx: 'automatic',
   define: {
     'process.env.NODE_ENV': '"production"',
-    __PARLEY_VERSION__: JSON.stringify(pkg.version),
-    __PARLEY_BUILD__: '"node"',
+    __TARIA_VERSION__: JSON.stringify(pkg.version),
+    __TARIA_BUILD__: '"node"',
   },
   // react-devtools-core is an optional Ink peer used only for debugging.
   external: ['react-devtools-core'],
   banner: {
-    js: "import { createRequire as __parleyCreateRequire } from 'node:module'; const require = __parleyCreateRequire(import.meta.url);",
+    js: "import { createRequire as __tariaCreateRequire } from 'node:module'; const require = __tariaCreateRequire(import.meta.url);",
   },
   logLevel: 'warning',
   plugins: sharedPlugins,

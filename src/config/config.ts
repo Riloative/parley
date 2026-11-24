@@ -180,7 +180,7 @@ class Validator {
     for (const k of Object.keys(value)) {
       if (allowed.includes(k)) continue;
       if (SECRET_KEYS.test(k)) {
-        this.err(this.keyNode([...path, k]), `${where}: "${k}" looks like a secret. Keys never go in the config file — set an environment variable, or run "parley key set <provider>" to store it in the keychain.`);
+        this.err(this.keyNode([...path, k]), `${where}: "${k}" looks like a secret. Keys never go in the config file — set an environment variable, or run "taria key set <provider>" to store it in the keychain.`);
       } else {
         this.err(this.keyNode([...path, k]), `${where}: unknown setting "${k}".${suggest(k, allowed)}`);
       }

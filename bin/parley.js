@@ -1,10 +1,5 @@
 #!/usr/bin/env node
-// Cache compiled bytecode between runs (Node 22.1+); this roughly halves the
-// time spent compiling the bundled interface on every start.
-import module from 'node:module';
-try {
-  module.enableCompileCache?.();
-} catch {
-  /* optional */
-}
-await import('../dist/cli.js');
+// parley is now taria. This alias runs taria with the same arguments and exit
+// status, for one release: it goes away in taria 0.4.0.
+process.stderr.write('parley is now taria: run taria instead (the parley command goes away in 0.4.0).\n');
+await import('./taria.js');

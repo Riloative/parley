@@ -1,4 +1,4 @@
-// Builds a standalone parley executable with Node's single executable
+// Builds a standalone taria executable with Node's single executable
 // application (SEA) support. The embedded runtime is pinned in
 // scripts/binary-runtime.json; the official Node.js build for this machine's
 // platform is downloaded, verified against SHASUMS256.txt, and used both to
@@ -7,10 +7,10 @@
 // makes start-up fast can only be loaded on the platform that produced it.
 //
 // Usage: node scripts/build-binary.mjs [--out build/bin]
-//   PARLEY_SEA_NODE=/path/to/node   use this Node binary instead of downloading
+//   TARIA_SEA_NODE=/path/to/node   use this Node binary instead of downloading
 //                                   (must match the pinned version)
 //
-// Output: <out>/parley (ad-hoc signed on macOS) and <out>/parley-<os>-<arch>.tar.gz
+// Output: <out>/taria (ad-hoc signed on macOS) and <out>/taria-<os>-<arch>.tar.gz
 
 import { build } from 'esbuild';
 import { sharedPlugins } from './esbuild-plugins.mjs';
@@ -43,9 +43,9 @@ async function download(url, file) {
 
 /** The pinned official Node.js binary for this platform. */
 async function pinnedNode() {
-  if (process.env.PARLEY_SEA_NODE) return process.env.PARLEY_SEA_NODE;
+  if (process.env.TARIA_SEA_NODE) return process.env.TARIA_SEA_NODE;
   const v = runtime.node;
-  const cache = join(process.env.PARLEY_SEA_CACHE ?? join(tmpdir(), 'parley-sea-cache'), `node-v${v}-${target}`);
+  const cache = join(process.env.TARIA_SEA_CACHE ?? join(tmpdir(), 'taria-sea-cache'), `node-v${v}-${target}`);
   const bin = join(cache, 'bin', 'node');
   if (existsSync(bin)) return bin;
   mkdirSync(cache, { recursive: true });
@@ -81,7 +81,7 @@ mkdirSync(out, { recursive: true });
 // code splitting is off and esbuild inlines the dynamically imported modules
 // (highlight.js, the Anthropic SDK, undici). ESM keeps yoga-layout's
 // top-level await working.
-const main = join(work, 'parley.mjs');
+const main = join(work, 'taria.mjs');
 await build({
   entryPoints: [join(root, 'src', 'cli.ts')],
   outfile: main,
@@ -95,19 +95,19 @@ await build({
   jsx: 'automatic',
   define: {
     'process.env.NODE_ENV': '"production"',
-    __PARLEY_VERSION__: JSON.stringify(pkg.version),
-    __PARLEY_BUILD__: '"binary"',
+    __TARIA_VERSION__: JSON.stringify(pkg.version),
+    __TARIA_BUILD__: '"binary"',
   },
   // Ink's optional DevTools hook would be linked eagerly in a single file.
   alias: { 'react-devtools-core': join(root, 'scripts', 'stubs', 'react-devtools-core.mjs') },
   plugins: sharedPlugins,
   banner: {
-    js: "import { createRequire as __parleyCreateRequire } from 'node:module'; const require = __parleyCreateRequire(import.meta.url);",
+    js: "import { createRequire as __tariaCreateRequire } from 'node:module'; const require = __tariaCreateRequire(import.meta.url);",
   },
   logLevel: 'warning',
 });
 
-const exe = join(out, 'parley');
+const exe = join(out, 'taria');
 rmSync(exe, { force: true });
 const config = join(work, 'sea-config.json');
 writeFileSync(
@@ -139,12 +139,15 @@ if (os === 'darwin') {
 
 // Smoke-check the result before packaging it.
 const reported = execFileSync(exe, ['--version'], { encoding: 'utf8' }).trim();
-if (!reported.startsWith(`parley ${pkg.version}`)) throw new Error(`Built binary reports "${reported}"`);
+if (!reported.startsWith(`taria ${pkg.version}`)) throw new Error(`Built binary reports "${reported}"`);
 
-const archive = join(out, `parley-${target}.tar.gz`);
+const archive = join(out, `taria-${target}.tar.gz`);
 const stage = join(work, 'stage');
 mkdirSync(stage, { recursive: true });
-copyFileSync(exe, join(stage, 'parley'));
-execFileSync('tar', ['czf', archive, '-C', stage, 'parley']);
+copyFileSync(exe, join(stage, 'taria'));
+// For 0.3.x only: `parley` still works, with a one-line notice.
+copyFileSync(join(root, 'scripts', 'parley-alias.sh'), join(stage, 'parley'));
+chmodSync(join(stage, 'parley'), 0o755);
+execFileSync('tar', ['czf', archive, '-C', stage, 'taria', 'parley']);
 console.log(`Built ${exe} (${reported})`);
 console.log(`Packaged ${archive}`);

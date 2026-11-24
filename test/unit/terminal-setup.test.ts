@@ -47,7 +47,7 @@ describe('VS Code keybinding', () => {
   });
 
   it('finds the keybindings of installed VS Code-like editors', () => {
-    const home = mkdtempSync(join(tmpdir(), 'parley-setup-'));
+    const home = mkdtempSync(join(tmpdir(), 'taria-setup-'));
     mkdirSync(join(home, '.config', 'Code', 'User'), { recursive: true });
     mkdirSync(join(home, '.config', 'Cursor', 'User'), { recursive: true });
     expect(vscodeKeybindingFiles({}, 'linux', home)).toEqual([
@@ -65,15 +65,15 @@ describe('tmux', () => {
     const r = addTmuxLines('set -g mouse on');
     expect(r.ok && r.changed).toBe(true);
     const text = (r as { text: string }).text;
-    expect(text.startsWith('set -g mouse on\n\n# parley')).toBe(true);
+    expect(text.startsWith('set -g mouse on\n\n# taria')).toBe(true);
     expect(text).toContain('set -s extended-keys on');
     expect(addTmuxLines(text)).toMatchObject({ changed: false });
     expect(addTmuxLines('set -g extended-keys always\n')).toMatchObject({ changed: false });
-    expect((addTmuxLines(undefined) as { text: string }).text.startsWith('# parley')).toBe(true);
+    expect((addTmuxLines(undefined) as { text: string }).text.startsWith('# taria')).toBe(true);
   });
 
   it('prefers an existing XDG tmux.conf', () => {
-    const home = mkdtempSync(join(tmpdir(), 'parley-setup-'));
+    const home = mkdtempSync(join(tmpdir(), 'taria-setup-'));
     expect(tmuxConfFile({}, home)).toBe(join(home, '.tmux.conf'));
     mkdirSync(join(home, '.config', 'tmux'), { recursive: true });
     writeFileSync(join(home, '.config', 'tmux', 'tmux.conf'), '');
@@ -83,13 +83,13 @@ describe('tmux', () => {
 
 describe('writing', () => {
   it('writes atomically and keeps a backup of a file that existed', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'parley-setup-'));
+    const dir = mkdtempSync(join(tmpdir(), 'taria-setup-'));
     const f = join(dir, 'keybindings.json');
     expect(writeConfigFile(f, '[]\n')).toEqual({ backup: undefined });
-    expect(writeConfigFile(f, '[1]\n')).toEqual({ backup: `${f}.parley-backup` });
+    expect(writeConfigFile(f, '[1]\n')).toEqual({ backup: `${f}.taria-backup` });
     expect(readFileSync(f, 'utf8')).toBe('[1]\n');
-    expect(readFileSync(`${f}.parley-backup`, 'utf8')).toBe('[]\n');
-    expect(existsSync(`${f}.parley-${process.pid}.tmp`)).toBe(false);
+    expect(readFileSync(`${f}.taria-backup`, 'utf8')).toBe('[]\n');
+    expect(existsSync(`${f}.taria-${process.pid}.tmp`)).toBe(false);
   });
 });
 
@@ -133,7 +133,7 @@ describe('settings that only look like ours', () => {
 
 describe('writing another program\'s config file', () => {
   it('writes through a symlink, keeps the file mode, and never overwrites an earlier backup', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'parley-setup-'));
+    const dir = mkdtempSync(join(tmpdir(), 'taria-setup-'));
     const real = join(dir, 'dotfiles-tmux.conf');
     const link = join(dir, '.tmux.conf');
     writeFileSync(real, 'original\n', { mode: 0o600 });

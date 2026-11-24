@@ -1,5 +1,6 @@
-// `parley key set|remove|status <provider>`
+// `taria key set|remove|status <provider>`
 
+import { deleteOldKeychainEntry, hasOldKeychainEntry } from './config/credentials.js';
 import { loadConfig } from './config/config.js';
 import { deleteKey, detectKeychain, keychainLabel, resolveKey, storeKey, defaultKeyEnv } from './config/credentials.js';
 
@@ -42,8 +43,8 @@ function readSecret(prompt: string): Promise<string> {
 
 export async function runKeyCommand(rest: string[]): Promise<number> {
   const [action, provider] = rest;
-  if (!action || !provider || !['set', 'remove', 'status'].includes(action)) {
-    process.stderr.write('Usage: parley key set|remove|status <provider>\n');
+  if (!action || !provider || !['set', 'remove', 'status', 'remove-old'].includes(action)) {
+    process.stderr.write('Usage: taria key set|remove|status|remove-old <provider>\n');
     return 2;
   }
   const { config } = loadConfig();
@@ -64,11 +65,19 @@ export async function runKeyCommand(rest: string[]): Promise<number> {
     process.stdout.write(`Removed any stored key for ${provider}.\n`);
     return 0;
   }
+  if (action === 'remove-old') {
+    const had = await hasOldKeychainEntry(provider);
+    if (had) await deleteOldKeychainEntry(provider);
+    process.stdout.write(had ? `Removed the old parley keychain entry for ${provider}. The taria entry is unchanged.\n` : `There is no old parley keychain entry for ${provider}.\n`);
+    return 0;
+  }
   const kind = await detectKeychain();
   const r = pc ? await resolveKey(pc) : { source: 'none' as const };
   const env = pc ? (pc.apiKeyEnv ?? defaultKeyEnv(pc)) : undefined;
   process.stdout.write(
     `Provider: ${provider}\nKeychain: ${keychainLabel(kind)}\nKey source: ${r.source === 'none' ? `none found${env ? ` (checked $${env}, keychain, credentials file)` : ''}` : `${r.source}${'detail' in r && r.detail ? ` (${r.detail})` : ''}`}\n`,
   );
+  // An entry parley stored is never deleted without being asked.
+  if (await hasOldKeychainEntry(provider)) process.stdout.write(`Old parley entry: still in the keychain (an old parley uses it). Remove it with: taria key remove-old ${provider}\n`);
   return 0;
 }

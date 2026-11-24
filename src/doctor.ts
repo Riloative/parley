@@ -1,6 +1,9 @@
-// `parley doctor`: check the environment and explain how to fix problems.
+// `taria doctor`: check the environment and explain how to fix problems.
 
-import { accessSync, constants, existsSync, mkdirSync, realpathSync, statSync } from 'node:fs';
+import { accessSync, constants, existsSync, lstatSync, readFileSync, realpathSync, statSync, type Stats } from 'node:fs';
+import { delimiter, dirname, join } from 'node:path';
+import { APP, OLD_APP, OLD_NAMES_REMOVED_IN, legacyEnvNotice } from './brand.js';
+import { DIR_KINDS } from './config/paths.js';
 import { spawnSync } from 'node:child_process';
 import { boot } from './bootstrap.js';
 import { paths } from './config/paths.js';
@@ -61,18 +64,18 @@ function probeKitty(): Promise<boolean | undefined> {
   });
 }
 
-/** `parley doctor clipboard`: copy a test line the way /copy does, and read
+/** `taria doctor clipboard`: copy a test line the way /copy does, and read
  * it back where a paste tool exists. */
 async function clipboardTest(): Promise<number> {
   failures = 0;
   const cfg = loadConfig(paths.configFile).config;
   const ctx = currentContext();
   const info = detectClipboardHelper({ mode: cfg.clipboard, command: cfg.clipboardCommand }, ctx);
-  process.stdout.write('parley doctor clipboard\n');
+  process.stdout.write('taria doctor clipboard\n');
   section('Clipboard');
   line(info.ok ? 'info' : 'warn', 'Method', info.detail);
   for (const s of info.plan.skipped) line('info', 'Not used', s);
-  const sample = `parley clipboard test ${new Date().toTimeString().slice(0, 8)}`;
+  const sample = `taria clipboard test ${new Date().toTimeString().slice(0, 8)}`;
   const r = await copyText(sample, { mode: cfg.clipboard, command: cfg.clipboardCommand, ctx });
   if (r.status === 'off') line('info', 'Test copy', 'not run: clipboard: off');
   else if (r.status === 'failed') line('fail', 'Test copy', `nothing was copied: ${r.tried.join('; ')}`, r.hint);
@@ -87,10 +90,51 @@ async function clipboardTest(): Promise<number> {
   return failures ? 1 : 0;
 }
 
+/** parley, before the rename: report what is left, change nothing. */
+function oldInstallReport(): void {
+  for (const dir of (process.env.PATH ?? '').split(delimiter)) {
+    const f = dir && join(dir, OLD_APP);
+    if (!f || !existsSync(f)) continue;
+    let head = '';
+    try {
+      head = readFileSync(f).subarray(0, 4096).toString('latin1');
+    } catch {
+      /* unreadable */
+    }
+    if (/parley is now taria/.test(head)) line('info', 'parley command', `${f} is the alias that runs taria (until ${APP} ${OLD_NAMES_REMOVED_IN})`);
+    else {
+      const npm = /node_modules/.test(realpathSafe(f));
+      line('warn', 'Old parley binary', `${f} is parley from before the rename${npm ? ' (npm)' : ''}`, npm ? 'Remove it once you have switched: npm uninstall -g parley' : `Delete ${f} once you have switched to taria.`);
+    }
+    break;
+  }
+  for (const kind of DIR_KINDS) {
+    const old = paths.legacyDir(kind);
+    const current = paths[`${kind}Dir` as 'dataDir'];
+    let st: Stats | undefined;
+    try {
+      st = lstatSync(old);
+    } catch {
+      continue;
+    }
+    if (st.isSymbolicLink()) line('info', `Old ${kind} folder`, `${old} → ${current} (a link, for an old parley)`);
+    else if (existsSync(current) && current !== old) line('warn', `Old ${kind} folder`, `${old} still exists next to ${current}; taria uses ${current}`, `Compare them, and delete ${old} when you no longer need it.`);
+    else line('info', `Old ${kind} folder`, `${old}: moves to ${current} the next time taria starts (doctor changes nothing)`);
+  }
+}
+
+function realpathSafe(f: string): string {
+  try {
+    return realpathSync(f);
+  } catch {
+    return f;
+  }
+}
+
 export async function runDoctor(rest: string[] = []): Promise<number> {
   if (rest[0] === 'clipboard') return clipboardTest();
   failures = 0;
-  process.stdout.write('parley doctor\n');
+  process.stdout.write('taria doctor\n');
 
   section('Installation');
   const where = BUILD_KIND === 'binary' ? process.execPath : (process.argv[1] ?? '');
@@ -100,10 +144,13 @@ export async function runDoctor(rest: string[] = []): Promise<number> {
   } catch {
     /* keep */
   }
-  const method = BUILD_KIND === 'binary' ? 'standalone binary' : /[\\/]lib[\\/]node_modules[\\/]|[\\/]node_modules[\\/]parley[\\/]/.test(where) ? 'npm (global)' : 'from a source checkout';
-  line('info', 'Version', `parley ${VERSION}`);
+  const method = BUILD_KIND === 'binary' ? 'standalone binary' : /[\\/]lib[\\/]node_modules[\\/]|[\\/]node_modules[\\/]taria[\\/]/.test(where) ? 'npm (global)' : 'from a source checkout';
+  line('info', 'Version', `taria ${VERSION}`);
   line('info', 'Install method', method);
   line('info', 'Location', real === where ? where : `${where} → ${real}`);
+  oldInstallReport();
+  const envNote = legacyEnvNotice();
+  if (envNote) line('warn', 'Old variables', envNote);
 
   section('System');
   const major = Number(process.versions.node.split('.')[0]);
@@ -135,7 +182,7 @@ export async function runDoctor(rest: string[] = []): Promise<number> {
   if (inTmux()) {
     const r = spawnSync('tmux', ['show', '-gv', 'extended-keys'], { encoding: 'utf8' });
     const v = r.stdout?.trim();
-    line(v === 'on' || v === 'always' ? 'ok' : 'warn', 'tmux extended-keys', v || 'unknown', v === 'on' || v === 'always' ? undefined : 'set -g extended-keys on   (in ~/.tmux.conf) so Shift+Enter reaches parley');
+    line(v === 'on' || v === 'always' ? 'ok' : 'warn', 'tmux extended-keys', v || 'unknown', v === 'on' || v === 'always' ? undefined : 'set -g extended-keys on   (in ~/.tmux.conf) so Shift+Enter reaches taria');
   }
   if (overSsh()) line('info', 'SSH session', 'copying uses OSC 52; image paste is not available over SSH');
 
@@ -148,7 +195,7 @@ export async function runDoctor(rest: string[] = []): Promise<number> {
     const v = spawnSync('tmux', ['show', '-sv', 'set-clipboard'], { encoding: 'utf8' }).stdout?.trim();
     line(v === 'off' ? 'warn' : 'ok', 'tmux set-clipboard', v || 'unknown', v === 'off' ? 'set -s set-clipboard external   (in ~/.tmux.conf) so tmux passes copies on to the terminal' : undefined);
   }
-  line('info', 'Test it', 'parley doctor clipboard   (copies a test line and reads it back)');
+  line('info', 'Test it', 'taria doctor clipboard   (copies a test line and reads it back)');
 
   section('Storage');
   const kc = await detectKeychain();
@@ -162,9 +209,12 @@ export async function runDoctor(rest: string[] = []): Promise<number> {
     ['Data directory', paths.dataDir],
   ] as const) {
     try {
-      mkdirSync(dir, { recursive: true, mode: 0o700 });
-      accessSync(dir, constants.W_OK);
-      line('ok', label, dir);
+      // Check without creating anything: doctor changes nothing (a folder it
+      // created would also stop parley's files from being moved there).
+      let probe = dir;
+      while (!existsSync(probe) && dirname(probe) !== probe) probe = dirname(probe);
+      accessSync(probe, constants.W_OK);
+      line('ok', label, probe === dir ? dir : `${dir} (created on first use)`);
     } catch (e) {
       line('fail', label, `${dir}: ${(e as Error).message}`, `Make sure ${dir} is writable.`);
     }
@@ -174,14 +224,14 @@ export async function runDoctor(rest: string[] = []): Promise<number> {
 
   section('Configuration');
   const b = boot();
-  line(b.configExists ? 'ok' : 'warn', 'Config file', b.configFile, b.configExists ? undefined : 'Run parley once to create it with the setup flow.');
+  line(b.configExists ? 'ok' : 'warn', 'Config file', b.configFile, b.configExists ? undefined : 'Run taria once to create it with the setup flow.');
   for (const i of b.issues) line('fail', 'Config error', i);
   if (b.config.defaultModel) line('ok', 'Default model', b.config.defaultModel);
   else line('warn', 'Default model', 'not set', 'Set default_model in the config file, or choose one with /model.');
 
   section('Providers');
   const providers = Object.values(b.config.providers);
-  if (!providers.length) line('warn', 'Providers', 'none configured', 'Run /providers inside parley, or edit the config file.');
+  if (!providers.length) line('warn', 'Providers', 'none configured', 'Run /providers inside taria, or edit the config file.');
   await Promise.all(
     providers.map(async (p) => {
       const k = await resolveKey(p);
@@ -196,7 +246,7 @@ export async function runDoctor(rest: string[] = []): Promise<number> {
         const msg = (e as Error).message;
         const fix =
           k.source === 'none' && needsKey
-            ? `Set ${p.apiKeyEnv ?? defaultKeyEnv(p)} or run: parley key set ${p.name}`
+            ? `Set ${p.apiKeyEnv ?? defaultKeyEnv(p)} or run: taria key set ${p.name}`
             : /Nothing is listening/.test(msg)
               ? 'Start the server, or fix base_url in the config file.'
               : undefined;
