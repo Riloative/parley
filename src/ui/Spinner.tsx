@@ -9,6 +9,8 @@ import { truncate } from '../render/width.js';
 const FRAMES_UNICODE = ['·', '✢', '✳', '✶', '✻', '✽', '✽', '✻', '✶', '✳', '✢', '·'];
 const FRAMES_ASCII = ['-', '\\', '|', '/'];
 export const FRAMES = unicodeOk() ? FRAMES_UNICODE : FRAMES_ASCII;
+/** The glyph shown when motion is reduced. */
+export const STILL_FRAME = unicodeOk() ? '✻' : '*';
 
 const VERBS = [
   'Thinking',
@@ -37,10 +39,13 @@ export interface SpinnerProps {
   stream: StreamState | null;
   busyLabel?: string;
   cols: number;
+  /** Reduced motion: no animation, and the label does not rotate. The
+   * elapsed time still counts, once a second. */
+  still?: boolean;
 }
 
 /** The animated status line shown while waiting for or streaming a reply. */
-export function Spinner({ stream, busyLabel, cols }: SpinnerProps): React.ReactElement | null {
+export function Spinner({ stream, busyLabel, cols, still }: SpinnerProps): React.ReactElement | null {
   const [frame, setFrame] = useState(0);
   const [now, setNow] = useState(Date.now());
   const active = !!stream || !!busyLabel;
@@ -49,13 +54,13 @@ export function Spinner({ stream, busyLabel, cols }: SpinnerProps): React.ReactE
     const t = setInterval(() => {
       setFrame((f) => (f + 1) % FRAMES.length);
       setNow(Date.now());
-    }, 120);
+    }, still ? 1000 : 120);
     return () => clearInterval(t);
-  }, [active]);
+  }, [active, still]);
   if (!active) return null;
   const accent = themeHex('accent');
   const dim = themeHex('dim');
-  const glyph = FRAMES[frame]!;
+  const glyph = still ? STILL_FRAME : FRAMES[frame]!;
   if (!stream) {
     return (
       <Text>
@@ -74,7 +79,7 @@ export function Spinner({ stream, busyLabel, cols }: SpinnerProps): React.ReactE
       if (stream.endpoint) detail.push(stream.endpoint.replace(/^https?:\/\//, ''));
       break;
     case 'waiting':
-      label = secs >= 5 ? 'Waiting for the first token' : pickVerb(Math.floor(stream.startedAt / 1000));
+      label = secs >= 5 ? 'Waiting for the first token' : still ? 'Thinking' : pickVerb(Math.floor(stream.startedAt / 1000));
       if (secs >= 15 && /localhost|127\.0\.0\.1|\.local/.test(stream.endpoint)) detail.push('the model may still be loading');
       break;
     case 'retrying': {
@@ -85,7 +90,7 @@ export function Spinner({ stream, busyLabel, cols }: SpinnerProps): React.ReactE
       break;
     }
     default:
-      label = stream.reasoning && !stream.text ? 'Thinking' : pickVerb(Math.floor(stream.startedAt / 1000) + Math.floor(secs / 12));
+      label = stream.reasoning && !stream.text ? 'Thinking' : still ? 'Writing' : pickVerb(Math.floor(stream.startedAt / 1000) + Math.floor(secs / 12));
   }
   if (stream.outputTokens > 0 && stream.status !== 'retrying') detail.push(`↓ ${formatTokens(stream.outputTokens)} tokens`);
   detail.push(stream.status === 'retrying' ? 'esc to cancel' : 'esc to interrupt');

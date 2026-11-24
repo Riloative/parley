@@ -353,6 +353,22 @@ export class Session extends EventEmitter {
     this.abort?.abort();
   }
 
+  private queueHeld = false;
+
+  /** While a queued message is being edited, nothing in the queue is sent. */
+  holdQueue(on: boolean): void {
+    this.queueHeld = on;
+    if (!on) void this.flushQueue();
+  }
+
+  /** Replace the queued message at `index`, or remove it (null). */
+  replaceQueued(index: number, msg: OutgoingMessage | null): void {
+    if (index < 0 || index >= this.queue.length) return;
+    if (msg) this.queue[index] = msg;
+    else this.queue.splice(index, 1);
+    this.send_({ type: 'queue' });
+  }
+
   /** Remove and return the most recently queued message (Up arrow). */
   popQueue(): OutgoingMessage | undefined {
     const m = this.queue.pop();
@@ -641,7 +657,7 @@ export class Session extends EventEmitter {
     if (this.queue.length) {
       if (interrupted || error) {
         // Give queued text back to the user rather than sending it blindly.
-        const text = this.queue.map((q) => q.display ?? q.text).join('\n\n');
+        const text = this.queue.map((q) => q.display ?? q.text).filter((t) => t.trim()).join('\n\n');
         this.queue = [];
         this.send_({ type: 'queue' });
         this.send_({ type: 'restore-input', text });
@@ -787,8 +803,8 @@ export class Session extends EventEmitter {
 
   /** Send messages queued while busy (e.g. during compaction). */
   private async flushQueue(): Promise<void> {
-    if (!this.queue.length || this.streaming || this.busy) return;
-    const q = this.queue;
+    if (!this.queue.length || this.streaming || this.busy || this.queueHeld) return;
+    const q = this.queue.filter((m) => m.text.trim() || m.attachments?.length);
     this.queue = [];
     this.send_({ type: 'queue' });
     await this.submit({

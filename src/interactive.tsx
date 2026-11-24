@@ -13,6 +13,7 @@ import { paths } from './config/paths.js';
 import { TerminalController, installExitHandlers, restoreTerminal } from './term/terminal.js';
 import type { Background, EarlyProbe } from './term/probe.js';
 import { flushDrafts, pruneDrafts } from './core/drafts.js';
+import { VERSION } from './version.js';
 import { notifier } from './ui/notify.js';
 import { TranscriptModel } from './ui/transcript.js';
 import { App } from './ui/App.js';
@@ -140,13 +141,17 @@ export async function runInteractive(args: Args, probe?: EarlyProbe): Promise<vo
   if (background) setTheme(resolveTheme(args.theme ?? b.config.theme, process.env, background));
   // A later answer (a slow link) still applies to everything drawn from then
   // on. What is already printed keeps its colours: reprinting would clear
-  // the scrollback, including the shell history above parley.
+  // the scrollback, including the shell history above parley. The one
+  // exception is a welcome box that is still alone on the screen, which the
+  // app draws again in place.
+
   terminal.on('background', (bg: Background) => {
     if (background) return;
     background = bg;
     const t = resolveTheme(args.theme ?? session.config.theme, process.env, bg);
     if (t === getTheme().name) return;
     setTheme(t);
+    transcript.emit('repaint-welcome');
     transcript.emit('change');
   });
   terminal.start();
@@ -190,6 +195,16 @@ export async function runInteractive(args: Args, probe?: EarlyProbe): Promise<vo
       mark('first-frame');
       appendFileSync(process.env.PARLEY_STARTUP_TRACE!, `${performance.now().toFixed(1)}\n${JSON.stringify(startupMarks())}\n`);
     });
+  }
+
+  if (b.config.checkForUpdates) {
+    // Opt-in, and only once the interface is up: it never delays a frame.
+    setTimeout(() => {
+      void import('./core/update.js').then(async (u) => {
+        const v = await u.newerVersion({ enabled: true });
+        if (v && !exiting) transcript.notice(`parley ${v} is available (this is ${VERSION}): ${u.RELEASES_PAGE} · check_for_updates: false turns this notice off`);
+      });
+    }, 1000).unref();
   }
 
   if (args.prompt) {

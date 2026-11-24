@@ -9,7 +9,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Session, SessionEvent } from '../core/session.js';
+import type { OutgoingMessage, Session, SessionEvent } from '../core/session.js';
 import type { InputHistory } from '../core/history.js';
 import type { Store } from '../core/store.js';
 import type { TerminalController } from '../term/terminal.js';
@@ -26,17 +26,18 @@ import { getTheme, setTheme, themeHex, type ThemeName } from '../render/theme.js
 import { textWidth, truncate } from '../render/width.js';
 import { allCommands, findCommand, type CommandDef, type UiApi } from '../commands/commands.js';
 import { fuzzyFilter, relativeTime } from './fuzzy.js';
-import { formatTokens } from '../core/usage.js';
-import type { ContentPart } from '../providers/types.js';
+import { formatTokens, modelSummary } from '../core/usage.js';
+import type { ContentPart, ModelCapabilities, ModelInfo } from '../providers/types.js';
 import { parseModelRef } from '../providers/types.js';
 import { copyText, readImage, ClipboardError } from '../term/clipboard.js';
 import { listFiles, parseDroppedPaths, readAttachment, AttachError } from './attachments.js';
-import { loadState, rememberModel } from '../core/state.js';
+import { loadState, rememberModel, toggleFavouriteModel } from '../core/state.js';
 import { ProvidersScreen, ConfigScreen, SetupScreen } from './screens.js';
 import type { Config } from '../config/config.js';
-import { mdEscape, warmRenderer } from '../render/markdown.js';
+import { mdEscape, setSoftLineBreaks, warmRenderer } from '../render/markdown.js';
 import type { StoredMessage } from '../core/conversation.js';
 import { loadDraft, scheduleDraft } from '../core/drafts.js';
+import { UndoStack } from './undo.js';
 import { notifier } from './notify.js';
 import { parseDocument, type Document } from 'yaml';
 
@@ -60,6 +61,9 @@ export interface AppProps {
 /** From this share of the context window on, an empty input box offers
  * /compact on Tab, before a message is refused for overflowing. */
 const COMPACT_OFFER_PCT = 80;
+/** Rows the input box, status line and margins may take below the welcome
+ * box when it is repainted in place. */
+const WELCOME_REPAINT_ROOM = 8;
 
 type Overlay =
   | { type: 'picker'; props: Omit<PickerProps<unknown>, 'cols' | 'maxRows'> }
@@ -90,8 +94,10 @@ export function App(props: AppProps): React.ReactElement {
   // plus Enter in one chunk), so the editor state lives in a ref that is
   // updated synchronously; React state only drives rendering.
   const edRef = useRef(ed);
+  const undoRecord = useRef<(prev: E.EditorState, next: E.EditorState) => void>(() => {});
   const setEd = useCallback((next: E.EditorState | ((s: E.EditorState) => E.EditorState)) => {
     const v = typeof next === 'function' ? next(edRef.current) : next;
+    undoRecord.current(edRef.current, v);
     edRef.current = v;
     setEdState(v);
   }, []);
@@ -113,6 +119,11 @@ export function App(props: AppProps): React.ReactElement {
   const attachments = useRef(new Map<string, ContentPart>());
   const counters = useRef({ paste: 0, image: 0, file: 0 });
   const historyPos = useRef<{ index: number; draft: string } | null>(null);
+  const undo = useRef(new UndoStack());
+  /** A queued message being edited in place: its slot, what it was, and
+   * the input text that was set aside for it. */
+  const queueEdit = useRef<{ index: number; original: OutgoingMessage; stash: E.EditorState } | null>(null);
+  const [queueEditIndex, setQueueEditIndex] = useState<number | null>(null);
   const lastEsc = useRef(0);
   const lastCtrlC = useRef(0);
   const imageWarned = useRef(false);
@@ -227,7 +238,14 @@ export function App(props: AppProps): React.ReactElement {
   useEffect(() => {
     const onEvent = (e: SessionEvent) => {
       if (e.type === 'restore-input') {
-        setEd((s) => E.editorWith(s.text ? `${e.text}\n${s.text}` : e.text));
+        const qe = queueEdit.current;
+        if (qe) {
+          // The queue (with the edit in progress) came back: the edit is over.
+          queueEdit.current = null;
+          setQueueEditIndex(null);
+          session.holdQueue(false);
+          setEd(E.editorWith(qe.stash.text ? `${e.text}\n${qe.stash.text}` : e.text));
+        } else setEd((s) => E.editorWith(s.text ? `${e.text}\n${s.text}` : e.text));
       }
       if (e.type === 'busy') setBusyLabel(e.busy ? e.label : undefined);
       if (e.type === 'title' && configRef.current.terminalTitle) terminal.setTitle(e.title);
@@ -263,10 +281,33 @@ export function App(props: AppProps): React.ReactElement {
       process.stdout.write(SYNC_BEGIN + CLEAR_SCREEN + (text ? text + '\n' : '') + SYNC_END);
       reprinted.current = { epoch: transcript.epoch, count: items.length };
     };
+    const onRepaintWelcome = () => {
+      // The terminal's background answer arrived after the first frame and
+      // changed the palette. If the welcome box is still the only thing
+      // printed, directly above the input box, draw it again where it is:
+      // cursor up, erase down, print. Nothing is scrolled or cleared, so the
+      // shell history above parley is untouched. In any other situation the
+      // box keeps its colours.
+      const first = firstPrint.current;
+      const items = transcript.items;
+      if (!first || first.epoch !== transcript.epoch || items.length !== 1 || items[0]!.kind !== 'welcome') return;
+      if (first.cols !== transcript.cols || first.rows !== (process.stdout.rows || 24)) return;
+      if (overlayOpen.current || edRef.current.text || session.streaming || session.busy || session.queue.length) return;
+      const text = renderItem(items[0]!, transcript.cols);
+      const height = text.split('\n').length;
+      // Same height as printed, and box plus input area fit on the screen
+      // (so the box cannot have scrolled off the top).
+      if (height !== first.height || height + WELCOME_REPAINT_ROOM > first.rows) return;
+      inkClear.current?.();
+      process.stdout.write(`${SYNC_BEGIN}\x1b[${height}A\r\x1b[J${text}\n${SYNC_END}`);
+      force();
+    };
     session.on('event', onEvent);
     transcript.on('change', onTranscript);
     transcript.on('reprint', onReprint);
+    transcript.on('repaint-welcome', onRepaintWelcome);
     return () => {
+      transcript.off('repaint-welcome', onRepaintWelcome);
       session.off('event', onEvent);
       transcript.off('change', onTranscript);
       transcript.off('reprint', onReprint);
@@ -274,6 +315,8 @@ export function App(props: AppProps): React.ReactElement {
   }, [session, transcript, terminal, force]);
 
   const inkClear = useRef<(() => void) | null>(null);
+  /** What the first render printed, for repainting the welcome box in place. */
+  const firstPrint = useRef<{ epoch: number; height: number; cols: number; rows: number } | null>(null);
   /** Items the last reprint wrote directly, which <Static> must skip. */
   const reprinted = useRef({ epoch: -1, count: 0 });
   if (reprinted.current.epoch === -1) {
@@ -283,6 +326,7 @@ export function App(props: AppProps): React.ReactElement {
     reprinted.current = { epoch: transcript.epoch, count: transcript.items.length };
     const text = transcript.items.map((item) => renderItem(item, transcript.cols)).join('\n');
     if (text) process.stdout.write(SYNC_BEGIN + text + '\n' + SYNC_END);
+    firstPrint.current = { epoch: transcript.epoch, height: text.split('\n').length, cols: transcript.cols, rows: process.stdout.rows || 24 };
   }
   inkClear.current = () => props.ink.clear?.();
 
@@ -403,27 +447,36 @@ export function App(props: AppProps): React.ReactElement {
   // -------------------------------------------------------------- pickers
   const openModelPicker = useCallback(
     (opts: { onPick?: (model: string) => void; title?: string } = {}) => {
-      const recent = loadState().recentModels;
-      const build = (results: Array<{ provider: string; models?: string[]; error?: string }>): Array<PickerItem<unknown>> => {
+      const state = loadState();
+      const recent = state.recentModels;
+      let favourites = state.favouriteModels;
+      type Listed = { provider: string; models?: ModelInfo[]; error?: string };
+      const build = (results: Listed[]): Array<PickerItem<unknown>> => {
         const items: Array<PickerItem<unknown>> = [];
-        const known = new Set<string>();
-        for (const r of results) for (const m of r.models ?? []) known.add(`${r.provider}/${m}`);
-        const recentItems = recent.filter((m) => session.registry.has(parseModelRef(m)?.provider ?? ''));
-        for (const m of recentItems) items.push({ value: m, label: m, detail: m === session.model ? 'current' : 'recent', group: 'Recent' });
+        const caps = new Map<string, ModelCapabilities>();
+        for (const r of results) for (const m of r.models ?? []) caps.set(`${r.provider}/${m.id}`, session.registry.withOverrides(`${r.provider}/${m.id}`, m.capabilities));
+        // What is known about a model, shortest useful form first.
+        const detail = (ref: string, ...extra: string[]) => {
+          const c = caps.get(ref);
+          return [favourites.includes(ref) ? '★' : '', ref === session.model ? 'current' : '', ...extra, c ? modelSummary(c) : ''].filter(Boolean).join(' · ');
+        };
+        const usable = (m: string) => session.registry.has(parseModelRef(m)?.provider ?? '');
+        for (const m of favourites.filter(usable)) items.push({ value: m, label: m, detail: detail(m), group: 'Favourites' });
+        for (const m of recent.filter(usable)) if (!favourites.includes(m)) items.push({ value: m, label: m, detail: detail(m, 'recent'), group: 'Recent' });
         for (const r of results) {
           if (r.error) {
             items.push({ value: null, label: `${r.provider}: could not list models`, detail: truncate(r.error, 80), group: r.provider, disabled: true });
             continue;
           }
           for (const m of r.models ?? []) {
-            const ref = `${r.provider}/${m}`;
-            items.push({ value: ref, label: m, detail: ref === session.model ? 'current' : '', group: r.provider, search: ref });
+            const ref = `${r.provider}/${m.id}`;
+            items.push({ value: ref, label: m.id, detail: detail(ref), group: r.provider, search: ref });
           }
         }
         return items;
       };
       const providers = session.registry.providerConfigs().map((p) => p.name);
-      const results: Array<{ provider: string; models?: string[]; error?: string }> = providers.map((p) => ({ provider: p }));
+      const results: Listed[] = providers.map((p) => ({ provider: p }));
       const pick = (item: PickerItem<unknown>, query: string) => {
         let ref = item.value as string | null;
         if (item.value === '__custom__') ref = query.trim();
@@ -452,6 +505,19 @@ export function App(props: AppProps): React.ReactElement {
               render();
             },
             placeholder: 'Type to search, or enter provider/model-id',
+            footer: '↑/↓ to select · enter to choose · ctrl+f favourite · esc to cancel',
+            follow: true,
+            onKey: (key, item) => {
+              if (!(key.ctrl && key.name === 'f')) return false;
+              const ref = item?.value;
+              if (typeof ref === 'string' && ref !== '__custom__' && parseModelRef(ref)) {
+                toggleFavouriteModel(ref);
+                favourites = loadState().favouriteModels;
+                current = build(results);
+                render();
+              }
+              return true;
+            },
             loading,
             emptyText: providers.length ? 'No models match. Type provider/model-id to use any model.' : 'No providers configured. Run /providers to add one.',
           },
@@ -463,7 +529,7 @@ export function App(props: AppProps): React.ReactElement {
           .get(name)
           .then((p) => p.listModels())
           .then((models) => {
-            results[i] = { provider: name, models: models.map((m) => m.id) };
+            results[i] = { provider: name, models };
           })
           .catch((e: Error) => {
             results[i] = { provider: name, error: e.message };
@@ -799,6 +865,7 @@ export function App(props: AppProps): React.ReactElement {
       history.add(display);
       historyPos.current = null;
       setEd(E.emptyEditor());
+      undo.current.clear();
       pastes.current.clear();
       attachments.current.clear();
       counters.current = { paste: 0, image: 0, file: 0 };
@@ -838,6 +905,10 @@ export function App(props: AppProps): React.ReactElement {
             onClose={closeOverlay}
             writeConfig={writeConfig}
             applyTheme={applyTheme}
+            applySoftLineBreaks={(mode) => {
+              setSoftLineBreaks(mode);
+              transcript.reprint(true);
+            }}
             openModelPicker={(title, onPick) => openModelPicker({ title, onPick })}
           />
         ),
@@ -942,12 +1013,99 @@ export function App(props: AppProps): React.ReactElement {
   const { slashItems, fileItems, menuLen, sel } = view;
   void menuIndex;
 
+  // ------------------------------------------------- undo, queued messages
+  undoRecord.current = (prev, next) => {
+    if (!undoing.current) undo.current.record(prev, next);
+  };
+  const undoing = useRef(false);
+  /** Put back an editor state from the undo stack without recording it. */
+  const restoreEd = useCallback(
+    (state: E.EditorState) => {
+      undoing.current = true;
+      setEd(state);
+      undoing.current = false;
+    },
+    [setEd],
+  );
+
+  const beginQueueEdit = useCallback(
+    (index: number, stash: E.EditorState) => {
+      const q = session.queue[index];
+      if (!q) return;
+      queueEdit.current = { index, original: q, stash };
+      setQueueEditIndex(index);
+      session.holdQueue(true);
+      restoreEd(E.editorWith(q.text));
+      undo.current.clear();
+    },
+    [session, restoreEd],
+  );
+  const endQueueEdit = useCallback(
+    (how: 'save' | 'cancel') => {
+      const qe = queueEdit.current;
+      if (!qe) return;
+      queueEdit.current = null;
+      setQueueEditIndex(null);
+      const text = edRef.current.text;
+      if (how === 'cancel') session.replaceQueued(qe.index, qe.original);
+      else if (!text.trim() && !qe.original.attachments?.length) session.replaceQueued(qe.index, null);
+      else if (text !== qe.original.text) session.replaceQueued(qe.index, { ...qe.original, text, display: undefined });
+      restoreEd(qe.stash);
+      undo.current.clear();
+      session.holdQueue(false);
+    },
+    [session, restoreEd],
+  );
+  // While editing, the queue always holds the text as typed so far, so
+  // whatever happens to the queue (an interrupted reply hands it back to the
+  // input) uses the edited text.
+  useEffect(() => {
+    const qe = queueEdit.current;
+    if (!qe) return;
+    if (qe.index >= session.queue.length) {
+      queueEdit.current = null;
+      setQueueEditIndex(null);
+      session.holdQueue(false);
+      return;
+    }
+    const cur = session.queue[qe.index]!;
+    // The ref, not the rendered state: a frame can render between the edit
+    // starting and React applying the new input text, and the old text (what
+    // was set aside) must never be written into the queue.
+    const text = edRef.current.text;
+    if (cur.text !== text) session.queue[qe.index] = { ...qe.original, text, display: undefined };
+  });
+
   // ------------------------------------------------------------- key input
   const handleInputKey = useCallback(
     (key: Key) => {
       const s = edRef.current;
       const w = inputWidth;
-      const { menu, sel, menuLen, slashItems, atMatch, fileItems } = menus(s);
+      // Editing a queued message in place: Enter saves, Ctrl+C puts it back
+      // as it was, Up/Down move to the neighbouring queued messages.
+      const qe = queueEdit.current;
+      if (qe) {
+        const plainEnter = key.name === 'enter' && !key.shift && !key.alt && !(s.cursor > 0 && s.text[s.cursor - 1] === '\\');
+        if (plainEnter) return endQueueEdit('save');
+        if (key.ctrl && key.name === 'c') return endQueueEdit('cancel');
+        if (key.name === 'up' && !key.ctrl && !key.alt && (!s.text || E.layout(s.text, s.cursor, w).cursorRow === 0)) {
+          if (qe.index > 0) {
+            const { index, stash } = qe;
+            endQueueEdit('save');
+            beginQueueEdit(index - 1, stash);
+          }
+          return;
+        }
+        if (key.name === 'down' && !key.ctrl && !key.alt && !E.down(s, w)) {
+          const { index, stash } = qe;
+          const before = session.queue.length;
+          endQueueEdit('save');
+          const next = session.queue.length < before ? index : index + 1;
+          if (next < session.queue.length) beginQueueEdit(next, stash);
+          return;
+        }
+      }
+      const { menu, sel, menuLen, slashItems, atMatch, fileItems } = qe ? menus(E.emptyEditor()) : menus(s);
       // Completion menus take arrows / tab / enter.
       if (menu) {
         if (key.name === 'up') return setMenuSel(Math.max(0, sel - 1));
@@ -1042,8 +1200,9 @@ export function App(props: AppProps): React.ReactElement {
 
       if (key.name === 'up' && !key.ctrl && !key.alt) {
         if (session.queue.length && (!s.text || E.layout(s.text, s.cursor, w).cursorRow === 0)) {
-          const q = session.popQueue();
-          if (q) setEd(E.editorWith(s.text ? `${q.display ?? q.text}\n${s.text}` : (q.display ?? q.text)));
+          // Edit the newest queued message where it is; what was in the
+          // input box is set aside and comes back afterwards.
+          beginQueueEdit(session.queue.length - 1, s);
           return;
         }
         const moved = E.up(s, w);
@@ -1079,13 +1238,27 @@ export function App(props: AppProps): React.ReactElement {
         return;
       }
 
+      // Undo: Ctrl+_ (readline) or Ctrl+Z. Redo: Alt+Z, or Ctrl+Shift+Z
+      // where the terminal reports it.
+      const isZ = key.name === 'z' || key.text === 'z' || key.text === 'Z';
+      if ((key.ctrl && key.name === '_') || (key.ctrl && isZ && !key.shift && !key.alt)) {
+        const prev = undo.current.undo(s);
+        if (prev) restoreEd(prev);
+        return;
+      }
+      if ((key.alt && isZ && !key.ctrl) || (key.ctrl && key.shift && isZ)) {
+        const again = undo.current.redo(s);
+        if (again) restoreEd(again);
+        return;
+      }
+
       const next = editKey(s, key);
       if (next) {
         historyPos.current = null;
         setEd(next);
       }
     },
-    [menus, setMenuSel, setEd, runCommand, submitText, session, history, exit, transcript, pasteImage, openEditor, openRewindPicker, flashHint, attachPath, inputWidth],
+    [menus, setMenuSel, setEd, runCommand, submitText, session, history, exit, transcript, pasteImage, openEditor, openRewindPicker, flashHint, attachPath, inputWidth, beginQueueEdit, endQueueEdit, restoreEd],
   );
 
   const handlePaste = useCallback(
@@ -1208,6 +1381,7 @@ export function App(props: AppProps): React.ReactElement {
   const newlineHint = kitty ? 'shift+⏎ for newline' : '\\⏎ for newline';
   let left: string;
   if (hint && hint.until > Date.now()) left = hint.text;
+  else if (queueEditIndex !== null) left = 'editing queued message · enter to save · ctrl+c to keep it as it was';
   else if (queue.length) left = '↑ to edit queued message';
   else if (stream) left = 'esc to interrupt · enter to queue';
   else if (ed.text.startsWith('/')) left = 'tab to complete · enter to run';
@@ -1242,14 +1416,14 @@ export function App(props: AppProps): React.ReactElement {
         ) : null}
         {spinnerRows ? (
           <Box marginTop={1}>
-            <Spinner stream={stream} busyLabel={busyLabel} cols={cols} />
+            <Spinner stream={stream} busyLabel={busyLabel} cols={cols} still={config.reducedMotion} />
           </Box>
         ) : null}
         {queue.length ? (
           <Box flexDirection="column" marginTop={1}>
             {queue.map((q, i) => (
-              <Text key={i} color={dim} wrap="truncate-end">
-                {'> '}
+              <Text key={i} color={i === queueEditIndex ? themeHex('accent') : dim} wrap="truncate-end">
+                {i === queueEditIndex ? '✎ ' : '> '}
                 {(q.display ?? q.text).replace(/\s+/g, ' ')}
               </Text>
             ))}

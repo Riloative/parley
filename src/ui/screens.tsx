@@ -287,9 +287,11 @@ interface ConfigProps {
   writeConfig: WriteConfig;
   applyTheme: (t: Config['theme']) => void;
   openModelPicker: (title: string, onPick: (model: string) => void) => void;
+  /** A setting that changes how the transcript is drawn was changed. */
+  applySoftLineBreaks: (mode: Config['softLineBreaks']) => void;
 }
 
-export function ConfigScreen({ config, cols, maxRows, onClose, writeConfig, applyTheme, openModelPicker }: ConfigProps): React.ReactElement {
+export function ConfigScreen({ config, cols, maxRows, onClose, writeConfig, applyTheme, openModelPicker, applySoftLineBreaks }: ConfigProps): React.ReactElement {
   const [cfg, setCfg] = useState(config);
   const reload = () => setCfg(loadConfig().config);
   const themes: Array<Config['theme']> = ['auto', 'dark', 'light', 'ansi'];
@@ -303,6 +305,9 @@ export function ConfigScreen({ config, cols, maxRows, onClose, writeConfig, appl
     { value: 'bell', label: 'Bell when a long reply finishes', detail: cfg.bell ? 'on' : 'off' },
     { value: 'bell_after_seconds', label: 'Bell threshold', detail: `${cfg.bellAfterSeconds}s` },
     { value: 'terminal_title', label: 'Set the terminal title', detail: cfg.terminalTitle ? 'on' : 'off' },
+    { value: 'soft_line_breaks', label: 'Single line breaks in replies', detail: cfg.softLineBreaks === 'join' ? 'join (flow as one paragraph)' : 'keep (as written)' },
+    { value: 'reduced_motion', label: 'Reduced motion (still spinner)', detail: cfg.reducedMotion ? 'on' : 'off' },
+    { value: 'check_for_updates', label: 'Tell me when a new version is out', detail: cfg.checkForUpdates ? 'on (asks GitHub once a day)' : 'off' },
   ];
   const cycle = <T,>(list: T[], cur: T, dir = 1): T => list[(list.indexOf(cur) + dir + list.length) % list.length]!;
   const change = (key: string, dir: number) => {
@@ -318,6 +323,17 @@ export function ConfigScreen({ config, cols, maxRows, onClose, writeConfig, appl
         break;
       case 'terminal_title':
         writeConfig((d) => d.set('terminal_title', !cfg.terminalTitle));
+        break;
+      case 'soft_line_breaks': {
+        const mode = cfg.softLineBreaks === 'join' ? 'keep' : 'join';
+        if (writeConfig((d) => d.set('soft_line_breaks', mode))) applySoftLineBreaks(mode);
+        break;
+      }
+      case 'reduced_motion':
+        writeConfig((d) => d.set('reduced_motion', !cfg.reducedMotion));
+        break;
+      case 'check_for_updates':
+        writeConfig((d) => d.set('check_for_updates', !cfg.checkForUpdates));
         break;
       case 'bell_after_seconds': {
         const opts = [0, 5, 10, 20, 30, 60];

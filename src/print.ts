@@ -9,7 +9,7 @@ import { StreamingMarkdown } from './render/markdown.js';
 import { lineToAnsi, type Line } from './render/style.js';
 import { loadHighlighter } from './render/highlight.js';
 import { setColorLevel } from './term/caps.js';
-import { FRAMES } from './ui/Spinner.js';
+import { FRAMES, STILL_FRAME } from './ui/Spinner.js';
 
 async function readStdin(): Promise<string> {
   if (process.stdin.isTTY) return '';
@@ -72,7 +72,13 @@ export async function runPrint(args: Args): Promise<number> {
       process.stderr.write('\r\x1b[2K');
     }
   };
-  if (tty && process.stderr.isTTY && !args.json) {
+  if (tty && process.stderr.isTTY && !args.json && b.config.reducedMotion) {
+    // Reduced motion: one still line, removed when the reply starts.
+    process.stderr.write(`\x1b[38;2;217;119;87m${STILL_FRAME}\x1b[0m Thinking…`);
+    spinner = setInterval(() => {
+      if (session.stream?.text) stopSpinner();
+    }, 120);
+  } else if (tty && process.stderr.isTTY && !args.json) {
     spinner = setInterval(() => {
       if (session.stream?.text) return stopSpinner();
       process.stderr.write(`\r\x1b[2K\x1b[38;2;217;119;87m${FRAMES[frame++ % FRAMES.length]}\x1b[0m ${session.stream?.status === 'retrying' ? 'Retrying…' : 'Thinking…'}`);

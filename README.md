@@ -265,7 +265,8 @@ parley key remove anthropic
 | `Shift+Enter`, `Alt/Option+Enter`, `Ctrl+J`, `\` then `Enter` | New line (the hint line shows the one that works in your terminal) |
 | `Esc` | Interrupt the reply (partial text is kept); when idle, clear the input |
 | `Esc` `Esc` | Rewind: pick an earlier message of yours, edit it, and branch from there |
-| `↑` / `↓` | Input history when the cursor is on the first/last line; `↑` also withdraws a queued message |
+| `↑` / `↓` | Input history when the cursor is on the first/last line. With messages queued, `↑` edits the newest one where it is (`↑`/`↓` move between them, Enter saves, Ctrl+C puts it back as it was, saving it empty removes it). Nothing in the queue is sent while one is being edited |
+| `Ctrl+_` or `Ctrl+Z`, `Alt+Z` | Undo and redo in the input box (typing is undone a word at a time). `Ctrl+Shift+Z` also redoes where the terminal reports it |
 | `Ctrl+R` | Search input history (`Ctrl+R` again for older matches, `Tab`/`Esc` to accept, `Enter` to accept and send) |
 | `Ctrl+C` | Interrupt or clear input; press twice on an empty prompt to exit |
 | `Ctrl+D` | Exit (on an empty prompt); otherwise delete forward |
@@ -307,7 +308,7 @@ Large pastes collapse to `[Pasted text #1 +42 lines]` and are expanded when sent
 | `/config` | Settings screen (edits the config file in place, keeping comments) |
 | `/providers` | Providers with a live connectivity check; add or remove one |
 | `/theme` | Dark, light, ANSI-16 or auto |
-| `/terminal-setup` | Make Shift+Enter insert a new line in VS Code (and forks) and tmux: shows the settings, and writes them only if you confirm |
+| `/terminal-setup [vscode\|tmux]` | Make Shift+Enter insert a new line in VS Code (and forks) and tmux: shows the settings, and writes them only if you confirm. With `vscode` or `tmux` it shows and offers that one even when parley is running somewhere else |
 | `/help`, `/exit` | |
 
 ### Custom commands
@@ -338,6 +339,8 @@ bell_after_seconds: 10
 notifications: auto                  # auto | off | osc9 | osc777 | osc99: desktop notification when a long reply finishes and the terminal is not focused
 terminal_title: true                 # show the conversation title in the terminal title
 soft_line_breaks: keep               # keep | join: a single newline inside a paragraph stays a line break, or joins the lines
+reduced_motion: false                # true: a still spinner instead of an animated one
+check_for_updates: false             # true: once a day, ask GitHub for the latest release and mention a newer one (nothing is downloaded)
 system_prompt: "You are concise."    # default for new conversations
 reasoning_effort: medium             # default effort where supported
 

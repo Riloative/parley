@@ -80,6 +80,7 @@ src/core/
   store.ts               append-only JSONL per conversation, replay/crash recovery, locks, list/search, attachments
   session.ts             turns, frame batching (33ms), delta persistence (400ms), retries, queue, rewind/retry, compaction, titles
   drafts.ts              the unsent input text per conversation (debounced, atomic, flushed on shutdown)
+  update.ts              opt-in daily check for a newer release (lazy-imported after the first frame; `PARLEY_UPDATE_URL` in tests)
   history.ts, state.ts, usage.ts
 
 src/render/
@@ -97,6 +98,7 @@ src/ui/
   transcript.ts          TranscriptModel: session events → write-once items + live tail; reprint on resize/Ctrl+O/rewind
   blocks.ts              item → ANSI string (welcome box, user/assistant blocks, stats, notices)
   editor.ts              pure input buffer (graphemes, readline kills, atomic chips, word-wrapped layout)
+  undo.ts                undo/redo stack over editor states (recorded in setEd; typing grouped by word)
   overlays.tsx           Picker / Prompt and the key-router context
   screens.tsx            first-run setup, /providers, /config
   attachments.ts, fuzzy.ts, Spinner.tsx
@@ -122,6 +124,8 @@ src/config/              config.ts (YAML + validation with line numbers), creden
 - Terminal modes are switched on only when used and are always in `restoreSequence`: focus reporting (DEC 1004) is on only if a notification protocol is configured or detected (`src/ui/notify.ts`), and its reports are decoded to `focus` events, never keys.
 - Code blocks in assistant messages are numbered (`numberCode`), in the order `codeBlockTexts()` returns them; `StreamingMarkdown` carries the count across committed blocks, and the streaming invariant is tested with numbering on. Links are OSC 8 only when `hyperlinksEnabled()` and `linkTarget()` accept the URL.
 - Reprints of conversations longer than `COLLAPSE_ABOVE` messages print the newest `COLLAPSE_KEEP` (`src/ui/transcript.ts`); `/history` toggles.
+- While a queued message is being edited, `session.holdQueue(true)` keeps the queue from being sent, and the queue slot always holds the text typed so far, so an interrupted reply hands back the edited text.
+- A late background answer repaints the welcome box in place (`repaint-welcome`: cursor up, erase down) only when it is the sole item, the size is unchanged since the first print, and the input is empty and idle. Every other case keeps the old colours; never clear the scrollback for this.
 - `PARLEY_DEBUG_CRASH=render|uncaught[:ms]` forces a crash, for the terminal-restore tests in `test/pty/bugs.test.ts`.
 
 ## Conventions
