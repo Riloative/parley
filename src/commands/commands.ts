@@ -21,7 +21,7 @@ import { paths } from '../config/paths.js';
 import { costOf, formatTokens, priceFor } from '../core/usage.js';
 import type { StoredMessage } from '../core/conversation.js';
 import { parseModelRef } from '../providers/types.js';
-import { mdCode, mdTable } from '../render/markdown.js';
+import { codeBlockTexts, mdCode, mdTable } from '../render/markdown.js';
 
 export interface UiApi {
   session: Session;
@@ -138,12 +138,9 @@ function textOf(m: StoredMessage): string {
   return m.content.map((p) => (p.type === 'text' ? p.text : '')).join('');
 }
 
+/** Code blocks of a response, numbered as the transcript shows them. */
 export function codeBlocks(md: string): string[] {
-  const out: string[] = [];
-  const re = /^ {0,3}(`{3,}|~{3,})[^\n]*\n([\s\S]*?)^ {0,3}\1[ \t]*$/gm;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(md))) out.push(m[2]!.replace(/\n$/, ''));
-  return out;
+  return codeBlockTexts(md);
 }
 
 export function exportMarkdown(session: Session): string {
@@ -283,16 +280,21 @@ export function builtinCommands(): CommandDef[] {
     },
     {
       name: 'copy',
-      description: 'Copy the last response (/copy code for the last code block)',
-      argHint: '[code]',
+      description: 'Copy the last response (/copy code for its last code block, /copy code 2 for the second)',
+      argHint: '[code [n]]',
       run(ui, args) {
         const m = lastAssistant(ui.session);
         if (!m) return ui.notice('There is no response to copy yet.');
         const text = textOf(m);
-        if (args.trim() === 'code') {
+        const code = /^code(?:\s+(\S+))?$/.exec(args.trim());
+        if (code) {
           const blocks = codeBlocks(text);
           if (!blocks.length) return ui.notice('The last response has no code block.');
-          return ui.copy(blocks[blocks.length - 1]!, 'code block');
+          const n = code[1] === undefined ? blocks.length : Number(code[1]);
+          if (!Number.isInteger(n) || n < 1 || n > blocks.length) {
+            return ui.notice(`The last response has ${blocks.length} code block${blocks.length === 1 ? '' : 's'}; use /copy code ${blocks.length === 1 ? '1' : `1 to ${blocks.length}`}.`);
+          }
+          return ui.copy(blocks[n - 1]!, blocks.length === 1 ? 'code block' : `code block ${n}`);
         }
         ui.copy(text, 'response');
       },

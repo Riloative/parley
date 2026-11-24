@@ -188,7 +188,8 @@ function sameStyle(a?: Style, b?: Style): boolean {
     !!a.italic === !!b.italic &&
     !!a.underline === !!b.underline &&
     !!a.strike === !!b.strike &&
-    !!a.inverse === !!b.inverse
+    !!a.inverse === !!b.inverse &&
+    a.href === b.href
   );
 }
 

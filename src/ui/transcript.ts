@@ -99,7 +99,7 @@ export class TranscriptModel extends EventEmitter {
   }
 
   private startStream(): void {
-    this.md = new StreamingMarkdown(contentWidth(this.cols));
+    this.md = new StreamingMarkdown(contentWidth(this.cols), { numberCode: true });
     this.bulletPending = true;
     this.thoughtCommitted = false;
     this.live = { lines: [], first: true, thinking: [] };

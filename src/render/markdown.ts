@@ -4,11 +4,51 @@
 import { Lexer, type Token, type Tokens } from 'marked';
 import { highlight, isHighlighterReady, loadHighlighter, normalizeLang } from './highlight.js';
 import type { Line, Span, Style } from './style.js';
+import { hyperlinksEnabled, linkTarget } from '../term/caps.js';
 import { hardWrap, lineWidth, mergeSpans, padEnd, textWidth, wrapSpans } from './width.js';
 
 export interface MdOptions {
   /** Content width in cells (already excludes any message prefix). */
   width: number;
+  /** Label each code block with its number in the document, for /copy code N. */
+  numberCode?: boolean;
+}
+
+/** While a document is being rendered with numbered code blocks: how many
+ * have been seen so far. Rendering is synchronous, so one slot is enough. */
+let numbering: { n: number } | null = null;
+
+function numbered<T>(start: number | null, fn: () => T): [T, number] {
+  const prev = numbering;
+  numbering = start === null ? null : { n: start };
+  try {
+    const out = fn();
+    return [out, numbering?.n ?? 0];
+  } finally {
+    numbering = prev;
+  }
+}
+
+/** The line above a code block: its language and, when numbering, its number. */
+function codeLabel(lang: string | undefined, n: number): Line[] {
+  const name = lang?.split(/\s/)[0];
+  if (n > 0) return [[{ text: `${name ?? 'code'} · ${n}`, style: DIM }]];
+  return name ? [[{ text: name, style: DIM }]] : [];
+}
+
+/** The text of every code block in a document, in the order they are
+ * rendered and numbered (fenced or indented, top level or nested). */
+export function codeBlockTexts(src: string): string[] {
+  const out: string[] = [];
+  const walk = (tokens: Token[] | undefined) => {
+    for (const t of tokens ?? []) {
+      if (t.type === 'code') out.push((t as Tokens.Code).text);
+      else if (t.type === 'list') for (const item of (t as Tokens.List).items) walk(item.tokens);
+      else if (t.type === 'blockquote') walk((t as Tokens.Blockquote).tokens);
+    }
+  };
+  walk(lex(normalize(src)));
+  return out;
 }
 
 const DIM: Style = { fg: 'dim' };
@@ -58,9 +98,11 @@ export function inlineSpans(tokens: Token[] | undefined, base: Style = {}): Span
         break;
       case 'link': {
         const l = t as Tokens.Link;
-        const inner = inlineSpans(l.tokens, { ...base, fg: 'link', underline: true });
+        const target = hyperlinksEnabled() ? linkTarget(l.href) : undefined;
+        const inner = inlineSpans(l.tokens, { ...base, fg: 'link', underline: true, ...(target ? { href: target } : {}) });
         const label = inner.map((s) => s.text).join('');
         out.push(...inner);
+        if (target) break; // clickable: the terminal shows the URL on hover
         if (l.href && label !== l.href && !l.href.startsWith('mailto:') && label !== l.href.replace(/^https?:\/\//, '')) {
           out.push({ text: ` (${l.href})`, style: { ...base, fg: 'dim' } });
         }
@@ -88,8 +130,7 @@ export function inlineSpans(tokens: Token[] | undefined, base: Style = {}): Span
 
 function renderCode(token: Tokens.Code, width: number): Line[] {
   const lang = token.lang?.trim() || undefined;
-  const out: Line[] = [];
-  if (lang) out.push([{ text: lang.split(/\s/)[0]!, style: DIM }]);
+  const out: Line[] = codeLabel(lang, numbering ? ++numbering.n : 0);
   out.push(...codeBodyLines(token.text, lang, width));
   return out;
 }
@@ -303,7 +344,7 @@ export function renderBlocks(tokens: Token[], width: number, depth = 0): Line[] 
 }
 
 export function renderMarkdown(src: string, opts: MdOptions): Line[] {
-  return renderBlocks(lex(normalize(src)), Math.max(8, opts.width));
+  return numbered(opts.numberCode ? 0 : null, () => renderBlocks(lex(normalize(src)), Math.max(8, opts.width)))[0];
 }
 
 export function normalize(src: string): string {
@@ -364,8 +405,17 @@ export class StreamingMarkdown {
   private offset = 0; // source offset of the first uncommitted token
   private blocks = 0; // number of blocks committed (for spacing)
   private partial = 0;
+  private codeCount = 0; // code blocks in committed blocks (for numbering)
 
-  constructor(private readonly width: number) {}
+  constructor(
+    private readonly width: number,
+    private readonly opts: { numberCode?: boolean } = {},
+  ) {}
+
+  /** Render with code-block numbers continuing after the committed blocks. */
+  private render<T>(fn: () => T): [T, number] {
+    return numbered(this.opts.numberCode ? this.codeCount : null, fn);
+  }
 
   update(text: string, final = false): StreamUpdate {
     text = normalize(text);
@@ -375,7 +425,7 @@ export class StreamingMarkdown {
     if (tokens.map((t) => t.raw).join('') !== tail) {
       // The lexer did not round-trip (not expected). Keep everything live
       // until the end so nothing is ever committed wrongly.
-      const lines = this.full(renderBlocks(final ? tokens : lex(polishTail(tail)), this.width)).slice(this.partial);
+      const lines = this.full(this.render(() => renderBlocks(final ? tokens : lex(polishTail(tail)), this.width))[0]).slice(this.partial);
       if (!final) return { commit, live: lines };
       this.offset = text.length;
       this.partial = 0;
@@ -399,7 +449,8 @@ export class StreamingMarkdown {
         void loadHighlighter();
         break; // hold finished code back until it can be highlighted
       }
-      const lines = renderBlock(t, this.width);
+      const [lines, codeCount] = this.render(() => renderBlock(t, this.width));
+      this.codeCount = codeCount;
       if (lines.length) {
         commit.push(...this.full(lines).slice(this.partial));
         this.blocks++;
@@ -426,7 +477,7 @@ export class StreamingMarkdown {
       if (isHighlighterReady() || !normalizeLang(lang)) {
         const groups: number[] = [];
         const body = codeBodyLines(code.text, lang, this.width, groups);
-        const label: Line[] = lang ? [[{ text: lang.split(/\s/)[0]!, style: DIM }]] : [];
+        const label = codeLabel(lang, this.opts.numberCode ? this.codeCount + 1 : 0);
         // Complete source lines = newlines after the opening fence line.
         const complete = Math.min(groups.length, (code.raw.match(/\n/g) ?? []).length - 1);
         const stableBody = groups.slice(0, Math.max(0, complete)).reduce((a, b) => a + b, 0);
@@ -440,7 +491,7 @@ export class StreamingMarkdown {
         void loadHighlighter();
       }
     }
-    const rendered = renderBlocks(lex(polishTail(rest, !firstIsOpenFence)), this.width);
+    const [rendered] = this.render(() => renderBlocks(lex(polishTail(rest, !firstIsOpenFence)), this.width));
     const live = rendered.length ? this.full(rendered).slice(firstIsOpenFence ? this.partial : 0) : [];
     return { commit, live };
   }
