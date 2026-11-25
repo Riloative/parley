@@ -5,6 +5,7 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { securityWords } from './security-line.js';
 import { ignoredLegacyEnv, legacyEnvNotice } from '../../src/brand.js';
 import { _setKeychainRunner, hasOldKeychainEntry, removeOldKeychainEntry, resolveKey } from '../../src/config/credentials.js';
 import type { ProviderConfig } from '../../src/config/config.js';
@@ -49,6 +50,7 @@ type KeychainRunner = NonNullable<Parameters<typeof _setKeychainRunner>[0]>;
 function fakeKeychain(kind: 'macos' | 'libsecret', store: Record<string, string>, calls: string[][] = [], opts: { failWrites?: boolean; failDeletes?: boolean } = {}): KeychainRunner {
   return async (cmd, args, input) => {
     calls.push([cmd, ...args]);
+    if (args[0] === '-i') args = securityWords(input ?? '');
     const service = kind === 'macos' ? args[args.indexOf('-s') + 1] : args[args.indexOf('service') + 1];
     const account = kind === 'macos' ? args[args.indexOf('-a') + 1] : args[args.indexOf('account') + 1];
     const k = `${service}/${account}`;
@@ -77,6 +79,7 @@ describe('keychain', () => {
       const calls: string[][] = [];
       _setKeychainRunner(async (cmd, args, input) => {
         calls.push([cmd, ...args]);
+        if (args[0] === '-i') args = securityWords(input ?? '');
         const service = kind === 'macos' ? args[args.indexOf('-s') + 1] : args[args.indexOf('service') + 1];
         const account = kind === 'macos' ? args[args.indexOf('-a') + 1] : args[args.indexOf('account') + 1];
         const k = `${service}/${account}`;

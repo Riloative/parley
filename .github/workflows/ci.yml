@@ -60,13 +60,6 @@ jobs:
       - name: Test
         run: npm test
 
-      - name: Probe (investigation, non-blocking) — can macOS `security` take a key on stdin?
-        # Runs in a throwaway keychain and only prints results. To be removed
-        # once the question is answered; nothing in taria depends on it.
-        if: runner.os == 'macOS'
-        continue-on-error: true
-        run: sh scripts/probe-macos-keychain.sh
-
       - name: Global install smoke test (npm install -g .)
         run: |
           npm install -g .

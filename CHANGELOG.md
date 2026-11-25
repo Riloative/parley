@@ -15,6 +15,7 @@ Still there, and staying: the one-time move of parley's folders (with the links 
 ### Fixed
 
 - **A data folder that cannot be written** (a read-only file system, a full disk, no permission) made `taria -p` end with a stack trace and no answer. taria now answers, and says once that the conversation is not being saved and why, in plain words; the interactive interface does the same. Continuing a conversation there (`-c`, `--resume`) is refused with the same plain reason.
+- **macOS: an API key was passed to the `security` tool as a command-line argument,** where any process on the machine could read it with `ps` for the moment the command ran (`taria key set`, the key form in `/providers`, and the one-time copy of a key stored by parley). The key now goes to `security` on its standard input, and the stored entry is read back before taria says it was saved. Linux was not affected.
 - **"Both ~/.local/share/parley and ~/.local/share/taria exist"** was printed on every start. It is now said once per pair of folders; `taria doctor` keeps showing it, with `taria doctor merge` to bring the conversations over.
 
 ## 0.3.1 — 2026-11-25

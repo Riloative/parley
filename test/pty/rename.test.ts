@@ -142,6 +142,7 @@ describe('the keychain, with real processes and a fake keychain tool', () => {
     mkdirSync(dir);
     const script = `#!/bin/sh
 D='${dir}'
+case "$0" in *security) if [ "$1" = -i ]; then IFS= read -r line; eval "set -- $line"; fi;; esac
 echo "$*" >> "$D/log"
 op=$1
 case "$0" in

@@ -127,7 +127,7 @@ async function keychainLookup(service: string, provider: string): Promise<Lookup
   const kind = await detectKeychain();
   if (kind === 'none') return { status: 'missing' };
   const tool = kind === 'macos' ? 'security' : 'secret-tool';
-  const r = kind === 'macos' ? await run(tool, ['find-generic-password', '-s', service, '-a', provider, '-w']) : await run(tool, ['lookup', 'service', service, 'account', provider]);
+  const r = kind === 'macos' ? await run(tool, ['find-generic-password', '-s', service, '-a', provider, '-w', ...keychainFile]) : await run(tool, ['lookup', 'service', service, 'account', provider]);
   if (r.timedOut) return { status: 'error', reason: runFailure(tool, r) };
   if (r.code === 0) {
     const key = r.stdout.replace(/\n$/, '');
@@ -193,7 +193,7 @@ export async function removeOldKeychainEntry(provider: string): Promise<'none' |
 
 async function deleteOldKeychainEntry(provider: string): Promise<boolean> {
   const kind = await detectKeychain();
-  if (kind === 'macos') return (await run('security', ['delete-generic-password', '-s', OLD_SERVICE, '-a', provider])).code === 0;
+  if (kind === 'macos') return (await run('security', ['delete-generic-password', '-s', OLD_SERVICE, '-a', provider, ...keychainFile])).code === 0;
   if (kind === 'libsecret') return (await run('secret-tool', ['clear', 'service', OLD_SERVICE, 'account', provider])).code === 0;
   return false;
 }
@@ -203,14 +203,34 @@ export async function hasOldKeychainEntry(provider: string): Promise<boolean> {
   return (await keychainLookup(OLD_SERVICE, provider).catch(() => undefined))?.status === 'found';
 }
 
+/** One word of a `security -i` command line: in double quotes, with a
+ * backslash before each backslash and double quote. (Verified against the
+ * real tool on macOS 26: spaces, quotes, backslashes, `$` and a leading dash
+ * all arrive unchanged.) */
+const securityWord = (w: string): string => `"${w.replace(/[\\"]/g, '\\$&')}"`;
+
+/** Tests on a Mac point the keychain commands at a throwaway keychain file;
+ * otherwise the user's default keychain is used. */
+let keychainFile: string[] = [];
+export function _setKeychainFile(file: string | undefined): void {
+  keychainFile = file ? [file] : [];
+  cache.clear();
+}
+
 async function keychainSet(provider: string, key: string): Promise<boolean> {
   const kind = await detectKeychain();
   if (kind === 'macos') {
-    // -U updates an existing item. The key is passed as an argument, which is
-    // briefly visible to the local user's own processes; `security` offers no
-    // stdin option for -w without an interactive prompt.
-    const r = await run('security', ['add-generic-password', '-U', '-s', SERVICE, '-a', provider, '-l', `taria: ${provider}`, '-w', key]);
-    return r.code === 0;
+    // The key must not be a command-line argument (any local process can read
+    // those with `ps`), and `security` has no option to read a password from
+    // a pipe. `security -i` reads whole commands from its standard input, so
+    // the add command, key included, goes there. It reports success whatever
+    // the command did, so the entry is read back before it is believed.
+    // (-U updates an existing item.)
+    const line = ['add-generic-password', '-U', '-s', SERVICE, '-a', provider, '-l', `taria: ${provider}`, '-w', key, ...keychainFile].map(securityWord).join(' ');
+    const r = await run('security', ['-i'], `${line}\n`);
+    if (r.code !== 0) return false;
+    const back = await keychainLookup(SERVICE, provider).catch(() => undefined);
+    return back?.status === 'found' && back.key === key;
   }
   if (kind === 'libsecret') {
     const r = await run('secret-tool', ['store', '--label', `taria: ${provider}`, 'service', SERVICE, 'account', provider], key);
@@ -221,7 +241,7 @@ async function keychainSet(provider: string, key: string): Promise<boolean> {
 
 async function keychainDelete(provider: string): Promise<boolean> {
   const kind = await detectKeychain();
-  if (kind === 'macos') return (await run('security', ['delete-generic-password', '-s', SERVICE, '-a', provider])).code === 0;
+  if (kind === 'macos') return (await run('security', ['delete-generic-password', '-s', SERVICE, '-a', provider, ...keychainFile])).code === 0;
   if (kind === 'libsecret') return (await run('secret-tool', ['clear', 'service', SERVICE, 'account', provider])).code === 0;
   return false;
 }

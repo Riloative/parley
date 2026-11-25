@@ -5,6 +5,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFile
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { securityWords } from './security-line.js';
 import { _setKeychainRunner, deleteKey, keyProblem, removeOldKeychainEntry, resolveKey, storeKey } from '../../src/config/credentials.js';
 import type { ProviderConfig } from '../../src/config/config.js';
 
@@ -34,6 +35,7 @@ const credentialsFile = () => join(configHome, 'taria', 'credentials');
  * secret-tool. `taria` decides what a lookup of taria's entry answers. */
 function keychain(kind: 'macos' | 'libsecret', store: Record<string, string>, calls: string[], tariaLookup?: () => Result | undefined): KeychainRunner {
   return async (_cmd, args, input) => {
+    if (args[0] === '-i') args = securityWords(input ?? '');
     const at = (flag: string) => args[args.indexOf(flag) + 1];
     const service = kind === 'macos' ? at('-s') : at('service');
     const k = `${service}/${kind === 'macos' ? at('-a') : at('account')}`;
@@ -153,5 +155,53 @@ describe('the credentials file', () => {
     expect(statSync(credentialsFile()).mode & 0o777).toBe(0o600);
     expect(readFileSync(credentialsFile(), 'utf8')).toBe(`${before}beta = ${NEW}\n`);
     expect(readdirSync(join(configHome, 'taria'))).toEqual(['credentials']);
+  });
+});
+
+describe('macOS: the key never appears on a command line', () => {
+  const AWKWARD = 'sk-test FAKE "quoted" \\back $dollar \'single\' -dash';
+
+  it('`security` gets the key on its standard input (security -i), for a plain key and an awkward one', async () => {
+    for (const key of ['sk-test-FAKE-0123456789abcdef', AWKWARD]) {
+      const store: Record<string, string> = {};
+      const argv: string[][] = [];
+      const inner = keychain('macos', store, []);
+      _setKeychainRunner(async (cmd, args, input, t) => {
+        argv.push([cmd, ...args]);
+        return inner(cmd, args, input, t);
+      }, 'macos');
+      const r = await storeKey('acme', key);
+      expect(r.store).toBe('keychain');
+      expect(store['taria/acme']).toBe(key);
+      // No argument of any call holds the key, or a piece of it.
+      expect(argv.flat().some((a) => a.includes('FAKE'))).toBe(false);
+      expect(argv.some((c) => c[0] === 'security' && c[1] === '-i')).toBe(true);
+      _setKeychainRunner(inner, 'macos');
+      expect((await resolveKey({ name: 'acme', type: 'openai-compatible', headers: {}, models: {}, apiKeyEnv: 'TARIA_TEST_UNSET_KEY_VAR' })).key).toBe(key);
+    }
+  });
+
+  it('the copy of a key from parley\'s entry goes the same way', async () => {
+    const store: Record<string, string> = { 'parley/acme': AWKWARD };
+    const argv: string[][] = [];
+    const inner = keychain('macos', store, []);
+    _setKeychainRunner(async (cmd, args, input, t) => {
+      argv.push([cmd, ...args]);
+      return inner(cmd, args, input, t);
+    }, 'macos');
+    const r = await resolveKey({ name: 'acme', type: 'openai-compatible', headers: {}, models: {}, apiKeyEnv: 'TARIA_TEST_UNSET_KEY_VAR' });
+    expect(r.key).toBe(AWKWARD);
+    expect(store['taria/acme']).toBe(AWKWARD);
+    expect(argv.flat().some((a) => a.includes('FAKE'))).toBe(false);
+  });
+
+  it('a store that `security -i` did not really make (it reports success either way) is not believed: the key goes to the file', async () => {
+    const store: Record<string, string> = {};
+    const inner = keychain('macos', store, []);
+    // `security -i` that accepts the line and stores nothing.
+    _setKeychainRunner(async (cmd, args, input, t) => (args[0] === '-i' ? { code: 0, stdout: '', stderr: '' } : inner(cmd, args, input, t)), 'macos');
+    const r = await storeKey('acme', 'sk-test-FAKE-0123456789abcdef');
+    expect(r.store).toBe('file');
+    expect(readFileSync(credentialsFile(), 'utf8')).toContain('acme = sk-test-FAKE-0123456789abcdef');
   });
 });
