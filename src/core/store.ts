@@ -104,6 +104,17 @@ export function holderAlive(info: LockInfo): boolean {
   return started === undefined || Math.abs(started - info.started) < 10_000;
 }
 
+/** Why files cannot be written in `dir`, in plain words (no stack, no Node
+ * wording for the usual causes). */
+export function storageProblem(e: unknown, dir: string): string {
+  const code = (e as NodeJS.ErrnoException | undefined)?.code;
+  if (code === 'EROFS') return `${dir} is on a read-only file system.`;
+  if (code === 'EACCES' || code === 'EPERM') return `you do not have permission to write in ${dir}.`;
+  if (code === 'ENOSPC' || code === 'EDQUOT') return `the disk that holds ${dir} is full.`;
+  if (code === 'EEXIST' || code === 'ENOTDIR') return `${dir} exists but is not a folder.`;
+  return `${(e as Error)?.message ?? String(e)} (${dir}).`;
+}
+
 export class ConversationLockedError extends Error {
   constructor(readonly pid: number) {
     super(`This conversation is open in another taria window (pid ${pid}).`);

@@ -99,7 +99,7 @@ export interface MigrationResult {
   /** Kinds whose move had to wait, and why (this run uses the old directory). */
   deferred: Array<{ kind: DirKind; reason: string; using: string }>;
   /** Old and new both exist and are unrelated: the new one is used. */
-  both: Array<{ kind: DirKind; from: string; to: string }>;
+  both: Array<{ kind: DirKind; from: string; to: string; /** The user was told on an earlier start. */ told?: true }>;
   problems: string[];
 }
 
@@ -791,7 +791,51 @@ export function migrateFromParley(opts: MigrateOptions = {}): MigrationResult {
     }
   }
   for (const d of r.deferred) setDirOverride(d.kind, d.using);
+  if (r.both.length) markTold(fs, r);
   return r;
+}
+
+/** Name of the record, in taria's state folder, of notices already shown. */
+const NOTICED = 'rename-noticed.json';
+
+/**
+ * "Both folders exist" is worth saying once, not on every start (`taria
+ * doctor` keeps showing it). What was said is recorded in taria's state
+ * folder; entries already there are marked `told`. Best effort: when the
+ * record cannot be kept, the notice simply shows again.
+ *
+ * The state folder is not created for this while parley's state folder is
+ * still waiting to be moved: a folder with a file in it would stop that move.
+ */
+function markTold(fs: Fs, r: MigrationResult): void {
+  const dir = paths.stateDir;
+  const file = join(dir, NOTICED);
+  let seen: Record<string, string> = {};
+  try {
+    const j = JSON.parse(fs.readFileSync(file, 'utf8')) as { both?: Record<string, string> };
+    if (j.both && typeof j.both === 'object') seen = j.both;
+  } catch {
+    /* no record yet */
+  }
+  let added = false;
+  for (const b of r.both) {
+    if (seen[b.from] === b.to) b.told = true;
+    else {
+      seen[b.from] = b.to;
+      added = true;
+    }
+  }
+  if (!added) return;
+  try {
+    const oldState = paths.legacyDir('state');
+    if (!isDir(fs, dir) && (dirIsExplicit('state') || lexists(fs, oldState))) return;
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const tmp = join(dir, `${NOTICED}.tmp-${unique()}`);
+    fs.writeFileSync(tmp, JSON.stringify({ both: seen }) + '\n', { mode: 0o600 });
+    fs.renameSync(tmp, file);
+  } catch {
+    /* read-only, full, ...: say it again next time */
+  }
 }
 
 const tilde = (p: string) => {
@@ -813,7 +857,7 @@ export function migrationNotices(r: MigrationResult): string[] {
     if (s.how === 'shared') out.push(`parley is now ${APP}: ${tilde(s.from)} is your own link to ${tilde(s.target ?? '')}, so ${APP} uses that folder too, through a new link at ${tilde(s.to)}. Nothing was moved.`);
   }
   for (const d of r.deferred) out.push(`Your parley ${d.kind} files stay in ${tilde(d.using)} for now: ${d.reason}. They move to ${APP}'s folder the next time ${APP} starts after that.`);
-  for (const b of r.both) out.push(`Both ${tilde(b.from)} and ${tilde(b.to)} exist; ${APP} uses ${tilde(b.to)}. \`${APP} doctor\` shows what is in each.`);
+  for (const b of r.both.filter((x) => !x.told)) out.push(`Both ${tilde(b.from)} and ${tilde(b.to)} exist; ${APP} uses ${tilde(b.to)}. \`${APP} doctor\` shows what is in each.`);
   for (const p of r.problems) out.push(`Migration: ${p}.`);
   return out;
 }
