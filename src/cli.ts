@@ -4,7 +4,7 @@
 import { helpText } from './cliSpec.js';
 import { parseArgs } from './args.js';
 export type { Args } from './args.js';
-import { adoptLegacyEnv, legacyEnvNotice, renameNotices } from './brand.js';
+import { legacyEnvNotice, renameNotices } from './brand.js';
 import { legacyDirsPresent } from './config/paths.js';
 import { mark } from './trace.js';
 import { startEarlyProbe } from './term/probe.js';
@@ -91,8 +91,6 @@ async function main(): Promise<void> {
   await runInteractive(args, probe);
 }
 
-// PARLEY_* variables keep working as TARIA_*: adopted before anything reads them.
-adoptLegacyEnv();
 
 main().catch((e: Error) => {
   process.stderr.write(`taria: ${e?.stack ?? e}\n`);

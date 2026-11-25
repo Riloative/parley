@@ -26,8 +26,7 @@ export function ensureBuilt(): void {
  */
 export function tariaCommand(args: string[] = []): { command: string; args: string[]; shell: string } {
   const root = new URL('..', import.meta.url).pathname;
-  // PARLEY_BIN is the name from before the rename.
-  const bin = process.env.TARIA_BIN ?? process.env.PARLEY_BIN;
+  const bin = process.env.TARIA_BIN;
   if (bin) return { command: bin, args, shell: `'${bin}'` };
   ensureBuilt();
   const script = join(root, 'bin', 'taria.js');

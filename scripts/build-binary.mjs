@@ -145,9 +145,6 @@ const archive = join(out, `taria-${target}.tar.gz`);
 const stage = join(work, 'stage');
 mkdirSync(stage, { recursive: true });
 copyFileSync(exe, join(stage, 'taria'));
-// For 0.3.x only: `parley` still works, with a one-line notice.
-copyFileSync(join(root, 'scripts', 'parley-alias.sh'), join(stage, 'parley'));
-chmodSync(join(stage, 'parley'), 0o755);
-execFileSync('tar', ['czf', archive, '-C', stage, 'taria', 'parley']);
+execFileSync('tar', ['czf', archive, '-C', stage, 'taria']);
 console.log(`Built ${exe} (${reported})`);
 console.log(`Packaged ${archive}`);

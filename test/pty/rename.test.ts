@@ -1,7 +1,7 @@
 // The rename, end to end: a home directory as parley 0.2.0 left it, opened by
 // taria; the parley command; old variable names; doctor changing nothing.
 import { spawnSync } from 'node:child_process';
-import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -69,14 +69,16 @@ describe('opening a parley install with taria', () => {
     expect(flat()).not.toContain('parley is now taria');
   }, 40_000);
 
-  it('-p: the answer alone on stdout; the move and old variable names reported once on stderr', () => {
+  it('-p: the answer alone on stdout; the move and ignored old variable names reported once on stderr', () => {
     const home = parleyHome();
-    const r = run(home, ['-p', '-c', 'again'], { PARLEY_NO_KEYCHAIN: '1', PARLEY_UPDATE_URL: 'http://127.0.0.1:9/x' });
+    // PARLEY_DATA_DIR would have pointed taria elsewhere before 0.4.0; now it is not read.
+    const r = run(home, ['-p', '-c', 'again'], { PARLEY_UPDATE_URL: 'http://127.0.0.1:9/x', PARLEY_DATA_DIR: join(home, 'elsewhere') });
     expect(r.status).toBe(0);
     expect(r.stdout).toBe('You said: again\n');
-    expect(r.stderr).toMatch(/^taria: Renamed environment variables: PARLEY_NO_KEYCHAIN → TARIA_NO_KEYCHAIN, PARLEY_UPDATE_URL → TARIA_UPDATE_URL\./m);
-    expect(r.stderr.match(/Renamed environment variable/g)).toHaveLength(1);
+    expect(r.stderr).toMatch(/^taria: These variables are no longer read since taria 0\.4\.0: PARLEY_UPDATE_URL \(use TARIA_UPDATE_URL\), PARLEY_DATA_DIR \(use TARIA_DATA_DIR\)\./m);
+    expect(r.stderr.match(/no longer read/g)).toHaveLength(1);
     expect(r.stderr).toMatch(/^taria: parley is now taria: moved your files/m);
+    expect(existsSync(join(home, 'elsewhere'))).toBe(false);
     // The reply was added to the parley conversation, now in taria's folder.
     expect(readFileSync(join(home, 'data', 'taria', 'conversations', `${CONV}.jsonl`), 'utf8')).toContain('You said: again');
   });
@@ -108,33 +110,26 @@ describe('opening a parley install with taria', () => {
   });
 });
 
-describe('the parley command', () => {
-  /** A directory holding `parley` as the release ships it, next to `taria`. */
-  function aliasDir(): string {
-    const dir = mkdtempSync(join(tmpdir(), 'taria-alias-'));
-    const bin = process.env.TARIA_BIN ?? process.env.PARLEY_BIN;
-    if (bin) {
-      symlinkSync(bin, join(dir, 'taria'));
-      copyFileSync(new URL('../../scripts/parley-alias.sh', import.meta.url), join(dir, 'parley'));
-      chmodSync(join(dir, 'parley'), 0o755);
-    } else {
-      const js = new URL('../../bin/parley.js', import.meta.url).pathname;
-      writeFileSync(join(dir, 'parley'), `#!/bin/sh\nexec '${process.execPath}' '${js}' "$@"\n`);
-      chmodSync(join(dir, 'parley'), 0o755);
-    }
-    return join(dir, 'parley');
-  }
+describe('the parley command (removed in 0.4.0)', () => {
+  it('is no longer shipped: no bin/parley.js, no alias script, no parley entry in package.json', () => {
+    expect(existsSync(new URL('../../bin/parley.js', import.meta.url))).toBe(false);
+    expect(existsSync(new URL('../../scripts/parley-alias.sh', import.meta.url))).toBe(false);
+    const pkg = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as { bin: Record<string, string> };
+    expect(Object.keys(pkg.bin)).toEqual(['taria']);
+  });
 
-  it('runs taria with the same arguments and exit status, after one line on stderr', () => {
-    const parley = aliasDir();
+  it('doctor names what is left on PATH: the 0.3 alias script, or a real old parley, each with the command to remove it', () => {
     const home = parleyHome();
-    const ok = spawnSync(parley, ['-p', '-m', 'mock/echo', 'two words'], { env: testEnv(home), encoding: 'utf8', timeout: 30_000 });
-    expect(ok.status).toBe(0);
-    expect(ok.stdout).toBe('You said: two words\n');
-    expect(ok.stderr.split('\n')[0]).toBe('parley is now taria: run taria instead (the parley command goes away in 0.4.0).');
-    const bad = spawnSync(parley, ['--no-such-option'], { env: testEnv(home), encoding: 'utf8', timeout: 30_000 });
-    expect(bad.status).toBe(2);
-    expect(bad.stderr).toMatch(/Unknown option --no-such-option/);
+    const bin = mkdtempSync(join(tmpdir(), 'taria-oldbin-'));
+    writeFileSync(join(bin, 'parley'), '#!/bin/sh\necho "parley is now taria: run taria instead (the parley command goes away in 0.4.0)." >&2\nexec "$(dirname "$0")/taria" "$@"\n');
+    chmodSync(join(bin, 'parley'), 0o755);
+    const alias = run(home, ['doctor'], { NO_COLOR: '1', PATH: `${bin}:${process.env.PATH}` });
+    expect(alias.stdout).toMatch(/! Old parley alias\s+.*\/parley is the alias from taria 0\.3; taria 0\.4\.0 no longer keeps it working/);
+    expect(alias.stdout).toContain(`rm ${join(bin, 'parley')}`);
+    writeFileSync(join(bin, 'parley'), '#!/bin/sh\necho "parley 0.2.0"\n');
+    const old = run(home, ['doctor'], { NO_COLOR: '1', PATH: `${bin}:${process.env.PATH}` });
+    expect(old.stdout).toMatch(/! Old parley binary\s+.*\/parley is parley from before the rename; it is no longer supported/);
+    expect(old.stdout).toContain(`rm ${join(bin, 'parley')}`);
   });
 });
 

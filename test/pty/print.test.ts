@@ -98,7 +98,7 @@ describe('taria -p', () => {
 
   it('answers --help and --version quickly without loading the interface', async () => {
     const v = await run(['--version']);
-    const kind = process.env.TARIA_BIN ?? process.env.PARLEY_BIN ? 'standalone binary' : 'node package';
+    const kind = process.env.TARIA_BIN ? 'standalone binary' : 'node package';
     expect(v.out).toMatch(new RegExp(`^taria \\d+\\.\\d+\\.\\d+ \\(${kind}, Node v\\d+\\.\\d+\\.\\d+, (linux|darwin)-(x64|arm64)\\)\\n$`));
     const h = await run(['--help']);
     expect(h.out).toContain('Usage');

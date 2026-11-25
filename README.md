@@ -45,9 +45,9 @@ taria was called parley until 0.2.0. Upgrading keeps everything:
 
 - **Your files move once, on the first start of taria.** `~/.config/parley`, `~/.local/share/parley`, `~/.local/state/parley` and `~/.cache/parley` become the `taria` folders (renamed in one step, so nothing is ever half-moved). The old paths become links to the new folders, so an old parley binary still finds everything. taria says in one line what it moved. If a parley window still has a conversation open, the move waits until the next start, and taria uses the old folder meanwhile. A read-only folder is copied and left as it was. Conversations are never rewritten: files parley wrote open as they are.
 - **API keys** stored with `parley key set` are found under the old keychain name and copied to a `taria` entry the first time they are used. The old entry stays, for an old parley; `taria key status <provider>` mentions it and `taria key remove-old <provider>` removes it.
-- **Environment variables:** every `PARLEY_*` variable works as `TARIA_*` (the new name wins when both are set). taria mentions the old names once per run, on stderr (never on stdout in `-p` mode).
-- **The `parley` command** still works in 0.3.x: it prints one line on stderr and runs taria with the same arguments and exit status. It goes away in 0.4.0.
-- **Binary installs:** run the install command above. It installs `taria`, and replaces an old `parley` binary in the same folder with the alias.
+- **Environment variables:** the `PARLEY_*` names are no longer read since 0.4.0; use the `TARIA_*` names. If a `PARLEY_*` variable is still set, taria says so once per run, on stderr (never on stdout in `-p` mode), and `taria doctor` lists it.
+- **The `parley` command** is gone since 0.4.0 (0.3.x kept it as an alias). Run `taria`.
+- **Binary installs:** run the install command above. It installs `taria` and removes the `parley` alias that 0.3.x put in the same folder. A real `parley` binary from before the rename is left alone; the installer and `taria doctor` tell you how to remove it.
 - **npm installs:** remove the old package first, because it owns the `parley` command: `npm uninstall -g parley`, then install taria as above.
 - `taria doctor` has an *Upgrade from parley* section: an old binary on your `PATH`, folders that were not moved or exist twice, conversations that are only in the old folder, keys still stored under parley's name and old variable names, each with the command that deals with it. It changes nothing.
 - If both `~/.local/share/parley` and `~/.local/share/taria` hold files (taria does not move a folder onto one that is in use), `taria doctor merge` lists the conversations that are only in the old folder and, after you agree, copies them over. It never overwrites, changes or removes a file in either folder; conversations that exist in both with different content are listed and left alone.
@@ -106,7 +106,7 @@ taria completions zsh > "${fpath[1]}/_taria"
 taria completions fish > ~/.config/fish/completions/taria.fish
 ```
 
-They complete commands, options and option values (`--theme`), and also apply to the `parley` alias. The npm package installs the man page (`man taria`); with the standalone binary, `taria man > ~/.local/share/man/man1/taria.1` writes it. `--help`, the completions and the man page are generated from one description of the command line, so they always agree.
+They complete commands, options and option values (`--theme`). The npm package installs the man page (`man taria`); with the standalone binary, `taria man > ~/.local/share/man/man1/taria.1` writes it. `--help`, the completions and the man page are generated from one description of the command line, so they always agree.
 
 ### Check the install
 

@@ -5,7 +5,7 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { adoptLegacyEnv, legacyEnvNotice } from '../../src/brand.js';
+import { ignoredLegacyEnv, legacyEnvNotice } from '../../src/brand.js';
 import { _setKeychainRunner, hasOldKeychainEntry, removeOldKeychainEntry, resolveKey } from '../../src/config/credentials.js';
 import type { ProviderConfig } from '../../src/config/config.js';
 import { Store, replay, SCHEMA_VERSION } from '../../src/core/store.js';
@@ -29,17 +29,17 @@ describe('conversation files', () => {
 });
 
 describe('environment variables', () => {
-  it('PARLEY_* also sets TARIA_*, the new name wins, and the notice names each one once', () => {
+  it('PARLEY_* is no longer read (0.4.0): nothing is copied to TARIA_*, and the notice names each ignored one with its new name', () => {
     const env: NodeJS.ProcessEnv = { PARLEY_NO_KEYCHAIN: '1', PARLEY_DATA_DIR: '/old', TARIA_DATA_DIR: '/new', HOME: '/h' };
-    adoptLegacyEnv(env);
-    adoptLegacyEnv(env);
-    expect(env.TARIA_NO_KEYCHAIN).toBe('1');
+    expect(ignoredLegacyEnv(env)).toEqual(['PARLEY_NO_KEYCHAIN', 'PARLEY_DATA_DIR']);
+    expect(env.TARIA_NO_KEYCHAIN).toBeUndefined();
     expect(env.TARIA_DATA_DIR).toBe('/new');
-    const n = legacyEnvNotice()!;
-    expect(n).toContain('PARLEY_NO_KEYCHAIN → TARIA_NO_KEYCHAIN');
-    expect(n).toContain('PARLEY_DATA_DIR → TARIA_DATA_DIR');
+    const n = legacyEnvNotice(env)!;
+    expect(n).toContain('PARLEY_NO_KEYCHAIN (use TARIA_NO_KEYCHAIN)');
+    expect(n).toContain('PARLEY_DATA_DIR (use TARIA_DATA_DIR)');
     expect(n.match(/PARLEY_NO_KEYCHAIN/g)).toHaveLength(1);
-    expect(n).toMatch(/still work until taria 0\.4\.0/);
+    expect(n).toMatch(/no longer read/);
+    expect(legacyEnvNotice({ HOME: '/h', TARIA_DATA_DIR: '/new' })).toBeUndefined();
   });
 });
 

@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Removed
+
+As announced in 0.3.0. Your conversations, settings and keys from parley keep working; only the old names for running and configuring the program go away.
+
+- **The `parley` command.** Run `taria`. The installer removes the alias script that 0.3.x installed; with npm, the `parley` command disappears when you upgrade the package. A real `parley` binary from before the rename is never touched: `taria doctor` and the installer say where it is and how to remove it.
+- **The `PARLEY_*` environment variables** (`PARLEY_CONFIG_DIR`, `PARLEY_DATA_DIR`, `PARLEY_NO_KEYCHAIN`, … and the installer's `PARLEY_INSTALL_DIR`, `PARLEY_VERSION`, …). Use the same names with `TARIA_`. A `PARLEY_*` variable that is still set is not read; taria and the installer say so on stderr instead of ignoring it silently, and `taria doctor` lists it.
+- Shell completions no longer cover `parley`.
+
+Still there, and staying: the one-time move of parley's folders (with the links at the old paths), keys stored under parley's name in the keychain and `taria key remove-old`, conversations written by any parley version, `taria doctor repair` and `taria doctor merge`.
+
 ## 0.3.1 — 2026-11-25
 
 ### Added
