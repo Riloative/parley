@@ -10,6 +10,7 @@ import { join } from 'node:path';
 import * as pty from 'node-pty';
 import xtermHeadless from '@xterm/headless';
 import type { Terminal as XTerminal } from '@xterm/headless';
+import { onTestFailed } from 'vitest';
 import { tariaCommand } from '../build-once.js';
 
 const { Terminal } = xtermHeadless as unknown as { Terminal: typeof XTerminal };
@@ -165,6 +166,24 @@ export function spawnTaria(opts: SpawnOptions = {}): Session {
     for (let i = from; i < to; i++) out.push(buf.getLine(i)?.translateToString(true) ?? '');
     return out;
   };
+  // When a test fails (a bare test timeout included), say how long each wait
+  // took and what was on the screen: a starved machine shows as many slow
+  // waits, a hang as one wait that never ended.
+  const t0 = Date.now();
+  const timeline: string[] = [];
+  const timed = async (label: string, run: () => Promise<void>) => {
+    const start = Date.now();
+    const entry = timeline.push(`  +${String(start - t0).padStart(6)} ms  ${label}  (not finished)`) - 1;
+    await run();
+    timeline[entry] = `  +${String(start - t0).padStart(6)} ms  ${label}  took ${Date.now() - start} ms`;
+  };
+  try {
+    onTestFailed(() => {
+      console.error(`--- PTY session timeline (failed ${Date.now() - t0} ms after spawn) ---\n${timeline.join('\n')}\n--- screen at failure ---\n${s.screen().join('\n')}\n--------------`);
+    });
+  } catch {
+    // Spawned outside a test (a hook, or a script): nothing to report to.
+  }
   const s: Session = {
     term,
     proc,
@@ -181,7 +200,7 @@ export function spawnTaria(opts: SpawnOptions = {}): Session {
       return lines(buf.viewportY, buf.viewportY + term.rows);
     },
     all: () => lines(0, term.buffer.active.length),
-    async waitFor(pred, timeoutMs = 10_000) {
+    waitFor: (pred, timeoutMs = 10_000) => timed(`waitFor ${String(pred).slice(0, 60)}`, async () => {
       const start = Date.now();
       const test = () => {
         if (typeof pred === 'function') return pred();
@@ -194,8 +213,8 @@ export function spawnTaria(opts: SpawnOptions = {}): Session {
         await new Promise((r) => setTimeout(r, 25));
       }
       throw new Error(`Timed out waiting for ${String(pred)}\n--- screen ---\n${s.screen().join('\n')}\n--------------`);
-    },
-    async waitStable({ quietMs = 150, lastLine, timeoutMs = 10_000, region } = {}) {
+    }),
+    waitStable: ({ quietMs = 150, lastLine, timeoutMs = 10_000, region } = {}) => timed(`waitStable ${lastLine === undefined ? '' : String(lastLine).slice(0, 60)}`, async () => {
       const start = Date.now();
       const snapshot = () => (region ? region() : String(raw.length));
       let seen = snapshot();
@@ -214,7 +233,7 @@ export function spawnTaria(opts: SpawnOptions = {}): Session {
         await new Promise((r) => setTimeout(r, 20));
       }
       throw new Error(`Timed out waiting for a stable frame${lastLine === undefined ? '' : ` with ${String(lastLine)}`}\n--- screen ---\n${s.screen().join('\n')}\n--------------`);
-    },
+    }),
     resize(c, r) {
       proc.resize(c, r);
       term.resize(c, r);

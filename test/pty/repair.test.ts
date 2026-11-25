@@ -74,6 +74,25 @@ describe('repairing crash-hit conversations', () => {
     expect(after.slice(before.length).trim().split('\n')).toHaveLength(3); // a1, a3, head
   }, 30_000);
 
+  it('-p -c repairs it too and says so on stderr, never on stdout', () => {
+    const { home, file } = hitHome();
+    const before = readFileSync(file, 'utf8');
+    const cmd = tariaCommand(['-p', '-c', 'next']);
+    const r = spawnSync(cmd.command, cmd.args, { env: testEnv(home), input: '', encoding: 'utf8', timeout: 30_000 });
+    expect(r.status).toBe(0);
+    expect(r.stdout).toBe('You said: next\n');
+    expect(r.stderr).toMatch(/^taria: Repaired this conversation: 2 replies were cut off by a crash in parley before 0\.2\.0/m);
+    expect(readFileSync(file, 'utf8').startsWith(before)).toBe(true);
+    // --json: stdout is still exactly one JSON object.
+    const again = hitHome();
+    const j = spawnSync(cmd.command, [...cmd.args.slice(0, -3), '-p', '-c', '--json', 'next'], { env: testEnv(again.home), input: '', encoding: 'utf8', timeout: 30_000 });
+    expect(JSON.parse(j.stdout)).toMatchObject({ text: 'You said: next' });
+    expect(j.stderr).toContain('Repaired this conversation');
+    // Already repaired: nothing more is said.
+    const third = spawnSync(cmd.command, cmd.args, { env: testEnv(home), input: '', encoding: 'utf8', timeout: 30_000 });
+    expect(third.stderr).not.toContain('Repaired');
+  }, 60_000);
+
   it('opening one shows the whole conversation and says, once, what was repaired', async () => {
     const { home } = hitHome();
     s = spawnTaria({ cols: 120, rows: 40, home, args: ['-r', ID] });
