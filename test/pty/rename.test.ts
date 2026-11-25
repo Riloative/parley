@@ -152,7 +152,7 @@ op=$1
 case "$0" in
   *security) while [ $# -gt 0 ]; do case "$1" in -s) svc=$2; shift;; -a) acc=$2; shift;; -w) key=$2; [ $# -gt 1 ] && shift;; esac; shift; done
     case "$op" in
-      find-generic-password) [ -f "$D/$svc.$acc" ] || exit 44; /bin/cat "$D/$svc.$acc";;
+      find-generic-password) [ "$FAKE_SLOW" = "$svc" ] && exec /bin/sleep 20; [ -f "$D/$svc.$acc" ] || exit 44; /bin/cat "$D/$svc.$acc";;
       add-generic-password) printf '%s' "$key" > "$D/$svc.$acc";;
       delete-generic-password) [ -f "$D/$svc.$acc" ] || exit 44; /bin/rm "$D/$svc.$acc";;
     esac;;
@@ -218,7 +218,9 @@ esac
     expect(readFileSync(join(kc.dir, 'taria.acme'), 'utf8')).toBe(NEWER);
     expect(kc.log()).not.toMatch(/^(store|add-generic-password)/m);
     const st = run(home, ['key', 'status', 'acme'], slow);
-    expect(st.stdout).toMatch(/Key source: unknown: the keychain did not answer \(secret-tool did not answer within 4 s\)/);
+    // The fake stands in for `security` on macOS and `secret-tool` elsewhere.
+    const mac = process.platform === 'darwin';
+    expect(st.stdout).toContain(`Key source: unknown: the keychain did not answer (${mac ? 'security' : 'secret-tool'} did not answer within 4 s)`);
     expect(st.stdout).not.toMatch(/none found|remove-old/);
     const rm = run(home, ['key', 'remove-old', 'acme'], slow);
     expect(rm.status).toBe(1);
@@ -226,7 +228,7 @@ esac
     expect(kc.entries()).toEqual(['parley.acme', 'taria.acme']);
     expect(readFileSync(join(kc.dir, 'taria.acme'), 'utf8')).toBe(NEWER);
     // Once it answers, taria's own key is the one found.
-    expect(run(home, ['key', 'status', 'acme'], env).stdout).toMatch(/Key source: keychain \(Secret Service \(libsecret\)\)/);
+    expect(run(home, ['key', 'status', 'acme'], env).stdout).toContain(`Key source: keychain (${mac ? 'macOS Keychain' : 'Secret Service (libsecret)'})`);
   }, 60_000);
 
   it('`taria key set` refuses input of more than one line, and a provider name the credentials file cannot hold', () => {

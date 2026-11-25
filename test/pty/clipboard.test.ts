@@ -281,7 +281,8 @@ describe('taria doctor clipboard', () => {
     chmodSync(join(bin, 'xclip'), 0o755);
   };
 
-  it('a clipboard_command whose program does not exist: no tick in `taria doctor`; `doctor clipboard` lists it as tried and failed', () => {
+  // The method left after the broken command is xclip: a Linux desktop case, like its neighbours.
+  it.runIf(onLinux)('a clipboard_command whose program does not exist: no tick in `taria doctor`; `doctor clipboard` lists it as tried and failed', () => {
     const home = makeHome(`${DEFAULT_CONFIG}clipboard_command: /nonexistent/copytool --flag\n`);
     const bin = fakeBin(home);
     workingXclip(bin);
