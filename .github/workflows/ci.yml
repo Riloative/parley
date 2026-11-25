@@ -75,6 +75,10 @@ jobs:
     # Runs the PTY test files this branch changed, several times, with every
     # CPU kept busy, to catch races that only show on slow machines. It does
     # not block merging (yet): a failure here is a warning to look at.
+    # Pull requests only: the run on main after a merge would repeat the pull
+    # request's, and macOS runners are scarce (a macOS job that waits about
+    # 15 minutes for one is cancelled by GitHub).
+    if: github.event_name == 'pull_request'
     name: stress · ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     continue-on-error: true
