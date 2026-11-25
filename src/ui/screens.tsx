@@ -8,13 +8,27 @@ import { dirname } from 'node:path';
 import type { Document } from 'yaml';
 import { Picker, Prompt, type PickerItem } from './overlays.js';
 import { PRESETS, configTemplate, detectProviders, type Detected, type Preset, type ProviderSpec } from '../config/presets.js';
-import { storeKey, resolveKey, deleteKey, isLocalUrl } from '../config/credentials.js';
+import { storeKey, resolveKey, deleteKey, isLocalUrl, redact } from '../config/credentials.js';
 import type { Config, ProviderConfig } from '../config/config.js';
 import { loadConfig } from '../config/config.js';
 import { Registry } from '../providers/registry.js';
 import type { Session } from '../core/session.js';
 import { themeHex } from '../render/theme.js';
 import { truncate } from '../render/width.js';
+
+/** Store a key typed into a prompt. A key that cannot be stored (a control
+ * character in it, a file that cannot be written) becomes a notice; nothing
+ * is thrown into the interface. The message never contains the key. */
+export async function saveKey(name: string, key: string, notice: (t: string, tone?: 'dim' | 'error' | 'success' | 'warning') => void): Promise<boolean> {
+  try {
+    const r = await storeKey(name, key);
+    notice(`Saved the key for ${name} in the ${r.store === 'keychain' ? r.detail : `credentials file (${r.detail})`}.`, 'success');
+    return true;
+  } catch (e) {
+    notice(`The key for ${name} was not saved: ${redact((e as Error).message, [key])}`, 'error');
+    return false;
+  }
+}
 
 type WriteConfig = (update: (doc: Document) => void) => boolean;
 
@@ -175,10 +189,7 @@ export function ProvidersScreen({ session, config, cols, maxRows, onClose, write
         existing={providers.map((p) => p.name)}
         onDone={async (spec, key) => {
           if (!spec) return setMode({ t: 'list' });
-          if (key) {
-            const r = await storeKey(spec.name, key);
-            notice(`Saved the key for ${spec.name} in the ${r.store === 'keychain' ? r.detail : `credentials file (${r.detail})`}.`, 'success');
-          }
+          if (key) await saveKey(spec.name, key, notice);
           if (writeConfig((doc) => addProviderToDoc(doc, spec))) notice(`Added provider "${spec.name}". Pick one of its models with /model.`, 'success');
           setMode({ t: 'list' });
           setNonce((n) => n + 1);
@@ -196,8 +207,7 @@ export function ProvidersScreen({ session, config, cols, maxRows, onClose, write
         onCancel={() => setMode({ t: 'list' })}
         onSubmit={async (v) => {
           if (v) {
-            const r = await storeKey(mode.name, v);
-            notice(`Saved the key for ${mode.name} in the ${r.store === 'keychain' ? r.detail : 'credentials file'}.`, 'success');
+            await saveKey(mode.name, v, notice);
           } else {
             await deleteKey(mode.name);
             notice(`Removed the stored key for ${mode.name}.`, 'success');
@@ -432,7 +442,7 @@ export function SetupScreen({ cols, maxRows, configFile, onDone }: SetupProps): 
         existing={[]}
         onDone={async (spec, key) => {
           if (!spec) return setStep('choose');
-          if (key) await storeKey(spec.name, key);
+          if (key) await saveKey(spec.name, key, () => {});
           void finishWith(spec);
         }}
       />

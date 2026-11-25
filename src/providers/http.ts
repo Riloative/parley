@@ -2,8 +2,8 @@
 // HTTP_PROXY / NO_PROXY and never times out while a local model loads, an SSE
 // parser, and translation of failures into plain-language ProviderErrors.
 
-import { debug, debugEnabled } from '../debug.js';
-import { redact } from '../config/credentials.js';
+import { debug, debugEnabled, headersForLog } from '../debug.js';
+import { redact, registerSecret } from '../config/credentials.js';
 import { ProviderError } from './types.js';
 
 import type * as UndiciNs from 'undici';
@@ -225,7 +225,7 @@ export interface RequestOptions {
 export async function request(opts: RequestOptions): Promise<Response> {
   const f = await getFetch();
   const started = Date.now();
-  if (debugEnabled()) debug('request', { provider: opts.providerName, method: opts.method ?? 'POST', url: opts.url, headers: opts.headers, body: opts.body });
+  if (debugEnabled()) debug('request', { provider: opts.providerName, method: opts.method ?? 'POST', url: opts.url, headers: headersForLog(opts.headers), body: opts.body });
   let res: Response;
   try {
     res = await f(opts.url, {
@@ -242,12 +242,15 @@ export async function request(opts: RequestOptions): Promise<Response> {
   return res;
 }
 
-/** Resolve "env:NAME" / "${NAME}" header values. */
+/** Resolve "env:NAME" / "${NAME}" header values. A value that comes from
+ * the environment is a secret (the config validator sends secret headers
+ * there): `redact()` removes it from messages and logs from now on. */
 export function resolveHeaders(h: Record<string, string>): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(h)) {
     const m = /^env:([A-Za-z_][A-Za-z0-9_]*)$/.exec(v) ?? /^\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?$/.exec(v);
     out[k] = m ? (process.env[m[1]!] ?? '') : v;
+    if (m) registerSecret(out[k]);
   }
   return out;
 }

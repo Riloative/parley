@@ -7,6 +7,9 @@
 // Only a tool's exit status confirms a copy. OSC 52 is never confirmed by the
 // terminal, and some terminals (every VTE-based one: GNOME Terminal, Ptyxis,
 // Tilix, Terminator...) ignore it, so it is reported as sent, not copied.
+// A method that fails (cannot be started, hangs, exits with an error, or
+// does not read the text) never stops the next from being tried, and what
+// failed is part of the outcome even when a later method worked.
 
 import { spawn, spawnSync } from 'node:child_process';
 import { accessSync, constants, mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -51,15 +54,26 @@ export type ClipboardMode = 'auto' | 'native' | 'osc52' | 'off';
 export const OSC52_MAX_BYTES = 100_000;
 
 export type CopyMethod =
-  | { kind: 'command'; name: string; command: string; args: string[]; encoding: 'utf8' | 'utf16le-bom'; why: string }
+  | { kind: 'command'; name: string; command: string; args: string[]; encoding: 'utf8' | 'utf16le-bom'; why: string; /** The clipboard_command it came from. */ configured?: string }
   | { kind: 'tmux'; name: 'tmux'; why: string }
   | { kind: 'osc52'; name: 'OSC 52'; wrap: 'none' | 'tmux' | 'screen'; why: string };
+
+/** A method that was tried, or should have been, and did not work. */
+export interface CopyFailure {
+  /** "xclip", or `clipboard_command "my-copy --in"`. */
+  method: string;
+  reason: string;
+  /** It is the user's own clipboard_command: they expect it to be in use. */
+  configured: boolean;
+}
 
 export interface CopyPlan {
   mode: ClipboardMode;
   methods: CopyMethod[];
   /** Methods not used, and why ("wl-copy: not installed"). */
   skipped: string[];
+  /** A clipboard_command that cannot be run at all (no program name...). */
+  problems: CopyFailure[];
   /** What to install or change when nothing works. */
   hint?: string;
 }
@@ -94,28 +108,51 @@ function installHint(ctx: ClipboardContext): string | undefined {
   return `Install ${pkg} (${cmd}).`;
 }
 
-/** Split a configured command into words; quotes group words, no shell. */
-export function splitCommand(cmd: string): string[] {
+const WORDS = /"((?:[^"\\]|\\.)*)"|'([^']*)'|(\S+)/g;
+
+/** Split a configured command into words. No shell runs it: quotes group
+ * words, and nothing else is special (no $VAR, no backslash outside double
+ * quotes, no globbing), except that an unquoted word starting with `~/` gets
+ * the home directory when `home` is given. */
+export function splitCommand(cmd: string, home?: string): string[] {
   const out: string[] = [];
-  const re = /"((?:[^"\\]|\\.)*)"|'([^']*)'|(\S+)/g;
-  for (const m of cmd.matchAll(re)) out.push(m[1] !== undefined ? m[1].replace(/\\(.)/g, '$1') : (m[2] ?? m[3]!));
+  for (const m of cmd.matchAll(WORDS)) {
+    if (m[1] !== undefined) out.push(m[1].replace(/\\(.)/g, '$1'));
+    else if (m[2] !== undefined) out.push(m[2]);
+    else out.push(home && m[3]!.startsWith('~/') ? join(home, m[3]!.slice(2)) : m[3]!);
+  }
   return out;
 }
+
+/** Why a clipboard_command cannot be run as written, or undefined. */
+export function clipboardCommandProblem(cmd: string): string | undefined {
+  if (cmd.includes('\0')) return 'contains a NUL character';
+  const words = [...cmd.matchAll(WORDS)];
+  // A quote that opens a word and never closes is read as part of the word.
+  if (words.some((m) => m[3] !== undefined && /^["']/.test(m[3]))) return 'has a quote that is never closed';
+  if (words.length && !splitCommand(cmd)[0]!.trim()) return 'has no program name (its first word is empty)';
+  return undefined;
+}
+
+const configuredName = (raw: string) => `clipboard_command ${JSON.stringify(raw.replace(/\0/g, ''))}`;
 
 /** Which copy methods apply here, in the order they are tried. Pure: every
  * input is in `ctx`, so it is unit-tested for each environment. */
 export function planCopy(opts: { mode?: ClipboardMode; command?: string }, ctx: ClipboardContext): CopyPlan {
   const mode = opts.mode ?? 'auto';
   const { env } = ctx;
-  const plan: CopyPlan = { mode, methods: [], skipped: [] };
+  const plan: CopyPlan = { mode, methods: [], skipped: [], problems: [] };
   if (mode === 'off') return plan;
   const tool = (name: string, args: string[], why: string, encoding: 'utf8' | 'utf16le-bom' = 'utf8') => {
     if (ctx.has(name)) plan.methods.push({ kind: 'command', name, command: name, args, encoding, why });
     else plan.skipped.push(`${name}: not installed`);
   };
   if (opts.command?.trim() && mode !== 'osc52') {
-    const [command, ...args] = splitCommand(opts.command.trim());
-    plan.methods.push({ kind: 'command', name: command!.split('/').pop()!, command: command!, args, encoding: 'utf8', why: 'clipboard_command in the config' });
+    const raw = opts.command.trim();
+    const problem = clipboardCommandProblem(raw);
+    const [command, ...args] = splitCommand(raw, env.HOME);
+    if (problem || !command) plan.problems.push({ method: configuredName(raw), reason: problem ?? 'has no program name', configured: true });
+    else plan.methods.push({ kind: 'command', name: command.split('/').pop() || command, command, args, encoding: 'utf8', why: 'clipboard_command in the config', configured: raw });
   }
   const ssh = overSsh(env);
   if (mode === 'auto' || mode === 'native') {
@@ -162,70 +199,154 @@ export function osc52(text: string, wrap: 'none' | 'tmux' | 'screen' = inTmux() 
   return seq;
 }
 
-function run(command: string, args: string[], input: Buffer, env: NodeJS.ProcessEnv, timeoutMs = 5000): Promise<{ ok: boolean; reason?: string }> {
+/** How long a tool may take, and how long after SIGTERM it gets SIGKILL. */
+const COPY_TIMEOUT_MS = 5000;
+const KILL_GRACE_MS = 1000;
+
+/** Process groups of copy tools that have not exited yet, or were told to
+ * stop and may not have. Never a tool that finished: xclip and wl-copy leave
+ * a process behind that serves the selection, and it must live on. */
+const pendingGroups = new Set<number>();
+let exitHookInstalled = false;
+
+function killGroup(pid: number, signal: NodeJS.Signals): void {
+  try {
+    // The tool is the leader of its own process group (`detached`), so this
+    // reaches the children of a wrapper script as well.
+    process.kill(-pid, signal);
+  } catch {
+    /* already gone */
+  }
+}
+
+/** Kill every copy tool that is still pending. Runs when taria exits (it is
+ * synchronous), so that a hung tool does not outlive the program. */
+export function killPendingCopies(): void {
+  for (const pid of pendingGroups) killGroup(pid, 'SIGKILL');
+  pendingGroups.clear();
+}
+
+function run(command: string, args: string[], input: Buffer, env: NodeJS.ProcessEnv, timeoutMs = COPY_TIMEOUT_MS): Promise<{ ok: boolean; reason?: string }> {
   return new Promise((resolve) => {
     let done = false;
+    const timers: { timeout?: NodeJS.Timeout } = {};
     const finish = (r: { ok: boolean; reason?: string }) => {
       if (done) return;
       done = true;
-      clearTimeout(timer);
+      clearTimeout(timers.timeout);
       resolve(r);
     };
     // Detached: wl-copy, xclip and xsel leave a process behind that owns the
     // clipboard; in its own session it survives the terminal closing.
-    const p = spawn(command, args, { stdio: ['pipe', 'ignore', 'ignore'], detached: true, env });
-    const timer = setTimeout(() => {
-      try {
-        p.kill();
-      } catch {
-        /* gone */
+    let p: ReturnType<typeof spawn>;
+    try {
+      p = spawn(command, args, { stdio: ['pipe', 'ignore', 'ignore'], detached: true, env });
+    } catch (e) {
+      // spawn() throws for a command it will not even try (an empty name, a
+      // NUL character): a failed method like any other.
+      const code = (e as NodeJS.ErrnoException).code;
+      return finish({ ok: false, reason: `could not be started${code ? ` (${code})` : ''}` });
+    }
+    const pid = p.pid;
+    if (pid !== undefined) {
+      pendingGroups.add(pid);
+      if (!exitHookInstalled) {
+        exitHookInstalled = true;
+        process.on('exit', killPendingCopies);
       }
+    }
+    timers.timeout = setTimeout(() => {
       finish({ ok: false, reason: `did not finish within ${timeoutMs / 1000} s` });
+      if (pid === undefined) return;
+      killGroup(pid, 'SIGTERM');
+      // Whatever is left of the group after the grace period ignored SIGTERM.
+      // The group stays in `pendingGroups` until then, so an exit in between
+      // kills it too.
+      setTimeout(
+        () => {
+          killGroup(pid, 'SIGKILL');
+          pendingGroups.delete(pid);
+        },
+        Math.min(KILL_GRACE_MS, timeoutMs),
+      ).unref();
     }, timeoutMs);
-    p.on('error', (e) => finish({ ok: false, reason: (e as NodeJS.ErrnoException).code === 'ENOENT' ? 'not found' : e.message }));
-    p.on('close', (code, signal) => finish(code === 0 ? { ok: true } : { ok: false, reason: signal ? `stopped by ${signal}` : `exited with status ${code}` }));
-    p.stdin.on('error', () => {
-      /* reported through close */
+    // Writing the text failed (EPIPE): the tool closed its input or exited
+    // before it had read everything, so its exit status 0 confirms nothing.
+    let unread = false;
+    p.on('error', (e) => {
+      if (pid !== undefined && !done) pendingGroups.delete(pid);
+      finish({ ok: false, reason: (e as NodeJS.ErrnoException).code === 'ENOENT' ? 'not found' : (e as NodeJS.ErrnoException).code === 'EACCES' ? 'is not an executable file' : e.message });
     });
-    p.stdin.end(input);
+    p.on('close', (code, signal) => {
+      // Finished by itself: from here on its group is none of taria's business.
+      if (pid !== undefined && !done) pendingGroups.delete(pid);
+      if (code !== 0) return finish({ ok: false, reason: signal ? `stopped by ${signal}` : `exited with status ${code}` });
+      finish(unread ? { ok: false, reason: 'exited without reading the text' } : { ok: true });
+    });
+    p.stdin!.on('error', () => {
+      unread = true;
+    });
+    p.stdin!.end(input);
     p.unref();
   });
 }
 
 export type CopyOutcome =
   /** A tool took the text and said so (exit status 0). */
-  | { status: 'copied'; via: string; tried: string[] }
+  | { status: 'copied'; via: string; tried: string[]; failed: CopyFailure[] }
   /** Handed on, but nobody confirmed it reached the clipboard. */
-  | { status: 'sent'; via: 'OSC 52' | 'tmux'; tried: string[] }
-  | { status: 'failed'; tried: string[]; hint?: string }
+  | { status: 'sent'; via: 'OSC 52' | 'tmux'; tried: string[]; failed: CopyFailure[] }
+  | { status: 'failed'; tried: string[]; failed: CopyFailure[]; hint?: string; /** OSC 52 was the method left, and there is no terminal to send it to. */ noTerminal?: boolean }
   | { status: 'off' };
+// `tried` is everything that did not copy, as text: methods skipped and
+// methods that failed. `failed` holds only those that were run (or should
+// have been: a clipboard_command that cannot be run), also on success.
 
 export interface CopyOptions {
   mode?: ClipboardMode;
   command?: string;
-  write?: (s: string) => void;
+  /** Where OSC 52 is written (default: stdout). `null`: there is no terminal
+   * to write to, so OSC 52 is skipped. */
+  write?: ((s: string) => void) | null;
   ctx?: ClipboardContext;
+  /** How long one tool may take (tests shorten it). */
+  timeoutMs?: number;
+}
+
+/** "wl-copy: exited with status 1; clipboard_command "x": not found". */
+export function describeFailures(failed: CopyFailure[]): string {
+  return failed.map((f) => `${f.method}: ${f.reason}`).join('; ');
 }
 
 export async function copyText(text: string, opts: CopyOptions = {}): Promise<CopyOutcome> {
   const ctx = opts.ctx ?? currentContext();
-  const write = opts.write ?? ((s: string) => process.stdout.write(s));
+  const write = opts.write === undefined ? (s: string) => process.stdout.write(s) : opts.write;
   const plan = planCopy({ mode: opts.mode, command: opts.command }, ctx);
   if (plan.mode === 'off') return { status: 'off' };
   const tried = [...plan.skipped];
+  const failed: CopyFailure[] = [];
+  let noTerminal = false;
+  const fail = (f: CopyFailure) => {
+    failed.push(f);
+    tried.push(`${f.method}: ${f.reason}`);
+  };
+  plan.problems.forEach(fail);
   for (const m of plan.methods) {
     if (m.kind === 'command') {
       const input = m.encoding === 'utf16le-bom' ? Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(text, 'utf16le')]) : Buffer.from(text, 'utf8');
-      const r = await run(m.command, m.args, input, ctx.env);
-      if (r.ok) return { status: 'copied', via: m.name, tried };
-      tried.push(`${m.name}: ${r.reason}`);
+      const r = await run(m.command, m.args, input, ctx.env, opts.timeoutMs);
+      if (r.ok) return { status: 'copied', via: m.name, tried, failed };
+      fail({ method: m.configured === undefined ? m.name : configuredName(m.configured), reason: r.reason ?? 'failed', configured: m.configured !== undefined });
     } else if (m.kind === 'tmux') {
       // -w also sets the terminal's clipboard (tmux 3.2+); older tmux only
       // fills its paste buffer.
-      let r = await run('tmux', ['load-buffer', '-w', '-'], Buffer.from(text, 'utf8'), ctx.env);
-      if (!r.ok) r = await run('tmux', ['load-buffer', '-'], Buffer.from(text, 'utf8'), ctx.env);
-      if (r.ok) return { status: 'sent', via: 'tmux', tried };
-      tried.push(`tmux: ${r.reason}`);
+      let r = await run('tmux', ['load-buffer', '-w', '-'], Buffer.from(text, 'utf8'), ctx.env, opts.timeoutMs);
+      if (!r.ok) r = await run('tmux', ['load-buffer', '-'], Buffer.from(text, 'utf8'), ctx.env, opts.timeoutMs);
+      if (r.ok) return { status: 'sent', via: 'tmux', tried, failed };
+      fail({ method: 'tmux', reason: r.reason ?? 'failed', configured: false });
+    } else if (!write) {
+      noTerminal = true;
+      tried.push('OSC 52: not sent (the output is not a terminal)');
     } else {
       const bytes = Buffer.byteLength(text, 'utf8');
       const encoded = Math.ceil(bytes / 3) * 4;
@@ -234,10 +355,10 @@ export async function copyText(text: string, opts: CopyOptions = {}): Promise<Co
         continue;
       }
       write(osc52(text, m.wrap));
-      return { status: 'sent', via: 'OSC 52', tried };
+      return { status: 'sent', via: 'OSC 52', tried, failed };
     }
   }
-  return { status: 'failed', tried, hint: plan.hint };
+  return { status: 'failed', tried, failed, hint: plan.hint, ...(noTerminal ? { noTerminal } : {}) };
 }
 
 export function clipboardHelpHint(): string {
@@ -284,11 +405,36 @@ export async function readImage(): Promise<ClipboardImage | null> {
   throw new ClipboardError('No graphical session found (neither WAYLAND_DISPLAY nor DISPLAY is set), so the clipboard cannot be read.');
 }
 
+/** Is this program there to be run? A path is checked as it is; a bare name
+ * is looked up on PATH. */
+function programExists(command: string, ctx: ClipboardContext): boolean {
+  if (!command.includes('/')) return ctx.has(command);
+  try {
+    accessSync(command, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** For `doctor`: the method /copy would use here, and why. */
-export function detectClipboardHelper(opts: { mode?: ClipboardMode; command?: string } = {}, ctx = currentContext()): { ok: boolean; detail: string; plan: CopyPlan } {
+export function detectClipboardHelper(opts: { mode?: ClipboardMode; command?: string } = {}, ctx = currentContext()): { ok: boolean; detail: string; plan: CopyPlan; /** What to change, when it is not the install hint. */ fix?: string } {
   const plan = planCopy(opts, ctx);
   if (plan.mode === 'off') return { ok: true, detail: 'copying is turned off (clipboard: off)', plan };
-  const first = plan.methods[0];
+  // A clipboard_command that cannot work is never "fine": say so, and what
+  // /copy falls back to.
+  const broken = [...plan.problems];
+  let methods = plan.methods;
+  const head = methods[0];
+  if (head?.kind === 'command' && head.configured !== undefined && !programExists(head.command, ctx)) {
+    broken.push({ method: configuredName(head.configured), reason: `${head.command} was not found${head.command.includes('/') ? '' : ' on PATH'}, or is not executable`, configured: true });
+    methods = methods.slice(1);
+  }
+  const first = methods[0];
+  if (broken.length) {
+    const next = !first ? 'nothing else can copy here' : `/copy falls back to ${first.kind === 'osc52' ? 'OSC 52, which the terminal does not confirm' : first.kind === 'tmux' ? "tmux's paste buffer" : first.name}`;
+    return { ok: false, detail: `${describeFailures(broken)}; ${next}`, plan, fix: 'Correct clipboard_command in the config file, or remove it.' };
+  }
   if (!first) return { ok: false, detail: `nothing can copy here: ${plan.skipped.join('; ')}`, plan };
   if (first.kind === 'command') return { ok: true, detail: `${first.name} (${first.why})`, plan };
   if (first.kind === 'tmux') return { ok: true, detail: `tmux paste buffer, passed on to the terminal (not confirmed by the terminal)`, plan };

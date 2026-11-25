@@ -33,6 +33,7 @@ export const COMMANDS: CommandSpec[] = [
   { usage: 'doctor', help: 'check terminal, clipboard, keychain and providers' },
   { usage: 'doctor clipboard', help: 'try a copy the way /copy does it' },
   { usage: 'doctor repair', help: 'repair conversations a crash in parley < 0.2.0 cut short' },
+  { usage: 'doctor merge', help: "copy conversations that are only in parley's old folder" },
   { usage: 'key set <provider>', help: 'store an API key in the keychain' },
   { usage: 'key remove <provider>', help: 'remove a stored key' },
   { usage: 'key status <provider>', help: 'show where the key for a provider comes from' },
@@ -57,7 +58,7 @@ export const OPTIONS: OptionSpec[] = [
 
 export const SHELLS = ['bash', 'zsh', 'fish'] as const;
 export const KEY_ACTIONS = ['set', 'remove', 'status', 'remove-old'];
-export const DOCTOR_TOPICS = ['clipboard', 'repair'];
+export const DOCTOR_TOPICS = ['clipboard', 'repair', 'merge'];
 
 export const FILES = [
   { path: '$XDG_CONFIG_HOME/taria/config.yaml', fallback: '~/.config/taria/config.yaml', help: 'configuration' },

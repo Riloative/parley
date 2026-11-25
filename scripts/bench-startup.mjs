@@ -26,18 +26,23 @@ const targets = (bins.length ? bins : [join(root, 'bin', 'taria.js')]).map((b) =
     : { label: `binary ${b}`, command: b, args: [] },
 );
 
-const home = mkdtempSync(join(tmpdir(), 'taria-bench-'));
-mkdirSync(join(home, 'config', 'taria'), { recursive: true });
-writeFileSync(join(home, 'config', 'taria', 'config.yaml'), 'default_model: mock/echo\nbell: false\nproviders:\n  mock:\n    type: mock\n');
-
-const env = { ...process.env, HOME: home, XDG_CONFIG_HOME: join(home, 'config'), XDG_DATA_HOME: join(home, 'data'), XDG_STATE_HOME: join(home, 'state'), TERM: 'xterm-256color', COLORTERM: 'truecolor', TARIA_NO_KEYCHAIN: '1' };
-for (const k of ['CI', 'GITHUB_ACTIONS']) delete env[k];
+// Each build gets its own home directory. A build from before the rename
+// (its file is called parley) reads parley's folder and variable names, so a
+// release before 0.3.0 can be compared with the current one.
+for (const t of targets) {
+  t.app = /(^|[\\/])parley(\.js)?$/.test(t.args[0] ?? t.command) ? 'parley' : 'taria';
+  t.home = mkdtempSync(join(tmpdir(), 'taria-bench-'));
+  mkdirSync(join(t.home, 'config', t.app), { recursive: true });
+  writeFileSync(join(t.home, 'config', t.app, 'config.yaml'), 'default_model: mock/echo\nbell: false\nproviders:\n  mock:\n    type: mock\n');
+  t.env = { ...process.env, HOME: t.home, XDG_CONFIG_HOME: join(t.home, 'config'), XDG_DATA_HOME: join(t.home, 'data'), XDG_STATE_HOME: join(t.home, 'state'), XDG_CACHE_HOME: join(t.home, 'cache'), TERM: 'xterm-256color', COLORTERM: 'truecolor', [`${t.app.toUpperCase()}_NO_KEYCHAIN`]: '1' };
+  for (const k of ['CI', 'GITHUB_ACTIONS']) delete t.env[k];
+}
 
 function once(target, i, k = 0) {
   return new Promise((resolve, reject) => {
-    const trace = join(home, `trace-${k}-${i}`);
+    const trace = join(target.home, `trace-${k}-${i}`);
     const started = performance.now();
-    const p = pty.spawn(target.command, target.args, { name: 'xterm-256color', cols: 100, rows: 30, cwd: home, env: { ...env, TARIA_STARTUP_TRACE: trace } });
+    const p = pty.spawn(target.command, target.args, { name: 'xterm-256color', cols: 100, rows: 30, cwd: target.home, env: { ...target.env, [`${target.app.toUpperCase()}_STARTUP_TRACE`]: trace } });
     let out = '';
     let wall;
     const timer = setTimeout(() => reject(new Error('timed out waiting for the prompt')), 15_000);
@@ -74,7 +79,7 @@ for (const [k, t] of targets.entries()) await once(t, -1, k);
 const results = targets.map(() => []);
 for (let i = 0; i < runs; i++) for (const [k, t] of targets.entries()) results[k].push(await once(t, i, k));
 if (process.env.BENCH_DEBUG) console.log(JSON.stringify(results[0].slice(0, 3)));
-rmSync(home, { recursive: true, force: true });
+for (const t of targets) rmSync(t.home, { recursive: true, force: true });
 
 const fmt = (xs) => `median ${pct(xs, 50).toFixed(0)} ms, p95 ${pct(xs, 95).toFixed(0)} ms (n=${xs.length})`;
 for (const [k, t] of targets.entries()) {

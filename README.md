@@ -49,7 +49,8 @@ taria was called parley until 0.2.0. Upgrading keeps everything:
 - **The `parley` command** still works in 0.3.x: it prints one line on stderr and runs taria with the same arguments and exit status. It goes away in 0.4.0.
 - **Binary installs:** run the install command above. It installs `taria`, and replaces an old `parley` binary in the same folder with the alias.
 - **npm installs:** remove the old package first, because it owns the `parley` command: `npm uninstall -g parley`, then install taria as above.
-- `taria doctor` lists what is left of parley (an old binary on your `PATH`, old folders) without changing anything.
+- `taria doctor` has an *Upgrade from parley* section: an old binary on your `PATH`, folders that were not moved or exist twice, conversations that are only in the old folder, keys still stored under parley's name and old variable names, each with the command that deals with it. It changes nothing.
+- If both `~/.local/share/parley` and `~/.local/share/taria` hold files (taria does not move a folder onto one that is in use), `taria doctor merge` lists the conversations that are only in the old folder and, after you agree, copies them over. It never overwrites, changes or removes a file in either folder; conversations that exist in both with different content are listed and left alone.
 
 ### Standalone binary (no Node.js needed)
 
@@ -369,7 +370,7 @@ terminal_title: true                 # show the conversation title in the termin
 soft_line_breaks: keep               # keep | join: a single newline inside a paragraph stays a line break, or joins the lines
 reduced_motion: false                # true: a still spinner instead of an animated one
 clipboard: auto                      # auto | native | osc52 | off: how /copy reaches the clipboard
-# clipboard_command: wl-copy -p       # a command that takes the text on stdin, tried first
+# clipboard_command: wl-copy -p       # a program (and arguments) that takes the text on stdin, tried first; not run by a shell
 check_for_updates: false             # true: once a day, ask GitHub for the latest release and mention a newer one (nothing is downloaded)
 system_prompt: "You are concise."    # default for new conversations
 reasoning_effort: medium             # default effort where supported
@@ -422,6 +423,7 @@ taria -c -p "and in French?"       # continue the most recent conversation
 | `--theme name`, `--no-color` | Appearance |
 | `--debug [file]` | Log requests, responses and timings, keys redacted |
 | `taria doctor` | Check terminal, clipboard, keychain and each provider |
+| `taria doctor merge` | Copy conversations that are only in parley's old data folder into taria's |
 
 When stdout isn't a terminal there is no colour and no spinner. Failures exit non-zero with the error on stderr (2 for usage errors, 130 when interrupted).
 
@@ -456,6 +458,7 @@ All honour the `XDG_*` variables (the same layout is used on macOS). Conversatio
 - **SSH:** OSC 52 to the terminal on your own machine. Windows Terminal, iTerm2, kitty, WezTerm, Ghostty, foot and Alacritty accept it; some need it enabled (iTerm2: *Applications in terminal may access clipboard*). Texts over about 73 KB are not sent, because terminals drop larger ones silently.
 - **tmux:** the text goes into tmux's paste buffer (`prefix ]`) with `load-buffer -w`, which also passes it to the terminal unless `set-clipboard` is `off`.
 - `clipboard: native | osc52 | off` and `clipboard_command:` (a command that reads the text on stdin, such as `wl-copy -p`) override the choice. For image paste on Linux you still need `wl-clipboard` or `xclip`.
+- `clipboard_command` is **not run by a shell**: it is a program and its arguments. Single or double quotes group a word that contains spaces (`"/opt/my tools/copy" --flag`), and a word that starts with `~/` gets your home directory. Nothing else is expanded: no `$VAR`, no backslash before a space, no `|`, `;` or `>`; for those, put the commands in a script and name the script. A quote that is never closed, or an empty first word, is reported as a config error and the setting is ignored. If the command fails, `/copy` goes on to the next method and names the command and the reason; a tool gets 5 seconds, then it is stopped.
 
 **Odd characters or boxes instead of glyphs.** Use a UTF-8 locale (`export LANG=en_US.UTF-8`) and a font with box-drawing characters.
 

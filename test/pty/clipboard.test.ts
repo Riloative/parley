@@ -4,7 +4,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'n
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { makeHome, spawnTaria, sleep, testEnv, type Session } from './harness.js';
+import { DEFAULT_CONFIG, makeHome, spawnTaria, sleep, testEnv, type Session } from './harness.js';
 import { tariaCommand } from '../build-once.js';
 
 let s: Session | undefined;
@@ -17,6 +17,11 @@ const all = () => s!.all().map((l) => l.trimEnd()).join('\n');
 /** The transcript as one line, so a wrapped message can be matched. */
 const flat = () => s!.all().map((l) => l.trim()).join(' ').replace(/\s+/g, ' ');
 const DOWN = '\x1b[B';
+/** Command lines of running processes that contain `pattern`. */
+const running = (pattern: string) =>
+  spawnSync('ps', ['-eo', 'args='], { encoding: 'utf8' })
+    .stdout.split('\n')
+    .filter((l) => l.includes(pattern));
 
 /** A directory to use as PATH, holding fake clipboard tools that record
  * their arguments and stdin. */
@@ -239,11 +244,139 @@ describe('taria doctor clipboard', () => {
     expect(r.status).toBe(1);
   });
 
-  it('for OSC 52, says it cannot be confirmed and what to paste to check', () => {
+  it('for OSC 52, in a terminal: sends it, says it cannot be confirmed and what to paste to check', async () => {
+    const home = makeHome();
+    s = spawnTaria({ cols: 120, rows: 30, home, args: ['doctor', 'clipboard'], env: { NO_COLOR: '1', SSH_TTY: '/dev/pts/9', DISPLAY: '', WAYLAND_DISPLAY: '', PATH: fakeBin(home) } });
+    expect(await s.exited).toBe(0);
+    await s.waitStable();
+    expect(flat()).toMatch(/sent "taria clipboard test [\d:]+" via OSC 52; the terminal does not confirm it/);
+    expect(flat()).toMatch(/Paste now/);
+    expect(s.raw).toMatch(/\x1b\]52;c;[A-Za-z0-9+/=]+\x07/);
+  }, 30_000);
+
+  it('for OSC 52, with the output piped or redirected: writes no escape sequence, and says the test was not run', () => {
     const home = makeHome();
     const r = doctor(home, { SSH_TTY: '/dev/pts/9', DISPLAY: '', WAYLAND_DISPLAY: '', PATH: fakeBin(home) });
-    expect(r.stdout).toMatch(/sent "taria clipboard test [\d:]+" via OSC 52; the terminal does not confirm it/);
-    expect(r.stdout).toMatch(/Paste now/);
-    expect(r.stdout).toMatch(/\x1b\]52;c;[A-Za-z0-9+/=]+\x07/);
+    expect(r.stdout).not.toContain('\x1b]52;');
+    expect(r.stdout).toMatch(/Test copy\s+not run: OSC 52 is the method left here, and the output is not a terminal/);
+    expect(r.stdout).toMatch(/Run `taria doctor clipboard` in the terminal itself/);
+    expect(r.status).toBe(0);
   });
+
+  it('a clipboard_command that cannot be run is a config error; doctor clipboard reports it, tests the other methods and does not crash', () => {
+    for (const bad of [`'""'`, `'"/opt/my tools/copy --flag'`]) {
+      const home = makeHome(`${DEFAULT_CONFIG}clipboard_command: ${bad}\n`);
+      const bin = fakeBin(home, { mycopy: 0 });
+      const r = doctor(home, { SSH_TTY: '/dev/pts/9', DISPLAY: '', WAYLAND_DISPLAY: '', PATH: bin });
+      expect(r.stdout + r.stderr).not.toMatch(/TypeError|ERR_INVALID|\n\s+at /);
+      expect(r.stdout).toMatch(/✗ Config error\s+.*config\.yaml:\d+: clipboard_command has (no program name|a quote that is never closed)/);
+      expect(r.stdout).toMatch(/Test copy\s+not run: OSC 52 is the method left here/);
+      expect(r.status).toBe(1);
+    }
+  });
+
+  /** An xclip that copies (stdin to a file) and pastes (-o prints the file). */
+  const workingXclip = (bin: string) => {
+    writeFileSync(join(bin, 'xclip'), `#!/bin/sh\ncase "$*" in *-o*) /bin/cat "${bin}/xclip.stdin";; *) /bin/cat > "${bin}/xclip.stdin";; esac\n`);
+    chmodSync(join(bin, 'xclip'), 0o755);
+  };
+
+  // The method left after the broken command is xclip: a Linux desktop case, like its neighbours.
+  it.runIf(onLinux)('a clipboard_command whose program does not exist: no tick in `taria doctor`; `doctor clipboard` lists it as tried and failed', () => {
+    const home = makeHome(`${DEFAULT_CONFIG}clipboard_command: /nonexistent/copytool --flag\n`);
+    const bin = fakeBin(home);
+    workingXclip(bin);
+    const env = testEnv(home, { NO_COLOR: '1', DISPLAY: ':0', WAYLAND_DISPLAY: '', PATH: bin });
+    const cmd = tariaCommand(['doctor']);
+    const summary = spawnSync(cmd.command, cmd.args, { env, encoding: 'utf8', timeout: 30_000 }).stdout;
+    expect(summary).toMatch(/! \/copy uses\s+clipboard_command "\/nonexistent\/copytool --flag": \/nonexistent\/copytool was not found, or is not executable; \/copy falls back to xclip/);
+    expect(summary).not.toMatch(/✓ \/copy uses/);
+    expect(summary).toMatch(/→ Correct clipboard_command in the config file, or remove it/);
+    const r = doctor(home, { DISPLAY: ':0', WAYLAND_DISPLAY: '', PATH: bin });
+    expect(r.stdout).toMatch(/✗ Tried\s+clipboard_command "\/nonexistent\/copytool --flag": not found/);
+    expect(r.stdout).toMatch(/✓ Test copy\s+copied with xclip and read back/);
+    // The copy worked, but the configured command did not: that is a failure.
+    expect(r.status).toBe(1);
+  });
+
+  it.runIf(onLinux)('a tool that fails before another works is listed as tried', () => {
+    const home = makeHome();
+    const bin = fakeBin(home, { 'wl-copy': 3 });
+    workingXclip(bin);
+    const r = doctor(home, { ...DESKTOP, PATH: bin });
+    expect(r.stdout).toMatch(/! Tried\s+wl-copy: exited with status 3/);
+    expect(r.stdout).toMatch(/✓ Test copy\s+copied with xclip and read back/);
+    expect(r.status).toBe(0);
+  });
+
+  it.runIf(onLinux)('a tool that hangs and ignores SIGTERM is killed, with its children, by the time doctor exits', () => {
+    const home = makeHome();
+    const bin = fakeBin(home);
+    writeFileSync(join(bin, 'xclip'), '#!/bin/sh\ntrap "" TERM\nwhile :; do /bin/sleep 14142; done\n');
+    chmodSync(join(bin, 'xclip'), 0o755);
+    const r = doctor(home, { DISPLAY: ':0', WAYLAND_DISPLAY: '', PATH: bin });
+    expect(r.stdout).toMatch(/! Tried\s+xclip: did not finish within 5 s/);
+    expect(running('sleep 14142')).toEqual([]);
+    expect(running(join(bin, 'xclip'))).toEqual([]);
+  }, 30_000);
+});
+
+describe('/copy with a clipboard tool or command that does not work', () => {
+  it.runIf(onLinux)('a hanging tool: typing still works, and quitting during the wait leaves nothing running', async () => {
+    const home = makeHome();
+    const bin = fakeBin(home);
+    writeFileSync(join(bin, 'xclip'), '#!/bin/sh\n/bin/sleep 17321\n');
+    chmodSync(join(bin, 'xclip'), 0o755);
+    s = spawnTaria({ cols: 100, rows: 30, home, args: ['-m', 'mock/code'], env: { DISPLAY: ':0', WAYLAND_DISPLAY: '', PATH: bin } });
+    await s.waitFor('Send a message');
+    await reply();
+    s.write('/copy\r');
+    await s.waitFor(() => running('sleep 17321').length > 0);
+    s.write('still typing');
+    await s.waitFor('still typing', 3000);
+    s.write('\x15/exit\r');
+    expect(await s.exited).toBe(0);
+    await sleep(300);
+    expect(running('sleep 17321')).toEqual([]);
+    expect(running(join(bin, 'xclip'))).toEqual([]);
+  }, 30_000);
+
+  it.runIf(onLinux)('a clipboard_command that cannot be run is reported when taria starts, and /copy uses the next method', async () => {
+    const home = makeHome(`${DEFAULT_CONFIG}clipboard_command: '""'\n`);
+    const bin = fakeBin(home, { xclip: 0 });
+    s = spawnTaria({ cols: 100, rows: 30, home, args: ['-m', 'mock/code'], env: { DISPLAY: ':0', WAYLAND_DISPLAY: '', PATH: bin } });
+    await s.waitFor('Send a message');
+    await s.waitStable({ lastLine: 'Send a message' });
+    expect(flat()).toMatch(/config\.yaml:\d+: clipboard_command has no program name/);
+    await reply();
+    s.write('/copy\r');
+    await s.waitFor(/Copied the last response \([\d,]+ characters\) via xclip\./);
+    await s.waitStable();
+    expect(flat()).not.toMatch(/Copy failed|argument 'file'/);
+    expect(readFileSync(join(bin, 'xclip.stdin'), 'utf8')).toMatch(/import sys/);
+  }, 30_000);
+
+  it('a mistyped clipboard_command is named, with the reason, also when a later method "works"', async () => {
+    const home = makeHome(`${DEFAULT_CONFIG}clipboard_command: /usr/local/bin/my-copy-typo --in\n`);
+    s = spawnTaria({ cols: 100, rows: 30, home, args: ['-m', 'mock/code'], env: { SSH_TTY: '/dev/pts/9', DISPLAY: '', WAYLAND_DISPLAY: '', PATH: fakeBin(home) } });
+    await s.waitFor('Send a message');
+    await reply();
+    s.write('/copy\r');
+    await s.waitFor("to the terminal's clipboard (OSC 52)");
+    await s.waitStable();
+    expect(flat()).toMatch(/Tried first, without success: clipboard_command "\/usr\/local\/bin\/my-copy-typo --in": not found\./);
+    expect(s.raw).toContain('\x1b]52;c;');
+  }, 30_000);
+
+  it.runIf(onLinux)('a tool that fails before another copies is named in the notice', async () => {
+    const home = makeHome();
+    const bin = fakeBin(home, { 'wl-copy': 1, xclip: 0 });
+    s = spawnTaria({ cols: 100, rows: 30, home, args: ['-m', 'mock/code'], env: { ...DESKTOP, PATH: bin } });
+    await s.waitFor('Send a message');
+    await reply();
+    s.write('/copy\r');
+    await s.waitFor('via xclip');
+    await s.waitStable();
+    expect(flat()).toMatch(/via xclip\. Tried first, without success: wl-copy: exited with status 1\./);
+  }, 30_000);
 });

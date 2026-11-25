@@ -2,8 +2,25 @@
 
 ## Unreleased
 
+### Added
+
+- **`taria doctor` has an *Upgrade from parley* section:** an old `parley` binary on `PATH`, folders that were not moved or exist twice, conversations only in the old folder, keys still under parley's name in the keychain, and old variable names, each with the command to run. It changes nothing.
+- **`taria doctor merge`:** when both data folders exist, copies the conversations (and attachments) that are only in parley's folder into taria's, after you agree. It never overwrites, changes or removes anything; conversations that differ between the folders are listed and left alone, and ones you moved to the trash in taria stay there.
+
 ### Fixed
 
+Found by an independent review of the 0.3.0 code and by testing against real tools. Each fix has a test that failed first.
+
+- **Moving parley's files could delete every conversation** when taria's data folder already existed but was empty and two or more taria processes started at the same moment (reproduced: 11 of 60 tries with eight processes). taria's folder is now never removed recursively, and one process at a time does the move.
+- **A parley folder that is your own link** (to another disk or a dotfiles repository) was taken for "already moved": taria started empty and said nothing. taria's path now becomes a link to the same place, and `taria doctor` shows where each link really points.
+- **When the old folder had to be kept** (a mount point, a read-only folder), conversations you had moved to the trash and drafts you had cleared came back on the next start, changes made by an old parley could be skipped silently, and the same "differ" line was printed on every start. taria now records what it copied, looks again only at files that changed, and reports a difference once.
+- Copied files keep their modification time (so `taria -c` continues the right conversation) and links inside the folder are copied as links. A lock left by a crashed parley whose process number was reused no longer delays the move forever. An interrupted move is finished on the next start in every case tested.
+- **`taria doctor repair` made each repaired conversation the most recent one**, so `taria -c` continued a months-old conversation. A repair no longer changes the order.
+- **Opening a conversation that another window was just finishing** could record a reply as its cut-off beginning, or hide the newest messages. The file is now read after the lock is taken, not before.
+- `taria doctor` and `taria doctor repair` said "none" when the damaged conversations were still in parley's folder. Both now look there; `doctor repair` moves the files first. The number of hidden messages was too low when several replies had been lost, and a conversation rewound to its start opened at the wrong place in an older parley after a repair.
+- **API keys:** a key shorter than 8 characters was not removed from error messages, the conversation file and the `--debug` log when a server echoed it; secret headers set with `env:NAME` were written to the `--debug` log; a key containing a quote or backslash survived there in escaped form. All are redacted now, and the debug log shows header values only for a short list of harmless names.
+- **Keychain:** `taria doctor` and `taria key status` copied parley's entry to taria's name; they now change nothing. `taria key remove-old` could remove the only copy of a key; it now stores the key under taria's name first, and removes nothing if that fails. A keychain that was slow or locked was treated as empty, and parley's old key could then replace a newer taria key; it is now reported as "did not answer". `taria key set` refuses input with line breaks, and the credentials file is written atomically.
+- **`/copy`:** a `clipboard_command` that could not be started stopped the copy with a raw error (and crashed `taria doctor clipboard`); a hanging clipboard tool and its children were left running; a tool that exited without reading the text counted as *Copied*; a failed `clipboard_command` was not mentioned when a later method worked. `taria doctor clipboard` no longer writes an escape sequence into piped output.
 - **`taria -p -c`** now says, on stderr, when opening the conversation repaired replies cut off by the old crash bug. It used to repair silently.
 - The 0.3.0 notes said "parley" in three places where they described new behaviour of taria (`taria doctor`, `taria doctor clipboard`, the `/copy` messages).
 

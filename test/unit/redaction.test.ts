@@ -11,6 +11,7 @@ import { Store } from '../../src/core/store.js';
 import { Registry } from '../../src/providers/registry.js';
 import { defaultConfig, type Config } from '../../src/config/config.js';
 import { enableDebug } from '../../src/debug.js';
+import { redact } from '../../src/config/credentials.js';
 
 const KEY = 'sk-live-THIS-IS-A-SECRET-KEY-0123456789';
 let server: Server;
@@ -63,6 +64,93 @@ describe('key redaction', () => {
       expect(all).not.toContain('0123456789');
     });
   }
+});
+
+describe('keys that the ordinary patterns do not catch', () => {
+  // A gateway that repeats the credentials it was sent in its 401, as some do.
+  let echo: Server;
+  let echoBase = '';
+  beforeAll(async () => {
+    echo = createServer((req, res) => {
+      req.resume();
+      req.on('end', () => {
+        if (req.url?.endsWith('/models')) {
+          res.writeHead(200, { 'content-type': 'application/json' });
+          return res.end('{"data":[{"id":"m"}]}');
+        }
+        const auth = String(req.headers.authorization ?? '').replace(/^Bearer /, '');
+        const extra = String(req.headers['x-auth-token'] ?? '');
+        if (req.headers['x-shape'] === 'ok') {
+          res.writeHead(200, { 'content-type': 'text/event-stream' });
+          return res.end('data: {"choices":[{"index":0,"delta":{"content":"fine"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n');
+        }
+        res.writeHead(401, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: { message: `Incorrect API key provided: ${auth}`, token_seen: extra } }));
+      });
+    });
+    await new Promise<void>((r) => echo.listen(0, '127.0.0.1', r));
+    echoBase = `http://127.0.0.1:${(echo.address() as AddressInfo).port}/v1`;
+  });
+  afterAll(() => echo.close());
+
+  /** One turn against the echoing server; everything taria wrote or said. */
+  async function turn(name: string, key: string, headers: Record<string, string> = {}): Promise<string> {
+    const dir = mkdtempSync(join(tmpdir(), 'taria-redact-'));
+    const log = enableDebug(join(dir, 'debug.log'));
+    process.env[`REDACT_${name.toUpperCase()}_KEY`] = key;
+    const config: Config = { ...defaultConfig(), providers: { [name]: { name, type: 'openai-compatible', baseUrl: echoBase, apiKeyEnv: `REDACT_${name.toUpperCase()}_KEY`, headers, models: {} } } };
+    const session = new Session({ config, registry: new Registry(config), store: new Store(dir), model: `${name}/m` });
+    const notices: string[] = [];
+    session.on('event', (e: SessionEvent) => e.type === 'notice' && notices.push(e.text));
+    await session.submit({ text: 'hi' });
+    session.close();
+    const files = readdirSync(join(dir, 'conversations')).filter((f) => f.endsWith('.jsonl'));
+    return [notices.join('\n'), readFileSync(log, 'utf8'), ...files.map((f) => readFileSync(join(dir, 'conversations', f), 'utf8'))].join('\n');
+  }
+
+  it('a short key (7 characters, as local gateways use) is redacted everywhere', async () => {
+    const all = await turn('short', 'FAKE123');
+    expect(all).toMatch(/short rejected the API key/);
+    expect(all).not.toContain('FAKE123');
+  });
+
+  it('redact() covers every known secret of 4 characters or more, the longest first; shorter ones are left', () => {
+    expect(redact('token abcd and abcdefgh end', ['abcd', 'abcdefgh'])).toBe('token [redacted] and [redacted] end');
+    expect(redact('pin 1234', ['1234'])).toBe('pin [redacted]');
+    // Below 4 characters a "secret" is a common substring: redacting it would garble every message.
+    expect(redact('the cat sat', ['at', undefined, ''])).toBe('the cat sat');
+  });
+
+  it('a key with a quote and a backslash is redacted in its JSON-escaped forms too (the debug log)', async () => {
+    const key = 'tok"en\\FAKE-0123456789abcdef';
+    const all = await turn('quoted', key);
+    expect(all).toMatch(/quoted rejected the API key/);
+    expect(all).not.toContain(key);
+    expect(all).not.toContain('FAKE-0123456789abcdef');
+    const once = JSON.stringify(key).slice(1, -1);
+    const twice = JSON.stringify(once).slice(1, -1);
+    expect(redact(`a ${key} b ${once} c ${twice} d`, [key])).toBe('a [redacted] b [redacted] c [redacted] d');
+  });
+
+  it('a secret header read from the environment (env:NAME) never reaches the debug log, sent or echoed back', async () => {
+    const token = 'tok-FAKE-HEADER-0123456789';
+    process.env.REDACT_HEADER_TOKEN = token;
+    // The request succeeds: the log holds the request's headers.
+    const ok = await turn('hdrok', 'sk-test-FAKE-0123456789abcdef', { 'X-Auth-Token': 'env:REDACT_HEADER_TOKEN', 'X-Shape': 'ok' });
+    expect(ok).toMatch(/"X-Auth-Token":"\[redacted\]"/);
+    expect(ok).not.toContain(token);
+    // The server repeats the header in its error body.
+    const echoed = await turn('hdrecho', 'sk-test-FAKE-0123456789abcdef', { 'X-Auth-Token': '${REDACT_HEADER_TOKEN}' });
+    expect(echoed).toMatch(/hdrecho rejected the API key/);
+    expect(echoed).not.toContain(token);
+  });
+
+  it('configured header values are not logged, whatever the header is called; harmless standard ones are', async () => {
+    const all = await turn('hdrlit', 'sk-test-FAKE-0123456789abcdef', { 'X-Tenant': 'tenant-FAKE-42', 'X-Shape': 'ok' });
+    expect(all).not.toContain('tenant-FAKE-42');
+    expect(all).toMatch(/"X-Tenant":"\[redacted\]"/);
+    expect(all).toMatch(/"content-type":"application\/json"/);
+  });
 });
 
 describe('retry policy', () => {

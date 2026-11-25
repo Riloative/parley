@@ -52,8 +52,9 @@ async function main(): Promise<void> {
   if (args.noColor) process.env.NO_COLOR = '1';
   const oldEnv = legacyEnvNotice();
   if (oldEnv) renameNotices.push(oldEnv);
-  // doctor only reports; everything else moves parley's files first.
-  if (args.command !== 'doctor' && legacyDirsPresent()) {
+  // doctor only reports; everything else moves parley's files first,
+  // `doctor repair` included: it writes to conversations.
+  if ((args.command !== 'doctor' || args.rest[0] === 'repair') && legacyDirsPresent()) {
     const { migrateFromParley, migrationNotices } = await import('./config/migrate.js');
     renameNotices.push(...migrationNotices(migrateFromParley()));
   }

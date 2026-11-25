@@ -62,7 +62,7 @@ describe('shell completions', () => {
     expect(ask('taria do')).toEqual(['doctor']);
     expect(ask('taria --th')).toEqual(['--theme']);
     expect(ask('taria --theme l')).toEqual(['light']);
-    expect(ask('taria doctor ')).toEqual(['clipboard', 'repair']);
+    expect(ask('taria doctor ')).toEqual(['clipboard', 'repair', 'merge']);
     expect(ask('taria key re')).toEqual(['remove', 'remove-old']);
     expect(ask('taria completions ')).toEqual(['bash', 'zsh', 'fish']);
   });

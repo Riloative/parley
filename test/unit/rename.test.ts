@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { adoptLegacyEnv, legacyEnvNotice } from '../../src/brand.js';
-import { _setKeychainRunner, hasOldKeychainEntry, resolveKey } from '../../src/config/credentials.js';
+import { _setKeychainRunner, hasOldKeychainEntry, removeOldKeychainEntry, resolveKey } from '../../src/config/credentials.js';
 import type { ProviderConfig } from '../../src/config/config.js';
 import { Store, replay, SCHEMA_VERSION } from '../../src/core/store.js';
 import { writeConfigFile } from '../../src/term/setup.js';
@@ -43,6 +43,29 @@ describe('environment variables', () => {
   });
 });
 
+type KeychainRunner = NonNullable<Parameters<typeof _setKeychainRunner>[0]>;
+
+/** An in-memory `security` / `secret-tool`. */
+function fakeKeychain(kind: 'macos' | 'libsecret', store: Record<string, string>, calls: string[][] = [], opts: { failWrites?: boolean; failDeletes?: boolean } = {}): KeychainRunner {
+  return async (cmd, args, input) => {
+    calls.push([cmd, ...args]);
+    const service = kind === 'macos' ? args[args.indexOf('-s') + 1] : args[args.indexOf('service') + 1];
+    const account = kind === 'macos' ? args[args.indexOf('-a') + 1] : args[args.indexOf('account') + 1];
+    const k = `${service}/${account}`;
+    const op = args[0];
+    if (op === 'find-generic-password' || op === 'lookup') return store[k] ? { code: 0, stdout: `${store[k]}\n`, stderr: '' } : { code: kind === 'macos' ? 44 : 1, stdout: '', stderr: '' };
+    if (op === 'add-generic-password' || op === 'store') {
+      if (opts.failWrites) return { code: 1, stdout: '', stderr: 'locked' };
+      store[k] = op === 'store' ? input! : args[args.indexOf('-w') + 1]!;
+    }
+    if (op === 'delete-generic-password' || op === 'clear') {
+      if (opts.failDeletes) return { code: 1, stdout: '', stderr: 'locked' };
+      delete store[k];
+    }
+    return { code: 0, stdout: '', stderr: '' };
+  };
+}
+
 describe('keychain', () => {
   const SECRET = 'sk-ant-api03-OLDPARLEYKEY0123456789abcdefghij';
   const provider: ProviderConfig = { name: 'anthropic', type: 'anthropic', headers: {}, models: {}, apiKeyEnv: 'TARIA_TEST_UNSET_KEY_VAR' };
@@ -58,7 +81,7 @@ describe('keychain', () => {
         const account = kind === 'macos' ? args[args.indexOf('-a') + 1] : args[args.indexOf('account') + 1];
         const k = `${service}/${account}`;
         const op = args[0];
-        if (op === 'find-generic-password' || op === 'lookup') return store[k] ? { code: 0, stdout: `${store[k]}\n`, stderr: '' } : { code: 44, stdout: '', stderr: '' };
+        if (op === 'find-generic-password' || op === 'lookup') return store[k] ? { code: 0, stdout: `${store[k]}\n`, stderr: '' } : { code: kind === 'macos' ? 44 : 1, stdout: '', stderr: '' };
         if (op === 'add-generic-password') store[k] = args[args.indexOf('-w') + 1]!;
         if (op === 'store') store[k] = input!;
         return { code: 0, stdout: '', stderr: '' };
@@ -76,9 +99,51 @@ describe('keychain', () => {
       // Next time the taria entry answers directly.
       _setKeychainRunner(async (_c, args) => {
         const service = kind === 'macos' ? args[args.indexOf('-s') + 1] : args[args.indexOf('service') + 1];
-        return service === 'taria' ? { code: 0, stdout: SECRET, stderr: '' } : { code: 44, stdout: '', stderr: '' };
+        return service === 'taria' ? { code: 0, stdout: SECRET, stderr: '' } : { code: kind === 'macos' ? 44 : 1, stdout: '', stderr: '' };
       }, kind);
       expect((await resolveKey(provider)).detail).not.toMatch(/copied/);
+    });
+
+    it(`${kind}: a read-only lookup (doctor, key status) finds parley's key and writes nothing`, async () => {
+      const store: Record<string, string> = { 'parley/anthropic': SECRET };
+      const calls: string[][] = [];
+      _setKeychainRunner(fakeKeychain(kind, store, calls), kind);
+      const r = await resolveKey(provider, { readOnly: true });
+      expect(r.key).toBe(SECRET);
+      expect(r.detail).toMatch(/the parley entry/);
+      expect(r.detail).not.toMatch(/copied/);
+      expect(store).toEqual({ 'parley/anthropic': SECRET });
+      expect(calls.every((c) => ['find-generic-password', 'lookup'].includes(c[1]!))).toBe(true);
+      // A later normal lookup in the same process still copies it.
+      expect((await resolveKey(provider)).detail).toMatch(/copied from the parley entry/);
+      expect(store['taria/anthropic']).toBe(SECRET);
+    });
+
+    it(`${kind}: remove-old never removes the only copy of a key`, async () => {
+      // Only parley's entry exists: the key is copied to taria's name first.
+      const store: Record<string, string> = { 'parley/anthropic': SECRET };
+      _setKeychainRunner(fakeKeychain(kind, store), kind);
+      expect(await removeOldKeychainEntry('anthropic')).toBe('copied-and-removed');
+      expect(store).toEqual({ 'taria/anthropic': SECRET });
+      expect(await removeOldKeychainEntry('anthropic')).toBe('none');
+
+      // The copy cannot be stored: the old entry stays.
+      const stuck: Record<string, string> = { 'parley/anthropic': SECRET };
+      _setKeychainRunner(fakeKeychain(kind, stuck, [], { failWrites: true }), kind);
+      expect(await removeOldKeychainEntry('anthropic')).toBe('copy-failed');
+      expect(stuck).toEqual({ 'parley/anthropic': SECRET });
+
+      // A different key is already under taria's name: it is kept, the old one goes.
+      const both: Record<string, string> = { 'parley/anthropic': SECRET, 'taria/anthropic': 'sk-newer-key-000' };
+      _setKeychainRunner(fakeKeychain(kind, both), kind);
+      expect(await removeOldKeychainEntry('anthropic')).toBe('removed');
+      expect(both).toEqual({ 'taria/anthropic': 'sk-newer-key-000' });
+
+      // The keychain refuses the removal: say so, do not claim it was removed.
+      const locked: Record<string, string> = { 'parley/anthropic': SECRET, 'taria/anthropic': SECRET };
+      _setKeychainRunner(fakeKeychain(kind, locked, [], { failDeletes: true }), kind);
+      expect(await removeOldKeychainEntry('anthropic')).toBe('remove-failed');
+      expect(locked['parley/anthropic']).toBe(SECRET);
     });
   }
 });

@@ -147,9 +147,37 @@ src/config/              config.ts (YAML + validation with line numbers), creden
 ## The rename from parley (0.3.0)
 
 - The old name lives only in `src/brand.ts` (`OLD_APP`) and the code that reads old data: `src/config/migrate.ts`, the keychain fallback, `meta.app` ("parley" or "taria"), `.parley-backup` recognition, `bin/parley.js`, `scripts/parley-alias.sh` and `install.sh`'s `PARLEY_*` fallbacks.
+- The move (`src/config/migrate.ts`) must stay safe when several taria processes start at once: taria's folder is never removed recursively (an empty one goes with plain `rmdir`, folders are put in place with `rename`, and a step that fails because something appeared means "look again"), and `.taria-migration.lock` next to the folders lets one process do the work. The marker (`.migrated-from-parley`) records each copied file as `[size, old mtime, copy mtime]`, so a kept old folder never brings back what taria trashed or cleared. `test/unit/migrate-review.test.ts` runs a second migration between every two file-system calls of the first.
+- `taria doctor` and `taria key status` call `setKeychainReadOnly()`: they must not copy parley's keychain entry. A keychain lookup answers found, missing or error; only "missing" under taria's name allows the old entry to be copied.
+- `test/fixtures/old-readers/` holds `store.ts` and `conversation.ts` from 0.0.1, 0.1.0 and 0.2.0, unchanged. `test/unit/repair-fuzz.test.ts` writes files with them and checks that every reader agrees after a repair (`FUZZ_N=30000` for a long run).
+- `Store.open()` with a lock takes the lock first and reads afterwards, and restores the file's mtime after its settling appends: a repair is not user activity and must not reorder `store.list()`.
 - `adoptLegacyEnv()` runs first in `src/cli.ts`; the rest of the program reads `TARIA_*` only.
-- The migration runs in `src/cli.ts` before anything opens a file, except for `doctor`, which must never change anything (or create a taria folder: an existing one with files stops the move). Notices go to the welcome box, or stderr outside the interactive interface; never stdout.
-- In 0.4.0: remove `bin/parley.js`, `scripts/parley-alias.sh`, the `parley` bin entry, the alias steps in `build-binary.mjs`, `install.sh` and the workflows, and the `PARLEY_*` adoption. Keep reading old data (migration, keychain fallback, `meta.app`) for longer.
+- The migration runs in `src/cli.ts` before anything opens a file, except for plain `doctor` and `doctor clipboard`, which must never change anything (`doctor repair` writes, so it moves the files first) (or create a taria folder: an existing one with files stops the move). Notices go to the welcome box, or stderr outside the interactive interface; never stdout.
+- 0.4.0 removes the alias and the old variable names; the checklist is below. Do not start it unless asked.
+
+### 0.4.0 removal checklist (not started)
+
+Remove (the `parley` command and the `PARLEY_*` names):
+
+- [ ] `bin/parley.js`, `scripts/parley-alias.sh`, and `"parley"` under `bin` in `package.json`
+- [ ] `scripts/build-binary.mjs`: the alias copy and `'parley'` in the `tar` arguments (the archive then holds only `taria`)
+- [ ] `.github/workflows/binaries.yml`: the archive listing check (`"parley taria "` becomes `"taria "`) and the alias check after `install.sh`; `ci.yml`: the alias check in the global-install smoke test; `release.yml`: the comment about the alias
+- [ ] `install.sh`: the block that installs the alias, and the `PARLEY_*` fallbacks. Add instead: if `$install_dir/parley` is taria's alias script (it contains `parley is now taria`), delete it; if it is anything else (a real parley binary), leave it and say so
+- [ ] `src/brand.ts`: `adoptLegacyEnv()`, `legacyEnvNotice()` and the alias notice; the call in `src/cli.ts`
+- [ ] `src/completions.ts`: `complete -F _taria parley`, `#compdef taria parley`, `complete -c parley -w taria`; `src/manpage.ts`: the `PARLEY_*` entry; `README.md`: the upgrade notes that mention the alias
+- [ ] Tests that cover the alias and the old variable names: `test/pty/rename.test.ts` (alias, variables), `test/unit/rename.test.ts` (`adoptLegacyEnv`), `test/unit/install.test.ts` (alias cases), `test/unit/cli-spec.test.ts` (completions for `parley`). These are removed because the behaviour is removed; list them in the PR
+- [ ] `taria doctor`: keep reporting an old `parley` on `PATH`, now as "no longer supported"
+- [ ] CHANGELOG: a *Removed* section, with what to do (`taria` instead of `parley`, `TARIA_*` instead of `PARLEY_*`)
+
+Keep (reading old data must keep working; conversations written by parley must always open):
+
+- `src/config/migrate.ts` and its call in `src/cli.ts`, including the links at the old paths
+- the keychain fallback and `taria key remove-old` (`src/config/credentials.ts`, `src/keycmd.ts`)
+- `meta.app: "parley"` in conversation files, `.parley-backup` recognition (`src/term/setup.ts`), parley's credentials file as a fallback
+- `replay()` / `Store.open()` repair of files from 0.0.1–0.2.0, and `taria doctor repair`
+- `scripts/bench-startup.mjs` running a pre-rename build
+
+Before releasing 0.4.0: run the upgrade from a real parley 0.2.0 again (release binary and npm), as was done for 0.3.1.
 
 ## Gotchas
 

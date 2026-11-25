@@ -1,8 +1,8 @@
 // `taria key set|remove|status <provider>`
 
-import { deleteOldKeychainEntry, hasOldKeychainEntry } from './config/credentials.js';
+import { hasOldKeychainEntry, removeOldKeychainEntry } from './config/credentials.js';
 import { loadConfig } from './config/config.js';
-import { deleteKey, detectKeychain, keychainLabel, resolveKey, storeKey, defaultKeyEnv } from './config/credentials.js';
+import { CredentialError, deleteKey, detectKeychain, keyProblem, keychainLabel, resolveKey, setKeychainReadOnly, storeKey, defaultKeyEnv, type ResolvedKey } from './config/credentials.js';
 
 function readSecret(prompt: string): Promise<string> {
   return new Promise((resolve) => {
@@ -56,7 +56,21 @@ export async function runKeyCommand(rest: string[]): Promise<number> {
       process.stderr.write('No key entered; nothing changed.\n');
       return 1;
     }
-    const r = await storeKey(provider, key);
+    // Piped input of several lines is not a key: stored as it is, its second
+    // line would become another provider's entry in the credentials file.
+    const problem = keyProblem(key);
+    if (problem) {
+      process.stderr.write(`${problem} Nothing was stored.\n`);
+      return 1;
+    }
+    let r: Awaited<ReturnType<typeof storeKey>>;
+    try {
+      r = await storeKey(provider, key);
+    } catch (e) {
+      if (!(e instanceof CredentialError)) throw e;
+      process.stderr.write(`${e.message} Nothing was stored.\n`);
+      return 1;
+    }
     process.stdout.write(`Stored the key for ${provider} in the ${r.store === 'keychain' ? r.detail : `credentials file ${r.detail} (no keychain available)`}.\n`);
     return 0;
   }
@@ -66,18 +80,39 @@ export async function runKeyCommand(rest: string[]): Promise<number> {
     return 0;
   }
   if (action === 'remove-old') {
-    const had = await hasOldKeychainEntry(provider);
-    if (had) await deleteOldKeychainEntry(provider);
-    process.stdout.write(had ? `Removed the old parley keychain entry for ${provider}. The taria entry is unchanged.\n` : `There is no old parley keychain entry for ${provider}.\n`);
+    const r = await removeOldKeychainEntry(provider);
+    if (r === 'copy-failed' || r === 'remove-failed' || r === 'no-answer') {
+      process.stderr.write(
+        r === 'no-answer'
+          ? `The keychain did not answer (it may be locked, or waiting for a password), so taria cannot tell whether the key for ${provider} is stored under its own name. Nothing was removed.\n`
+          : r === 'copy-failed'
+          ? `The old parley keychain entry for ${provider} is the only copy of that key, and storing it under taria's name failed. Nothing was removed.\n`
+          : `The keychain refused to remove the old parley entry for ${provider}. Nothing was removed.\n`,
+      );
+      return 1;
+    }
+    process.stdout.write(
+      r === 'none'
+        ? `There is no old parley keychain entry for ${provider}.\n`
+        : r === 'copied-and-removed'
+          ? `Stored the key for ${provider} under taria's name first (it was only under parley's), then removed the old parley entry.\n`
+          : `Removed the old parley keychain entry for ${provider}. The taria entry is unchanged.\n`,
+    );
     return 0;
   }
   const kind = await detectKeychain();
-  const r = pc ? await resolveKey(pc) : { source: 'none' as const };
+  setKeychainReadOnly();
+  const r: ResolvedKey = pc ? await resolveKey(pc) : { source: 'none' };
   const env = pc ? (pc.apiKeyEnv ?? defaultKeyEnv(pc)) : undefined;
-  process.stdout.write(
-    `Provider: ${provider}\nKeychain: ${keychainLabel(kind)}\nKey source: ${r.source === 'none' ? `none found${env ? ` (checked $${env}, keychain, credentials file)` : ''}` : `${r.source}${'detail' in r && r.detail ? ` (${r.detail})` : ''}`}\n`,
-  );
+  // A keychain that did not answer is not an empty one: say which it was.
+  const source =
+    r.source !== 'none'
+      ? `${r.source}${r.detail ? ` (${r.detail})` : ''}${r.keychainProblem ? `; the keychain did not answer (${r.keychainProblem})` : ''}`
+      : r.keychainProblem
+        ? `unknown: the keychain did not answer (${r.keychainProblem}), so a key may be stored there. Not in ${env ? `$${env} or ` : ''}the credentials file. Unlock the keychain and try again.`
+        : `none found${env ? ` (checked $${env}, keychain, credentials file)` : ''}`;
+  process.stdout.write(`Provider: ${provider}\nKeychain: ${keychainLabel(kind)}\nKey source: ${source}\n`);
   // An entry parley stored is never deleted without being asked.
-  if (await hasOldKeychainEntry(provider)) process.stdout.write(`Old parley entry: still in the keychain (an old parley uses it). Remove it with: taria key remove-old ${provider}\n`);
+  if (!r.keychainProblem && (await hasOldKeychainEntry(provider))) process.stdout.write(`Old parley entry: still in the keychain (an old parley uses it). Remove it with: taria key remove-old ${provider}\n`);
   return 0;
 }

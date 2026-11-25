@@ -1,17 +1,19 @@
 // `taria doctor`: check the environment and explain how to fix problems.
 
-import { accessSync, constants, existsSync, lstatSync, readFileSync, realpathSync, statSync, type Stats } from 'node:fs';
+import { accessSync, constants, existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { delimiter, dirname, join } from 'node:path';
-import { APP, OLD_APP, OLD_NAMES_REMOVED_IN, legacyEnvNotice } from './brand.js';
-import { DIR_KINDS } from './config/paths.js';
+import { APP, OLD_APP, OLD_NAMES_REMOVED_IN, legacyEnvNotice, renameNotices } from './brand.js';
+import { DIR_KINDS, dirIsExplicit } from './config/paths.js';
+import { oldFolderReport } from './config/migrate.js';
+import { planMerge, runMerge } from './config/merge.js';
 import { spawnSync } from 'node:child_process';
 import { boot } from './bootstrap.js';
 import { Store, scanForRepairs } from './core/store.js';
 import { paths } from './config/paths.js';
 import { colorLevel, inTmux, likelySupportsSyncOutput, overSsh, terminalName, unicodeOk } from './term/caps.js';
 import { copyText, currentContext, detectClipboardHelper, readBackText } from './term/clipboard.js';
-import { loadConfig } from './config/config.js';
-import { detectKeychain, keychainLabel, resolveKey, isLocalUrl, defaultKeyEnv } from './config/credentials.js';
+import { formatIssues, loadConfig } from './config/config.js';
+import { detectKeychain, hasOldKeychainEntry, keychainLabel, resolveKey, setKeychainReadOnly, isLocalUrl, defaultKeyEnv } from './config/credentials.js';
 import { KeyDecoder } from './term/keys.js';
 import { BUILD_KIND, VERSION } from './version.js';
 
@@ -27,6 +29,10 @@ const mark = (l: Level) => {
 
 let failures = 0;
 function line(level: Level, label: string, detail: string, fix?: string): void {
+  plainLine(level, label, detail, fix);
+}
+
+function plainLine(level: Level, label: string, detail: string, fix?: string): void {
   if (level === 'fail') failures++;
   process.stdout.write(`  ${mark(level)} ${label.padEnd(22)} ${detail}\n`);
   if (fix) process.stdout.write(`    ${useColor() ? '\x1b[90m' : ''}→ ${fix}${useColor() ? '\x1b[0m' : ''}\n`);
@@ -69,30 +75,60 @@ function probeKitty(): Promise<boolean | undefined> {
  * it back where a paste tool exists. */
 async function clipboardTest(): Promise<number> {
   failures = 0;
-  const cfg = loadConfig(paths.configFile).config;
+  const loaded = loadConfig(paths.configFile);
+  const cfg = loaded.config;
   const ctx = currentContext();
   const info = detectClipboardHelper({ mode: cfg.clipboard, command: cfg.clipboardCommand }, ctx);
   process.stdout.write('taria doctor clipboard\n');
   section('Clipboard');
-  line(info.ok ? 'info' : 'warn', 'Method', info.detail);
+  // A clipboard setting the config file got wrong is not in `cfg` at all.
+  for (const i of formatIssues(loaded.file, loaded.issues.filter((x) => /clipboard/.test(x.message)))) line('fail', 'Config error', i);
+  line(info.ok ? 'info' : 'warn', 'Method', info.detail, info.fix);
   for (const s of info.plan.skipped) line('info', 'Not used', s);
   const sample = `taria clipboard test ${new Date().toTimeString().slice(0, 8)}`;
-  const r = await copyText(sample, { mode: cfg.clipboard, command: cfg.clipboardCommand, ctx });
+  // OSC 52 is for a terminal: piped or redirected, the sequence would only
+  // end up in a file or another program's input.
+  let r: Awaited<ReturnType<typeof copyText>>;
+  try {
+    r = await copyText(sample, { mode: cfg.clipboard, command: cfg.clipboardCommand, ctx, write: process.stdout.isTTY ? undefined : null });
+  } catch (e) {
+    line('fail', 'Test copy', `could not be run: ${(e as Error).message}`);
+    return 1;
+  }
+  // Every method that was tried and failed, also when a later one worked: a
+  // clipboard_command that does not work is a failure in its own right.
+  const listTried = () => {
+    if (r.status === 'off') return;
+    for (const f of r.failed) line(f.configured ? 'fail' : 'warn', 'Tried', `${f.method}: ${f.reason}`, f.configured ? 'Correct clipboard_command in the config file, or remove it.' : undefined);
+  };
   if (r.status === 'off') line('info', 'Test copy', 'not run: clipboard: off');
-  else if (r.status === 'failed') line('fail', 'Test copy', `nothing was copied: ${r.tried.join('; ')}`, r.hint);
+  else if (r.status === 'failed' && r.noTerminal) {
+    listTried();
+    line('warn', 'Test copy', 'not run: OSC 52 is the method left here, and the output is not a terminal (nothing was written)', 'Run `taria doctor clipboard` in the terminal itself, without a pipe or redirect.');
+  } else if (r.status === 'failed') line('fail', 'Test copy', `nothing was copied: ${r.tried.join('; ')}`, r.hint);
   else if (r.status === 'copied') {
+    listTried();
     const back = readBackText(ctx);
     if (back === undefined) line('ok', 'Test copy', `${r.via} accepted "${sample}" (no paste tool to read it back)`, 'Paste somewhere to check.');
     else if (back === sample) line('ok', 'Test copy', `copied with ${r.via} and read back`);
     else line('fail', 'Test copy', `${r.via} exited successfully, but the clipboard holds something else`, 'Another program may own the clipboard; try clipboard_command in the config.');
   } else {
+    listTried();
     line('warn', 'Test copy', `sent "${sample}" via ${r.via === 'tmux' ? 'tmux (load-buffer -w)' : 'OSC 52'}; the terminal does not confirm it`, `Paste now (Ctrl+Shift+V, or Ctrl+V in Notepad): you should see "${sample}". If nothing appears, the terminal ignores OSC 52${r.via === 'tmux' ? ' or tmux has set-clipboard off' : ''}; install a clipboard tool or set clipboard_command.`);
   }
   return failures ? 1 : 0;
 }
 
 /** parley, before the rename: report what is left, change nothing. */
-function oldInstallReport(): void {
+/** What is left of a parley install, each with the command that deals with
+ * it. Reads only. Printed as its own section when there is anything. */
+async function oldInstallReport(): Promise<void> {
+  let headed = false;
+  const line: typeof plainLine = (...a) => {
+    if (!headed) section('Upgrade from parley');
+    headed = true;
+    plainLine(...a);
+  };
   for (const dir of (process.env.PATH ?? '').split(delimiter)) {
     const f = dir && join(dir, OLD_APP);
     if (!f || !existsSync(f)) continue;
@@ -105,23 +141,78 @@ function oldInstallReport(): void {
     if (/parley is now taria/.test(head)) line('info', 'parley command', `${f} is the alias that runs taria (until ${APP} ${OLD_NAMES_REMOVED_IN})`);
     else {
       const npm = /node_modules/.test(realpathSafe(f));
-      line('warn', 'Old parley binary', `${f} is parley from before the rename${npm ? ' (npm)' : ''}`, npm ? 'Remove it once you have switched: npm uninstall -g parley' : `Delete ${f} once you have switched to taria.`);
+      line('warn', 'Old parley binary', `${f} is parley from before the rename${npm ? ' (npm)' : ''}`, npm ? 'Remove it once you have switched: npm uninstall -g parley' : `Remove it once you have switched: rm ${f}`);
     }
     break;
   }
   for (const kind of DIR_KINDS) {
     const old = paths.legacyDir(kind);
     const current = paths[`${kind}Dir` as 'dataDir'];
-    let st: Stats | undefined;
-    try {
-      st = lstatSync(old);
-    } catch {
-      continue;
-    }
-    if (st.isSymbolicLink()) line('info', `Old ${kind} folder`, `${old} → ${current} (a link, for an old parley)`);
-    else if (existsSync(current) && current !== old) line('warn', `Old ${kind} folder`, `${old} still exists next to ${current}; taria uses ${current}`, `Compare them, and delete ${old} when you no longer need it.`);
-    else line('info', `Old ${kind} folder`, `${old}: moves to ${current} the next time taria starts (doctor changes nothing)`);
+    // Reads the link's real target: it may be the user's own, not the move's.
+    const report = oldFolderReport(old, current);
+    if (report) line(report.level, `Old ${kind} folder`, report.text, report.hint);
   }
+  // Both data folders exist: what is only in the old one.
+  const plan = planMerge(paths.legacyDir('data'), paths.dataDir);
+  if (plan?.onlyOld.length) {
+    const n = plan.onlyOld.length;
+    line('warn', 'Only in the old folder', `${n} conversation${n === 1 ? '' : 's'} in ${plan.oldDir} ${n === 1 ? 'is' : 'are'} not in ${plan.newDir}`, 'Bring them over (copies only; nothing is overwritten): taria doctor merge');
+  }
+  if (plan?.differ.length) line('info', 'In both folders', `${plan.differ.length} conversation${plan.differ.length === 1 ? ' differs' : 's differ'} between ${plan.oldDir} and ${plan.newDir}; taria uses its own and leaves the other alone`);
+  // Keys still stored under parley's name.
+  let providers: string[] = [];
+  try {
+    providers = Object.keys(loadConfig(paths.configFile).config.providers);
+  } catch {
+    /* no readable config: nothing to look up */
+  }
+  for (const p of providers) {
+    if (await hasOldKeychainEntry(p)) line('info', 'Old keychain entry', `the key for ${p} is still stored under parley's name too (an old parley uses it)`, `When no parley uses it any more: taria key remove-old ${p}`);
+  }
+  const envNote = legacyEnvNotice();
+  if (envNote) line('warn', 'Old variables', envNote);
+}
+
+/** `taria doctor merge`: copy conversations that are only in parley's data
+ * folder into taria's, after the user agrees. */
+async function mergeFolders(): Promise<number> {
+  process.stdout.write('taria doctor merge\n\n');
+  const plan = planMerge(paths.legacyDir('data'), paths.dataDir);
+  if (!plan || (!plan.onlyOld.length && !plan.attachments.length)) {
+    process.stdout.write(plan ? `Nothing to bring over: every conversation in ${plan.oldDir} is already in ${plan.newDir}${plan.inTrash.length ? ' (or in its trash)' : ''}.\n` : `Nothing to bring over: there is no separate parley data folder (${paths.legacyDir('data')}).\n`);
+    if (plan?.differ.length) process.stdout.write(`${plan.differ.length} conversation${plan.differ.length === 1 ? ' differs' : 's differ'} between the two folders (${plan.differ.join(', ')}); both copies are kept as they are.\n`);
+    return 0;
+  }
+  const titleOf = (id: string): string => {
+    try {
+      return new Store(plan.oldDir).open(id, { lock: false }).conv.title ?? id;
+    } catch {
+      return id;
+    }
+  };
+  process.stdout.write(`From ${plan.oldDir}\n  to ${plan.newDir}\n\n`);
+  for (const id of plan.onlyOld) process.stdout.write(`  ${titleOf(id)} (${id})\n`);
+  if (plan.attachments.length) process.stdout.write(`  and ${plan.attachments.length} attachment file${plan.attachments.length === 1 ? '' : 's'}\n`);
+  if (plan.differ.length) process.stdout.write(`\nNot touched: ${plan.differ.length} conversation${plan.differ.length === 1 ? '' : 's'} that exist${plan.differ.length === 1 ? 's' : ''} in both folders with different content (${plan.differ.join(', ')}).\n`);
+  process.stdout.write('\nMerge copies these files. Nothing in either folder is overwritten, changed or removed.\n');
+  if (!process.stdin.isTTY) {
+    process.stdout.write('Run this in a terminal to confirm.\n');
+    return 1;
+  }
+  const { createInterface } = await import('node:readline/promises');
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const answer = (await rl.question(`Copy ${plan.onlyOld.length} conversation${plan.onlyOld.length === 1 ? '' : 's'}? [y/N] `)).trim().toLowerCase();
+  rl.close();
+  if (answer !== 'y' && answer !== 'yes') {
+    process.stdout.write('Nothing changed.\n');
+    return 0;
+  }
+  const titles = new Map(plan.onlyOld.map((id) => [id, titleOf(id)]));
+  const r = runMerge(plan);
+  for (const id of r.copied) process.stdout.write(`  copied ${titles.get(id)}\n`);
+  for (const s of r.skipped) process.stdout.write(`  skipped ${titles.get(s.id)}: ${s.why}\n`);
+  if (r.attachments) process.stdout.write(`  copied ${r.attachments} attachment file${r.attachments === 1 ? '' : 's'}\n`);
+  return r.skipped.length ? 1 : 0;
 }
 
 function realpathSafe(f: string): string {
@@ -132,17 +223,57 @@ function realpathSafe(f: string): string {
   }
 }
 
-/** `taria doctor repair`: list the conversations the 0.0.1–0.2.0 crash bug
- * hid messages in, and record the lost replies after the user agrees. */
+interface RepairHit {
+  store: Store;
+  /** Set for a conversation in parley's old data folder: that folder. */
+  oldDir?: string;
+  id: string;
+  title?: string;
+  lost: number;
+  hidden: number;
+}
+
+/**
+ * Conversations the 0.0.1–0.2.0 crash bug left unrecorded replies in. Reads
+ * only.
+ *
+ * Looks in taria's data folder and, while it is still a folder of its own, in
+ * parley's: plain `doctor` moves nothing, so before the move that is where
+ * every conversation is; and a folder that cannot be moved (taria's already
+ * has files) stays behind for good.
+ */
+function findRepairs(): RepairHit[] {
+  const stores: Array<{ store: Store; oldDir?: string }> = [{ store: new Store(paths.dataDir) }];
+  const old = paths.legacyDir('data');
+  // After the move the old folder is a link to the new one: the same files.
+  if (!dirIsExplicit('data') && existsSync(old) && realpathSafe(old) !== realpathSafe(paths.dataDir)) stores.push({ store: new Store(old), oldDir: old });
+  return stores.flatMap((s) => scanForRepairs(s.store).map((h) => ({ ...s, ...h })));
+}
+
+const cutOff = (n: number) => `${n} cut-off repl${n === 1 ? 'y' : 'ies'}`;
+
+/**
+ * `taria doctor repair`: list the conversations the 0.0.1–0.2.0 crash bug
+ * left unrecorded replies in, and record them after the user agrees.
+ *
+ * Unlike plain `doctor` this command writes, so like every other command
+ * that writes it starts (in cli.ts) by moving parley's folders: what it
+ * repairs is then what taria opens, and the move's own checks (a parley that
+ * is still running) apply. Conversations in an old folder that was not moved
+ * are repaired where they are.
+ */
 async function repairConversations(): Promise<number> {
-  const store = new Store(paths.dataDir);
-  const hit = scanForRepairs(store);
+  for (const n of renameNotices.splice(0)) process.stderr.write(`taria: ${n}\n`);
+  const hit = findRepairs();
   process.stdout.write('taria doctor repair\n\n');
   if (!hit.length) {
     process.stdout.write('No conversation needs repair.\n');
     return 0;
   }
-  for (const h of hit) process.stdout.write(`  ${h.title ?? h.id} (${h.id}): ${h.lost} cut-off repl${h.lost === 1 ? 'y' : 'ies'}, ${h.hidden} earlier message${h.hidden === 1 ? '' : 's'} hidden\n`);
+  for (const h of hit) {
+    const what = h.hidden ? `${cutOff(h.lost)}, ${h.hidden} earlier message${h.hidden === 1 ? '' : 's'} hidden` : `${cutOff(h.lost)} on a branch you left, no message hidden`;
+    process.stdout.write(`  ${h.title ?? h.id} (${h.id})${h.oldDir ? ` in ${h.oldDir}` : ''}: ${what}\n`);
+  }
   process.stdout.write('\nRepair records each cut-off reply as a message (marked as interrupted) at the end of its file.\nNothing already in the files is changed or deleted.\n');
   if (!process.stdin.isTTY) {
     process.stdout.write('Run this in a terminal to confirm. (Opening a conversation in taria also repairs it.)\n');
@@ -159,7 +290,7 @@ async function repairConversations(): Promise<number> {
   let failed = 0;
   for (const h of hit) {
     try {
-      const f = store.open(h.id);
+      const f = h.store.open(h.id);
       f.releaseLock();
       process.stdout.write(`  repaired ${h.title ?? h.id}: ${f.repaired} repl${f.repaired === 1 ? 'y' : 'ies'} recorded\n`);
     } catch (e) {
@@ -173,7 +304,9 @@ async function repairConversations(): Promise<number> {
 export async function runDoctor(rest: string[] = []): Promise<number> {
   if (rest[0] === 'clipboard') return clipboardTest();
   if (rest[0] === 'repair') return repairConversations();
+  if (rest[0] === 'merge') return mergeFolders();
   failures = 0;
+  setKeychainReadOnly();
   process.stdout.write('taria doctor\n');
 
   section('Installation');
@@ -188,9 +321,7 @@ export async function runDoctor(rest: string[] = []): Promise<number> {
   line('info', 'Version', `taria ${VERSION}`);
   line('info', 'Install method', method);
   line('info', 'Location', real === where ? where : `${where} → ${real}`);
-  oldInstallReport();
-  const envNote = legacyEnvNotice();
-  if (envNote) line('warn', 'Old variables', envNote);
+  await oldInstallReport();
 
   section('System');
   const major = Number(process.versions.node.split('.')[0]);
@@ -229,7 +360,7 @@ export async function runDoctor(rest: string[] = []): Promise<number> {
   section('Clipboard');
   const clipCfg = loadConfig(paths.configFile).config;
   const clip = detectClipboardHelper({ mode: clipCfg.clipboard, command: clipCfg.clipboardCommand });
-  line(clip.ok ? 'ok' : 'warn', '/copy uses', clip.detail, clip.ok ? undefined : clip.plan.hint);
+  line(clip.ok ? 'ok' : 'warn', '/copy uses', clip.detail, clip.ok ? undefined : (clip.fix ?? clip.plan.hint));
   for (const s of clip.plan.skipped) line('info', 'Not used', s);
   if (process.env.TMUX) {
     const v = spawnSync('tmux', ['show', '-sv', 'set-clipboard'], { encoding: 'utf8' }).stdout?.trim();
@@ -238,10 +369,16 @@ export async function runDoctor(rest: string[] = []): Promise<number> {
   line('info', 'Test it', 'taria doctor clipboard   (copies a test line and reads it back)');
 
   section('Conversations');
-  const hit = scanForRepairs(new Store(paths.dataDir));
+  const hit = findRepairs();
   if (!hit.length) line('ok', 'Crash damage', 'none (no conversation is missing earlier messages)');
   else {
-    for (const h of hit.slice(0, 10)) line('warn', 'Needs repair', `${h.title ?? h.id}: ${h.hidden} earlier message${h.hidden === 1 ? '' : 's'} hidden by a reply cut off in parley before 0.2.0`);
+    for (const h of hit.slice(0, 10)) {
+      const replies = h.lost === 1 ? 'a reply' : `${h.lost} replies`;
+      const where = h.oldDir ? ` (in ${h.oldDir})` : '';
+      // A lost reply on a branch the user left hid nothing of what shows.
+      if (h.hidden) line('warn', 'Needs repair', `${h.title ?? h.id}: ${h.hidden} earlier message${h.hidden === 1 ? '' : 's'} hidden by ${replies} cut off in parley before 0.2.0${where}`);
+      else line('warn', 'Needs repair', `${h.title ?? h.id}: ${replies} cut off in parley before 0.2.0 ${h.lost === 1 ? 'was' : 'were'} never recorded, on a branch you left; no message is hidden${where}`);
+    }
     if (hit.length > 10) line('warn', 'Needs repair', `… and ${hit.length - 10} more`);
     line('info', 'Repair', `taria doctor repair   (asks first; only adds lines, never changes or deletes any). Opening a conversation also repairs it.`);
   }
