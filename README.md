@@ -65,13 +65,11 @@ The script picks the build for your OS and CPU, downloads it from the latest [re
 | Target | Built and tested on | Notes |
 | --- | --- | --- |
 | macOS, Apple Silicon (`darwin-arm64`) | native GitHub runner (`macos-latest`) | ad-hoc signed, not notarized |
-| macOS, Intel (`darwin-x64`) | native GitHub runner (`macos-15-intel`) | ad-hoc signed, not notarized |
 | Linux x64 (`linux-x64`) | native GitHub runner (`ubuntu-24.04`) | glibc 2.28 or newer, libatomic |
-| Linux arm64 (`linux-arm64`) | native GitHub runner (`ubuntu-24.04-arm`) | glibc 2.28 or newer, libatomic |
 
 On Linux the binary needs glibc 2.28 or newer (Debian 10, Ubuntu 20.04, RHEL 8 and later) and the `libatomic` library. Desktop systems have it; minimal containers may not (`sudo apt install libatomic1` or `sudo dnf install libatomic`). `install.sh` explains if the binary can't start.
 
-The binary embeds the Node.js runtime, so it is large: about 150 MB on disk and about 48 MB to download. There are no musl (Alpine) or Windows builds; on Alpine use the npm package below with Alpine's `nodejs`.
+The binary embeds the Node.js runtime, so it is large: about 150 MB on disk and about 48 MB to download. There are no builds for Intel Macs, arm64 Linux, musl (Alpine) or Windows; there, use the npm package below (on Alpine with Alpine's `nodejs`). `install.sh` says so on those platforms. Binaries for Intel Macs and arm64 Linux were published up to 0.3.0.
 
 **macOS Gatekeeper.** The binaries are signed ad hoc but not notarized (that needs a paid Apple Developer ID). Files downloaded with `curl`, as `install.sh` does, are not quarantined, so they run normally. If you downloaded the archive with a browser and macOS refuses to open `taria`, remove the quarantine flag:
 

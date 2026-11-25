@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **Binaries are published for two platforms: Linux x64 and Apple Silicon Macs.** The Intel Mac (`darwin-x64`) and arm64 Linux (`linux-arm64`) binaries are no longer built. The npm package still works on both (Node.js 22 or newer), and `install.sh` says so there instead of failing on a missing download. 0.3.0 remains the last release with those two binaries.
+
 ## 0.3.0 — 2026-11-24
 
 **parley is now taria.** The command, the npm package and the release archives are called `taria`. See *Upgrading from parley* below.

@@ -118,6 +118,21 @@ describe('install.sh', () => {
     expect(r.out).toContain('sudo apt install libatomic1');
   });
 
+  it('says plainly when there is no binary for the platform, and points to the npm package', () => {
+    for (const [os, arch, name] of [['Darwin', 'x86_64', 'darwin-x64'], ['Linux', 'aarch64', 'linux-arm64'], ['Linux', 'arm64', 'linux-arm64']] as const) {
+      const r = run({ TARIA_OS: os, TARIA_ARCH: arch });
+      expect(r.code, name).toBe(1);
+      expect(r.err).toContain(`there is no taria binary for ${name} (binaries exist for Linux x64 and Apple Silicon Macs).`);
+      expect(r.err).toContain('Install the npm package instead');
+      expect(r.err).toContain('https://github.com/Riloative/taria#npm-nodejs-22-or-newer');
+      // Nothing was downloaded or installed.
+      expect(r.out).toBe('');
+      expect(existsSync(join(r.dir, 'taria'))).toBe(false);
+    }
+    // The two published targets are accepted under their usual spellings.
+    expect(run({ TARIA_OS: 'Linux', TARIA_ARCH: 'amd64' }).code).toBe(0);
+  });
+
   it('explains unsupported platforms', () => {
     expect(run({ TARIA_OS: 'FreeBSD' }).err).toMatch(/unsupported operating system: FreeBSD/);
     expect(run({ TARIA_ARCH: 'riscv64' }).err).toMatch(/unsupported architecture: riscv64/);
