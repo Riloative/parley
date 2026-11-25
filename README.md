@@ -60,7 +60,7 @@ curl -fsSL https://raw.githubusercontent.com/Riloative/taria/main/install.sh | s
 
 The script picks the build for your OS and CPU, downloads it from the latest [release](https://github.com/Riloative/taria/releases), verifies its SHA-256 against the release's `SHA256SUMS`, and installs it to `~/.local/bin/taria` without sudo. It prints a hint if that directory isn't on your `PATH`.
 
-- **Choose a version:** `curl -fsSL …/install.sh | TARIA_VERSION=v0.3.0 sh`
+- **Choose a version:** `curl -fsSL …/install.sh | TARIA_VERSION=v0.3.1 sh`
 - **Choose a directory:** `TARIA_INSTALL_DIR=~/bin`
 
 | Target | Built and tested on | Notes |
@@ -93,7 +93,7 @@ npm install -g .
 Or from a release, without cloning:
 
 ```bash
-npm install -g https://github.com/Riloative/taria/releases/download/v0.3.0/taria-0.3.0.tgz
+npm install -g https://github.com/Riloative/taria/releases/download/v0.3.1/taria-0.3.1.tgz
 ```
 
 The repository ships a prebuilt, self-contained bundle in `dist/`, so the global install has no dependencies and needs no compiler.

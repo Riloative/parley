@@ -47,7 +47,7 @@ Why dist/ is committed: `npm install -g .` packs the folder *before* installing 
 2. Add a `## X.Y.Z — date` section to CHANGELOG.md.
 3. Merge to main. Tags cannot be pushed from Claude Code cloud sessions (HTTP 403), so give the user these commands to run in a GitHub Codespace, with the merge commit's full SHA:
    `git fetch origin main --tags` · `git tag -a vX.Y.Z -m "taria X.Y.Z" <sha>` · `git push origin vX.Y.Z`.
-4. `.github/workflows/release.yml` then checks the tag against package.json, re-runs the checks, builds and tests the four binaries through the reusable `binaries.yml`, and publishes a GitHub Release. The release carries `taria-<os>-<arch>.tar.gz`, the npm tarball and `SHA256SUMS`, with that CHANGELOG section as its notes. CI runs the same build-and-package steps on every pull request.
+4. `.github/workflows/release.yml` then checks the tag against package.json, re-runs the checks, builds and tests the two binaries through the reusable `binaries.yml`, and publishes a GitHub Release. The release carries `taria-<os>-<arch>.tar.gz`, the npm tarball and `SHA256SUMS`, with that CHANGELOG section as its notes. CI runs the same build-and-package steps on every pull request.
 
 ## Layout
 
