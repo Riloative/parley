@@ -38,7 +38,6 @@ ${valueCases}
   fi
 }
 complete -F _taria taria
-complete -F _taria parley
 `;
 }
 
@@ -51,7 +50,7 @@ function zsh(): string {
     return `    '${o.short ? `(-${o.short} --${o.long})` : ''}'${names}'[${zq(o.help)}]${action}'`;
   }).join(' \\\n');
   const cmds = SUBCOMMANDS.map((c) => `'${c}:${zq(COMMANDS.find((x) => x.usage.startsWith(c))!.help)}'`).join(' ');
-  return `#compdef taria parley
+  return `#compdef taria
 # zsh completion for taria. Install: put this file in a directory on $fpath
 # as _taria, e.g.  taria completions zsh > "\${fpath[1]}/_taria"
 _taria() {
@@ -91,7 +90,6 @@ function fish(): string {
     parts.push(`-d ${fq(o.help)}`);
     lines.push(parts.join(' '));
   }
-  lines.push('complete -c parley -w taria');
   return lines.join('\n') + '\n';
 }
 

@@ -9,6 +9,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 const SCRIPT = new URL('../../install.sh', import.meta.url).pathname;
 const ASSET = 'taria-linux-x64.tar.gz';
 let root: string;
+/** The alias script taria 0.3.x installed as `parley`. */
+const ALIAS_SCRIPT = '#!/bin/sh\n# parley is now taria.\necho "parley is now taria: run taria instead (the parley command goes away in 0.4.0)." >&2\nexec "$(dirname "$0")/taria" "$@"\n';
 
 function makeRelease(dir: string, version: string, opts: { badSum?: boolean; broken?: string; alias?: boolean } = {}): void {
   mkdirSync(dir, { recursive: true });
@@ -17,8 +19,8 @@ function makeRelease(dir: string, version: string, opts: { badSum?: boolean; bro
   chmodSync(join(stage, 'taria'), 0o755);
   const names = ['taria'];
   if (opts.alias) {
-    // The real alias script, as the release ships it.
-    writeFileSync(join(stage, 'parley'), readFileSync(new URL('../../scripts/parley-alias.sh', import.meta.url)));
+    // An archive as 0.3.x shipped it, with the alias script next to taria.
+    writeFileSync(join(stage, 'parley'), ALIAS_SCRIPT);
     chmodSync(join(stage, 'parley'), 0o755);
     names.push('parley');
   }
@@ -67,25 +69,47 @@ describe('install.sh', () => {
     expect(spawnSync('ls', ['-A', r.dir], { encoding: 'utf8' }).stdout.trim()).toBe('taria');
   });
 
-  it('installs the parley alias when the release has one: same arguments, same exit status, a notice on stderr', () => {
+  it('no longer installs a parley alias (0.4.0), even from an archive that still holds one', () => {
     const r = run({ TARIA_RELEASES_URL: `file://${root}/alias` });
     expect(r.code).toBe(0);
-    expect(r.out).toContain(`Installed ${r.dir}/parley as an alias for taria`);
-    const a = spawnSync(join(r.dir, 'parley'), ['-p', 'two words'], { encoding: 'utf8', env: { PATH: process.env.PATH!, FAKE_EXIT: '3' } });
-    expect(a.stdout).toBe('taria 0.3.0 (fake) -p two words\n');
-    expect(a.stderr).toBe('parley is now taria: run taria instead (the parley command goes away in 0.4.0).\n');
-    expect(a.status).toBe(3);
-    expect(spawnSync('ls', ['-A', r.dir], { encoding: 'utf8' }).stdout.trim().split('\n').sort()).toEqual(['parley', 'taria']);
+    expect(r.out).not.toMatch(/alias/);
+    expect(spawnSync('ls', ['-A', r.dir], { encoding: 'utf8' }).stdout.trim().split('\n')).toEqual(['taria']);
   });
 
-  it('still reads the PARLEY_* variable names from before the rename', () => {
+  it('removes the alias script taria 0.3 left in the install folder, and says so', () => {
+    const home = mkdtempSync(join(root, 'leftover-'));
+    const dir = join(home, 'bin');
+    mkdirSync(dir);
+    writeFileSync(join(dir, 'parley'), ALIAS_SCRIPT, { mode: 0o755 });
+    const r = spawnSync('sh', [SCRIPT], { encoding: 'utf8', env: { PATH: process.env.PATH!, HOME: home, TARIA_RELEASES_URL: `file://${root}/releases`, TARIA_INSTALL_DIR: dir, TARIA_OS: 'Linux', TARIA_ARCH: 'x86_64' } });
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain(`Removed ${dir}/parley: the parley command from taria 0.3 is gone in 0.4.0; run taria.`);
+    expect(spawnSync('ls', ['-A', dir], { encoding: 'utf8' }).stdout.trim().split('\n')).toEqual(['taria']);
+  });
+
+  it('leaves a real old parley binary in the install folder alone, and says so', () => {
+    const home = mkdtempSync(join(root, 'realold-'));
+    const dir = join(home, 'bin');
+    mkdirSync(dir);
+    writeFileSync(join(dir, 'parley'), '#!/bin/sh\necho "parley 0.2.0"\n', { mode: 0o755 });
+    const r = spawnSync('sh', [SCRIPT], { encoding: 'utf8', env: { PATH: process.env.PATH!, HOME: home, TARIA_RELEASES_URL: `file://${root}/releases`, TARIA_INSTALL_DIR: dir, TARIA_OS: 'Linux', TARIA_ARCH: 'x86_64' } });
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain(`${dir}/parley is an old parley from before the rename. It was left alone; remove it when you no longer use it: rm ${dir}/parley`);
+    expect(readFileSync(join(dir, 'parley'), 'utf8')).toContain('parley 0.2.0');
+  });
+
+  it('no longer reads the PARLEY_* variable names (0.4.0), and says which ones it ignored', () => {
     const home = mkdtempSync(join(root, 'oldvars-'));
     const r = spawnSync('sh', [SCRIPT], {
       encoding: 'utf8',
-      env: { PATH: process.env.PATH!, HOME: home, PARLEY_RELEASES_URL: `file://${root}/releases`, PARLEY_INSTALL_DIR: join(home, 'old-bin'), PARLEY_VERSION: '0.0.7', PARLEY_OS: 'Linux', PARLEY_ARCH: 'x86_64' },
+      env: { PATH: process.env.PATH!, HOME: home, TARIA_RELEASES_URL: `file://${root}/releases`, TARIA_OS: 'Linux', TARIA_ARCH: 'x86_64', PARLEY_INSTALL_DIR: join(home, 'old-bin'), PARLEY_VERSION: '0.0.7' },
     });
     expect(r.status).toBe(0);
-    expect(r.stdout).toContain(`Installed ${join(home, 'old-bin')}/taria — taria 0.0.7 (fake)`);
+    // Installed where TARIA_* (here: the default) says, the latest version.
+    expect(r.stdout).toContain(`Installed ${join(home, '.local', 'bin')}/taria — taria 9.9.9 (fake)`);
+    expect(r.stderr).toContain('taria install: PARLEY_INSTALL_DIR is no longer read; use TARIA_INSTALL_DIR.');
+    expect(r.stderr).toContain('taria install: PARLEY_VERSION is no longer read; use TARIA_VERSION.');
+    expect(spawnSync('ls', ['-A', home], { encoding: 'utf8' }).stdout).not.toContain('old-bin');
   });
 
   it('installs a pinned version with or without the v prefix', () => {

@@ -138,10 +138,10 @@ async function oldInstallReport(): Promise<void> {
     } catch {
       /* unreadable */
     }
-    if (/parley is now taria/.test(head)) line('info', 'parley command', `${f} is the alias that runs taria (until ${APP} ${OLD_NAMES_REMOVED_IN})`);
+    if (/parley is now taria/.test(head)) line('warn', 'Old parley alias', `${f} is the alias from taria 0.3; ${APP} ${OLD_NAMES_REMOVED_IN} no longer keeps it working`, /node_modules/.test(realpathSafe(f)) ? 'Remove it: npm uninstall -g parley' : `Remove it: rm ${f}`);
     else {
       const npm = /node_modules/.test(realpathSafe(f));
-      line('warn', 'Old parley binary', `${f} is parley from before the rename${npm ? ' (npm)' : ''}`, npm ? 'Remove it once you have switched: npm uninstall -g parley' : `Remove it once you have switched: rm ${f}`);
+      line('warn', 'Old parley binary', `${f} is parley from before the rename${npm ? ' (npm)' : ''}; it is no longer supported`, npm ? 'Remove it: npm uninstall -g parley' : `Remove it: rm ${f}`);
     }
     break;
   }

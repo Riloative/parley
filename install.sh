@@ -15,10 +15,9 @@
 taria_install() {
   set -eu
 
-  # PARLEY_* are the names from before the rename; they still work.
-  repo_releases="${TARIA_RELEASES_URL:-${PARLEY_RELEASES_URL:-https://github.com/Riloative/taria/releases}}"
-  install_dir="${TARIA_INSTALL_DIR:-${PARLEY_INSTALL_DIR:-$HOME/.local/bin}}"
-  version="${TARIA_VERSION:-${PARLEY_VERSION:-latest}}"
+  repo_releases="${TARIA_RELEASES_URL:-https://github.com/Riloative/taria/releases}"
+  install_dir="${TARIA_INSTALL_DIR:-$HOME/.local/bin}"
+  version="${TARIA_VERSION:-latest}"
 
   say() { printf '%s\n' "$*"; }
   die() {
@@ -26,8 +25,16 @@ taria_install() {
     exit 1
   }
 
-  os="${TARIA_OS:-${PARLEY_OS:-$(uname -s)}}"
-  arch="${TARIA_ARCH:-${PARLEY_ARCH:-$(uname -m)}}"
+  # The PARLEY_* names from before the rename are not read since 0.4.0. Say
+  # so: installing somewhere else than asked, silently, would be worse.
+  for old in RELEASES_URL INSTALL_DIR VERSION OS ARCH; do
+    if eval "[ -n \"\${PARLEY_$old:-}\" ]"; then
+      printf 'taria install: PARLEY_%s is no longer read; use TARIA_%s.\n' "$old" "$old" >&2
+    fi
+  done
+
+  os="${TARIA_OS:-$(uname -s)}"
+  arch="${TARIA_ARCH:-$(uname -m)}"
   case "$os" in
     Linux | linux) os=linux ;;
     Darwin | darwin) os=darwin ;;
@@ -39,7 +46,7 @@ taria_install() {
     *) die "unsupported architecture: $arch (taria binaries exist for Linux x64 and Apple Silicon Macs)" ;;
   esac
   # An x64 shell under Rosetta on Apple Silicon still wants the arm64 build.
-  if [ "$os" = darwin ] && [ "$arch" = x64 ] && [ -z "${TARIA_ARCH:-}${PARLEY_ARCH:-}" ]; then
+  if [ "$os" = darwin ] && [ "$arch" = x64 ] && [ -z "${TARIA_ARCH:-}" ]; then
     if [ "$(sysctl -n sysctl.proc_translated 2>/dev/null || echo 0)" = 1 ]; then arch=arm64; fi
   fi
   # Binaries are published for the platforms taria is built and tested on.
@@ -104,14 +111,16 @@ taria_install() {
     die "cannot install into $install_dir"
   }
 
-  # The `parley` alias (0.3.x only): replaces an old parley binary, so that
-  # command keeps working and runs taria.
-  if tar -xzf "$tmp/$asset" -C "$tmp" parley 2>/dev/null && [ -f "$tmp/parley" ]; then
-    alias_staged="$install_dir/.parley.tmp.$$"
-    if cp "$tmp/parley" "$alias_staged" && chmod 755 "$alias_staged" && mv -f "$alias_staged" "$install_dir/parley"; then
-      say "Installed $install_dir/parley as an alias for taria (until taria 0.4.0)."
+  # taria 0.3 installed a `parley` alias script here; the command is gone in
+  # 0.4.0. The alias is removed. Anything else called parley (a real binary
+  # from before the rename) is the user's: it is left alone.
+  if [ -f "$install_dir/parley" ]; then
+    if head -c 4096 "$install_dir/parley" | grep -q 'parley is now taria'; then
+      if rm -f "$install_dir/parley"; then
+        say "Removed $install_dir/parley: the parley command from taria 0.3 is gone in 0.4.0; run taria."
+      fi
     else
-      rm -f "$alias_staged"
+      say "$install_dir/parley is an old parley from before the rename. It was left alone; remove it when you no longer use it: rm $install_dir/parley"
     fi
   fi
 

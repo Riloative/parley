@@ -1,37 +1,29 @@
 // The program's name, and the name it had until 0.2.0. Everything that still
-// has to understand the old name (data directories, keychain entries, the
-// `parley` command, PARLEY_* variables) gets it from here.
+// has to understand the old name (data directories, keychain entries, files
+// written by parley) gets it from here.
 
 export const APP = 'taria';
 export const OLD_APP = 'parley';
-/** The release after which the old names stop working. */
+/** The release that removed the `parley` command and the PARLEY_* names. */
 export const OLD_NAMES_REMOVED_IN = '0.4.0';
-
-const adopted: string[] = [];
 
 /** Lines for the user from the rename (moved files, old variable names),
  * collected before anything is drawn: the interactive interface shows them
  * in the welcome box, other modes write them to stderr. */
 export const renameNotices: string[] = [];
 
-/**
- * Every PARLEY_* variable also works as TARIA_* (the new name wins when both
- * are set). Called once, first thing in the CLI, so the rest of the program
- * only reads TARIA_* names.
- */
-export function adoptLegacyEnv(env: NodeJS.ProcessEnv = process.env): string[] {
-  for (const [k, v] of Object.entries(env)) {
-    if (!k.startsWith('PARLEY_') || v === undefined) continue;
-    const next = `TARIA_${k.slice('PARLEY_'.length)}`;
-    if (env[next] === undefined) env[next] = v;
-    if (!adopted.includes(k)) adopted.push(k);
-  }
-  return adopted;
+/** PARLEY_* variables that are set. They were read as TARIA_* in 0.3.x and
+ * are not read any more; nothing is copied. */
+export function ignoredLegacyEnv(env: NodeJS.ProcessEnv = process.env): string[] {
+  return Object.keys(env).filter((k) => k.startsWith('PARLEY_') && env[k] !== undefined);
 }
 
-/** One line about old variable names, or undefined when none were used. */
-export function legacyEnvNotice(): string | undefined {
-  if (!adopted.length) return undefined;
-  const names = adopted.map((k) => `${k} → TARIA_${k.slice('PARLEY_'.length)}`).join(', ');
-  return `Renamed environment variable${adopted.length === 1 ? '' : 's'}: ${names}. The old name${adopted.length === 1 ? ' still works' : 's still work'} until ${APP} ${OLD_NAMES_REMOVED_IN}.`;
+/** One line about old variable names that are set, or undefined when none
+ * are. Silence would be worse: PARLEY_DATA_DIR or PARLEY_NO_KEYCHAIN being
+ * ignored changes where files and keys go. */
+export function legacyEnvNotice(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  const names = ignoredLegacyEnv(env);
+  if (!names.length) return undefined;
+  const list = names.map((k) => `${k} (use TARIA_${k.slice('PARLEY_'.length)})`).join(', ');
+  return `${names.length === 1 ? 'This variable is' : 'These variables are'} no longer read since ${APP} ${OLD_NAMES_REMOVED_IN}: ${list}.`;
 }

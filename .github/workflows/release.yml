@@ -3,7 +3,6 @@ name: Release
 # Push a tag like v0.1.0 (matching the version in package.json) to publish a
 # GitHub Release. It carries:
 #   - taria-<os>-<arch>.tar.gz  standalone binaries built on native runners
-#                                (each also holds the 0.3.x `parley` alias)
 #   - taria-<version>.tgz       the npm package
 #   - SHA256SUMS                 checksums of all of the above (used by install.sh)
 # The release notes are that version's section of CHANGELOG.md.

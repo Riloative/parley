@@ -6,8 +6,7 @@
   "license": "MIT",
   "private": true,
   "bin": {
-    "taria": "bin/taria.js",
-    "parley": "bin/parley.js"
+    "taria": "bin/taria.js"
   },
   "man": [
     "./dist/taria.1"

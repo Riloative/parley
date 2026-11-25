@@ -114,3 +114,13 @@ describe('config JSON Schema', () => {
     }
   });
 });
+
+describe('after 0.4.0', () => {
+  it('the completions and the man page no longer offer the parley command or the PARLEY_* names', () => {
+    for (const shell of ['bash', 'zsh', 'fish']) {
+      const script = completionScript(shell)!;
+      expect(script).not.toMatch(/complete .*\bparley\b|#compdef .*parley/);
+    }
+    expect(manPage('9.9.9', '')).not.toContain('PARLEY_');
+  });
+});

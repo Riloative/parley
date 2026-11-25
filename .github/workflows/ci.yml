@@ -68,9 +68,8 @@ jobs:
           out="$(echo hi | taria -p -m mock/echo say)"
           [ "$out" = "$(printf 'You said: hi\n\nsay')" ]
           taria doctor || true
-          # The parley alias (0.3.x only): same output, a notice on stderr.
-          [ "$(parley --version 2>/dev/null)" = "$(taria --version)" ]
-          parley --version 2>&1 >/dev/null | grep -q 'parley is now taria'
+          # No parley command since 0.4.0.
+          ! command -v parley
 
   stress:
     # Runs the PTY test files this branch changed, several times, with every

@@ -46,8 +46,8 @@ jobs:
         shell: bash
         run: |
           test -f "build/bin/taria-${{ matrix.target }}.tar.gz"
-          # The archive holds taria and, for 0.3.x, the parley alias.
-          [ "$(tar -tzf "build/bin/taria-${{ matrix.target }}.tar.gz" | sort | tr '\n' ' ')" = "parley taria " ]
+          # The archive holds taria and nothing else.
+          [ "$(tar -tzf "build/bin/taria-${{ matrix.target }}.tar.gz" | sort | tr '\n' ' ')" = "taria " ]
           file build/bin/taria
           ls -l build/bin
           build/bin/taria --version
@@ -122,9 +122,8 @@ jobs:
           (cd "$rel" && (sha256sum taria-*.tar.gz 2>/dev/null || shasum -a 256 taria-*.tar.gz) > SHA256SUMS)
           TARIA_RELEASES_URL="file://$RUNNER_TEMP/releases" TARIA_INSTALL_DIR="$RUNNER_TEMP/bin" sh install.sh
           "$RUNNER_TEMP/bin/taria" --version | grep -q 'standalone binary'
-          # The parley alias runs the same binary, after one line on stderr.
-          [ "$("$RUNNER_TEMP/bin/parley" --version 2>/dev/null)" = "$("$RUNNER_TEMP/bin/taria" --version)" ]
-          "$RUNNER_TEMP/bin/parley" --version 2>&1 >/dev/null | grep -q 'parley is now taria'
+          # No parley alias since 0.4.0.
+          [ ! -e "$RUNNER_TEMP/bin/parley" ]
 
       - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
