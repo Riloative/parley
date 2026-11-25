@@ -1,7 +1,7 @@
 // Non-interactive mode, driven through pipes (stdout is not a terminal).
 import { spawn } from 'node:child_process';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { readFileSync, readdirSync, rmSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -109,6 +109,28 @@ describe('taria -p', () => {
     const r = await run(['--bogus']);
     expect(r.code).toBe(2);
     expect(r.err).toMatch(/Unknown option --bogus/);
+  });
+});
+
+describe('a data folder that cannot be written', () => {
+  // Stands in for a read-only file system or a full disk: the conversations
+  // folder cannot be created, because a file is in its place.
+  function unwritableHome(): string {
+    const home = makeHome(DEFAULT_CONFIG);
+    mkdirSync(join(home, 'data', 'taria'), { recursive: true });
+    writeFileSync(join(home, 'data', 'taria', 'conversations'), 'not a folder');
+    return home;
+  }
+
+  it('-p still answers on stdout, says once on stderr that the conversation is not saved, and prints no stack trace', async () => {
+    const home = unwritableHome();
+    const r = await run(['-p', 'hello there'], { home });
+    expect(r.out).toBe('You said: hello there\n');
+    expect(r.err).toMatch(/^taria: This conversation is not being saved: /m);
+    expect(r.err).toContain(join(home, 'data', 'taria', 'conversations'));
+    expect(r.err.match(/not being saved/g)).toHaveLength(1);
+    expect(r.err).not.toMatch(/\n\s+at |node:fs|Error: E[A-Z]+/);
+    expect(r.code).toBe(0);
   });
 });
 

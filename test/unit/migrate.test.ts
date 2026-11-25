@@ -133,6 +133,43 @@ describe('migration from parley', () => {
     expect(migrationNotices(r)[0]).toMatch(/Both ~\/data\/parley and ~\/data\/taria exist; taria uses ~\/data\/taria\. `taria doctor`/);
   });
 
+  it('both present: the notice is shown once, not on every start; the result still lists it', () => {
+    oldInstall();
+    for (const k of ['config', 'data', 'state', 'cache']) {
+      mkdirSync(join(home, k, 'taria'), { recursive: true });
+      writeFileSync(join(home, k, 'taria', 'in-use'), 'x');
+    }
+    const first = migrateFromParley();
+    expect(first.both).toHaveLength(4);
+    expect(migrationNotices(first).filter((n) => n.startsWith('Both '))).toHaveLength(4);
+    for (const k of DIR_KINDS) setDirOverride(k, undefined);
+    const second = migrateFromParley();
+    // Still reported to callers such as doctor, but not said again.
+    expect(second.both.map((b) => b.kind)).toEqual(['config', 'data', 'state', 'cache']);
+    expect(migrationNotices(second)).toEqual([]);
+    // Nothing was written into the old folders, and only the record into taria's state folder.
+    expect(readdirSync(join(home, 'data/taria'))).toEqual(['in-use']);
+    expect(readdirSync(join(home, 'state/taria')).sort()).toEqual(['in-use', 'rename-noticed.json']);
+    expect(readdirSync(join(home, 'state/parley'))).toEqual(readdirSync(join(home, 'state/parley')).filter((f) => f !== 'rename-noticed.json'));
+  });
+
+  it('both present for data only: the record never creates taria\'s state folder ahead of the state move', () => {
+    const files = oldInstall();
+    mkdirSync(join(home, 'data/taria/conversations'), { recursive: true });
+    writeFileSync(join(home, 'data/taria/conversations/20260301-000000-new0.jsonl'), '{"type":"meta","v":1,"id":"20260301-000000-new0","createdAt":2,"app":"taria"}\n');
+    // Only the data folder is looked at first (as when another kind is deferred).
+    const r = migrateFromParley({ kinds: ['data'] });
+    expect(migrationNotices(r).filter((n) => n.startsWith('Both '))).toHaveLength(1);
+    expect(existsSync(join(home, 'state/taria'))).toBe(false);
+    for (const k of DIR_KINDS) setDirOverride(k, undefined);
+    // The full run still moves state, and from then on the notice is recorded.
+    const full = migrateFromParley();
+    expect(full.steps.map((s) => s.kind)).toEqual(['config', 'state', 'cache']);
+    expect(readFileSync(join(home, 'state/taria/logs/debug.log'), 'utf8')).toBe(files['state/parley/logs/debug.log']);
+    for (const k of DIR_KINDS) setDirOverride(k, undefined);
+    expect(migrationNotices(migrateFromParley())).toEqual([]);
+  });
+
   it('an empty taria folder (made before the move could run) does not block it', () => {
     const files = oldInstall();
     mkdirSync(join(home, 'data/taria/conversations'), { recursive: true });

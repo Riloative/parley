@@ -6,7 +6,7 @@
 import { EventEmitter } from 'node:events';
 import type { Config } from '../config/config.js';
 import { Conversation, newId, toChatMessages, type StoredMessage } from './conversation.js';
-import { ConversationLockedError, type ConversationFile, type Store } from './store.js';
+import { ConversationLockedError, storageProblem, type ConversationFile, type Store } from './store.js';
 import { CostTracker, estimateTokens } from './usage.js';
 import type { Registry } from '../providers/registry.js';
 import {
@@ -94,6 +94,8 @@ export class Session extends EventEmitter {
   readonly registry: Registry;
   readonly store: Store | null;
   file: ConversationFile | null = null;
+  /** The current conversation's file could not be created: it is not saved. */
+  private unsaved = false;
   conv: Conversation;
   model: string;
   effort: ReasoningEffort | undefined;
@@ -145,14 +147,23 @@ export class Session extends EventEmitter {
   /** Lazily create the file on the first message so empty sessions leave no
    * trace on disk. */
   private ensureFile(): void {
-    if (this.file || this.ephemeral || !this.store) return;
-    this.file = this.store.create();
+    if (this.file || this.ephemeral || this.unsaved || !this.store) return;
+    try {
+      this.file = this.store.create();
+    } catch (e) {
+      // The conversation goes on, unsaved, and says so once. It is not
+      // retried for this conversation: a file started later would lack the
+      // messages before it, and every reader would find it broken.
+      this.unsaved = true;
+      this.notice(`This conversation is not being saved: ${storageProblem(e, this.store.conversationsDir)}`, 'warning');
+      return;
+    }
     const old = this.conv;
     this.conv = this.file.conv;
     this.conv.systemPrompt = old.systemPrompt;
     this.conv.title = old.title;
-    if (old.systemPrompt) this.file.append({ type: 'system', prompt: old.systemPrompt });
-    this.file.append({ type: 'model', model: this.model });
+    if (old.systemPrompt) this.persist({ type: 'system', prompt: old.systemPrompt });
+    this.persist({ type: 'model', model: this.model });
   }
 
   private persist(ev: Parameters<ConversationFile['append']>[0]): void {
@@ -167,6 +178,7 @@ export class Session extends EventEmitter {
     if (this.streaming) this.interrupt();
     this.file?.releaseLock();
     this.file = null;
+    this.unsaved = false;
     this.conv = new Conversation('unsaved');
     this.conv.systemPrompt = this.config.systemPrompt;
     this.queue = [];
@@ -183,11 +195,12 @@ export class Session extends EventEmitter {
       f = this.store.open(id);
     } catch (e) {
       if (e instanceof ConversationLockedError) this.notice(e.message, 'error');
-      else this.notice(`Could not open conversation ${id}: ${(e as Error).message}`, 'error');
+      else this.notice(`Could not open conversation ${id}: ${(e as NodeJS.ErrnoException).code ? storageProblem(e, this.store.conversationsDir) : (e as Error).message}`, 'error');
       return false;
     }
     this.file?.releaseLock();
     this.file = f;
+    this.unsaved = false;
     this.conv = f.conv;
     if (f.conv.model && this.registry.has(parseModelRef(f.conv.model)?.provider ?? '')) this.model = f.conv.model;
     this.queue = [];
