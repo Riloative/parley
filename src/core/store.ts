@@ -18,6 +18,7 @@ import {
   utimesSync,
   writeFileSync,
   writeSync,
+  type Stats,
 } from 'node:fs';
 import { basename, join } from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
@@ -554,6 +555,56 @@ export class Store {
     }
     if (changed || Object.keys(cache).length !== Object.keys(next).length) writeSummaryCache(cachePath, next);
     return out.sort((a, b) => b.updatedAt - a.updatedAt || (a.id < b.id ? 1 : -1));
+  }
+
+  /** Whether any conversation file exists (cheap: no file is read). */
+  hasConversations(): boolean {
+    try {
+      return readdirSync(this.conversationsDir).some((f) => f.endsWith('.jsonl'));
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * The n most recently updated conversations, for the start screen. Like
+   * list(), but it reads summaries only for the newest files (by modification
+   * time) instead of for every conversation, and it writes nothing.
+   */
+  recent(n: number): ConversationSummary[] {
+    if (n <= 0 || !existsSync(this.conversationsDir)) return [];
+    const files: Array<{ id: string; file: string; st: Stats }> = [];
+    for (const f of readdirSync(this.conversationsDir)) {
+      if (!f.endsWith('.jsonl')) continue;
+      const file = join(this.conversationsDir, f);
+      try {
+        files.push({ id: f.slice(0, -'.jsonl'.length), file, st: statSync(file) });
+      } catch {
+        /* gone or unreadable: skip */
+      }
+    }
+    if (!files.length) return [];
+    const cache = readSummaryCache(join(this.root, 'summary-cache.json'));
+    const out: ConversationSummary[] = [];
+    // Newest files first; stop once the next file is older than the n-th
+    // kept. A summary dated later than its own file (after a clock change)
+    // can then be missed: that only changes the start screen's order.
+    files.sort((a, b) => b.st.mtimeMs - a.st.mtimeMs || (a.id < b.id ? 1 : -1));
+    for (const { id, file, st } of files) {
+      if (out.length >= n && st.mtimeMs < out[n - 1]!.updatedAt) break;
+      let c = cache[id];
+      try {
+        if (!c || c.size !== st.size || c.mtimeMs !== st.mtimeMs || c.ctimeMs !== st.ctimeMs || c.ino !== st.ino) {
+          c = { size: st.size, mtimeMs: st.mtimeMs, ctimeMs: st.ctimeMs, ino: st.ino, ...summarize(replay(id, readFileSync(file, 'utf8')).conv) };
+        }
+      } catch {
+        continue;
+      }
+      if (c.messageCount === 0) continue;
+      out.push({ id, title: c.title, model: c.model, updatedAt: Math.max(c.updatedAt, st.mtimeMs), messageCount: c.messageCount, file });
+      out.sort((a, b) => b.updatedAt - a.updatedAt || (a.id < b.id ? 1 : -1));
+    }
+    return out.slice(0, n);
   }
 
   /** Full-text search across all conversations (case-insensitive). */

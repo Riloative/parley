@@ -100,7 +100,8 @@ src/term/
 src/ui/
   App.tsx                the interface: <Static> transcript + dynamic area (live tail, spinner, queue, overlays, input, status)
   transcript.ts          TranscriptModel: session events → write-once items + live tail; reprint on resize/Ctrl+O/rewind
-  blocks.ts              item → ANSI string (welcome box, user/assistant blocks, stats, notices)
+  blocks.ts              item → ANSI string (user/assistant blocks, stats, notices)
+  welcome.ts, mascot.ts  the start screen (two columns, one column, compact) and the owl (pixel art in half blocks)
   editor.ts              pure input buffer (graphemes, readline kills, atomic chips, word-wrapped layout)
   undo.ts                undo/redo stack over editor states (recorded in setEd; typing grouped by word)
   overlays.tsx           Picker / Prompt and the key-router context
@@ -130,6 +131,7 @@ src/config/              config.ts (YAML + validation with line numbers), creden
 - Code blocks in assistant messages are numbered (`numberCode`), in the order `codeBlockTexts()` returns them; `StreamingMarkdown` carries the count across committed blocks, and the streaming invariant is tested with numbering on. Links are OSC 8 only when `hyperlinksEnabled()` and `linkTarget()` accept the URL.
 - Reprints of conversations longer than `COLLAPSE_ABOVE` messages print the newest `COLLAPSE_KEEP` (`src/ui/transcript.ts`); `/history` toggles.
 - While a queued message is being edited, `session.holdQueue(true)` keeps the queue from being sent, and the queue slot always holds the text typed so far, so an interrupted reply hands back the edited text.
+- The welcome box keeps the same height whether or not its contents are known: "Recent activity" always takes `RECENT_ROWS` rows. On a plain start the latest conversations are read just after the first frame (`Store.recent()` costs 10-15 ms in a fresh process) and the box is redrawn in place by the same rules as below; when that is not possible the next reprint shows them. With `-c` or `-r` they are read before the first frame. Names and titles go through `clean()`: a title written by a model must not reach the terminal as escape sequences.
 - A late background answer repaints the welcome box in place (`repaint-welcome`: cursor up, erase down) only when it is the sole item, the size is unchanged since the first print, and the input is empty and idle. Every other case keeps the old colours; never clear the scrollback for this.
 - `TARIA_DEBUG_CRASH=render|uncaught[:ms]` forces a crash, for the terminal-restore tests in `test/pty/bugs.test.ts`.
 

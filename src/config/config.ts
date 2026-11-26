@@ -55,6 +55,10 @@ export interface Config {
    * is not focused: auto-detect the terminal's protocol, force one, or off. */
   notifications: 'auto' | 'off' | 'osc9' | 'osc777' | 'osc99';
   terminalTitle: boolean;
+  /** "Welcome back, <name>!" on the start screen. */
+  name?: string;
+  /** Show the latest conversations on the start screen. */
+  welcomeRecent: boolean;
   /** How /copy reaches the clipboard: auto (a native tool, then tmux, then
    * OSC 52), native (tools only), osc52 (the terminal only), or off. */
   clipboard: 'auto' | 'native' | 'osc52' | 'off';
@@ -93,6 +97,7 @@ export const defaultConfig = (): Config => ({
   bellAfterSeconds: 10,
   notifications: 'auto',
   terminalTitle: true,
+  welcomeRecent: true,
   clipboard: 'auto',
   reducedMotion: false,
   checkForUpdates: false,
@@ -111,6 +116,8 @@ export const TOP_KEYS = [
   'bell_after_seconds',
   'notifications',
   'terminal_title',
+  'name',
+  'welcome_recent',
   'soft_line_breaks',
   'clipboard',
   'clipboard_command',
@@ -293,6 +300,8 @@ export function parseConfig(text: string): { config: Config; issues: ConfigIssue
     else v.err(v.keyNode(['notifications']), `notifications must be one of auto, off, osc9, osc777 or osc99 (got "${notif}").`);
   }
   config.terminalTitle = v.bool(['terminal_title'], r.terminal_title, 'terminal_title') ?? config.terminalTitle;
+  config.name = v.str(['name'], r.name, 'name')?.trim() || undefined;
+  config.welcomeRecent = v.bool(['welcome_recent'], r.welcome_recent, 'welcome_recent') ?? config.welcomeRecent;
   const clip = v.str(['clipboard'], r.clipboard, 'clipboard');
   if (clip !== undefined) {
     if (['auto', 'native', 'osc52', 'off'].includes(clip)) config.clipboard = clip as Config['clipboard'];

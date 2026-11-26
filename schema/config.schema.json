@@ -66,6 +66,8 @@
     "bell_after_seconds": { "type": "number", "minimum": 0 },
     "notifications": { "enum": ["auto", "off", "osc9", "osc777", "osc99"] },
     "terminal_title": { "type": "boolean" },
+    "name": { "type": "string", "description": "Your name, for \"Welcome back, <name>!\" on the start screen." },
+    "welcome_recent": { "type": "boolean", "description": "Show the latest conversations on the start screen (default true)." },
     "soft_line_breaks": { "enum": ["keep", "join"] },
     "clipboard": { "enum": ["auto", "native", "osc52", "off"], "description": "How /copy reaches the clipboard." },
     "clipboard_command": { "type": "string", "description": "A command that takes the text on stdin, tried first." },

@@ -5,22 +5,28 @@ A terminal chat client for Claude, OpenAI, Mistral and local models (llama.cpp, 
 taria looks and behaves like a terminal coding assistant, but it only converses: no file editing, no shell, no agent loop. It streams without flicker, writes every conversation to disk as it happens, and never makes you reach for the mouse.
 
 ```
-╭──────────────────────────────────────────────────────────────────────╮
-│ ◆ Welcome to taria                                                   │
-│                                                                      │
-│   model: local/qwen3-30b                                             │
-│   /help for commands · /model to switch · esc to interrupt           │
-╰──────────────────────────────────────────────────────────────────────╯
+╭─── taria v0.5.0 ───────────────────────────────────────────────────────────────────────╮
+│                                 │ Tips for getting started                             │
+│       Welcome back, Sam!        │ Run /help to see every command and key               │
+│                                 │ Type @ to attach a file, or paste an image           │
+│          ██▄▄▄▄▄▄▄▄██           │ Press Ctrl+O to show the model's thinking            │
+│          ██  ████  ██           │ ──────────────────────────────────────────────────── │
+│          ▀██████████▀           │ Recent activity                                      │
+│            ██▀▀▀▀██             │ Mutex or semaphore? · just now                       │
+│                                 │ Planning the garden beds · 2h ago                    │
+│        qwen3-30b · local        │ Regex for ISO dates · yesterday                      │
+│             ~/notes             │                                                      │
+╰────────────────────────────────────────────────────────────────────────────────────────╯
 
 > what's the difference between a mutex and a semaphore?
 
 ● A mutex is a lock with an owner: …
   1.8s · 412 tokens · 231 tok/s
 
-╭──────────────────────────────────────────────────────────────────────╮
-│ > Send a message                                                     │
-╰──────────────────────────────────────────────────────────────────────╯
- / for commands · @ to attach · \⏎ for newline   local/qwen3-30b · 4% context
+╭────────────────────────────────────────────────────────────────────────────────────────╮
+│ > Send a message                                                                       │
+╰────────────────────────────────────────────────────────────────────────────────────────╯
+ / for commands · @ to attach · \⏎ for newline               local/qwen3-30b · 4% context
 ```
 
 ## Contents
@@ -367,6 +373,8 @@ bell: true                           # bell when a reply took longer than…
 bell_after_seconds: 10
 notifications: auto                  # auto | off | osc9 | osc777 | osc99: desktop notification when a long reply finishes and the terminal is not focused
 terminal_title: true                 # show the conversation title in the terminal title
+name: Sam                            # "Welcome back, Sam!" on the start screen (no name: "Welcome back!")
+welcome_recent: true                 # false: the start screen does not list your latest conversations (e.g. when sharing your screen)
 soft_line_breaks: keep               # keep | join: a single newline inside a paragraph stays a line break, or joins the lines
 reduced_motion: false                # true: a still spinner instead of an animated one
 clipboard: auto                      # auto | native | osc52 | off: how /copy reaches the clipboard

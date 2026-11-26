@@ -113,6 +113,8 @@ theme: auto              # auto | dark | light | ansi
 bell: true               # ring the bell when a long response finishes
 bell_after_seconds: 10
 terminal_title: true     # show the conversation title in the terminal title
+# name: Sam              # "Welcome back, Sam!" on the start screen
+# welcome_recent: false  # hide your latest conversations on the start screen
 # system_prompt: "You are a helpful assistant."
 # reasoning_effort: medium
 
