@@ -52,6 +52,9 @@ describe('the start screen', () => {
     expect(text).toContain(OWL_EYES);
     expect(text).toContain('Tips for getting started');
     expect(text).toContain('No recent activity');
+    // With no conversations on disk there is nothing to read later: the box
+    // is complete in the first frame and is not drawn a second time.
+    expect(s.raw.split('Recent activity').length - 1).toBe(1);
     expect(text).toContain('echo · mock');
     for (const l of box) expect(l.length).toBe(100);
   });

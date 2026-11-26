@@ -97,13 +97,16 @@ export async function runInteractive(args: Args, probe?: EarlyProbe): Promise<vo
   // a conversation is resumed they are read now: the box is not alone on the
   // screen then, so it could not be redrawn.
   const toRecent = (list: ConversationSummary[]) => list.slice(0, RECENT_ROWS).map((c) => ({ title: c.title, when: ago(c.updatedAt) }));
+  // With no conversation on disk the list is known to be empty: the box is
+  // complete in the first frame and is not drawn again.
+  const firstRun = listed ? !listed.length : !b.store.hasConversations();
   const startInfo: Omit<WelcomeInfo, 'model' | 'tips'> = {
     app: APP,
     version: VERSION,
     name: b.config.name,
-    firstRun: listed ? !listed.length : !b.store.hasConversations(),
+    firstRun,
     cwd: process.cwd(),
-    recent: !b.config.welcomeRecent ? undefined : listed ? toRecent(listed) : initialConv ? toRecent(b.store.recent(RECENT_ROWS)) : 'loading',
+    recent: !b.config.welcomeRecent ? undefined : listed ? toRecent(listed) : firstRun ? [] : initialConv ? toRecent(b.store.recent(RECENT_ROWS)) : 'loading',
     mascot: mascotLines(OWL, unicodeOk()),
   };
   const welcome = (): Item => ({
