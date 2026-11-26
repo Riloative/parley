@@ -240,6 +240,30 @@ import { tariaCommand } from '../build-once.js';
 
 const hasTmux = spawnSync('sh', ['-c', 'command -v tmux'], { stdio: 'ignore' }).status === 0;
 
+/**
+ * Stop the tmux server and wait until the program in its pane has stopped
+ * running. kill-server returns at once, while taria is still saving its
+ * draft and state into the test's home folder; removing that folder at the
+ * same time failed with ENOTEMPTY on busy machines. A process tmux has not
+ * collected yet (state Z) has stopped running and writes nothing more.
+ */
+async function stopTmux(sock: string): Promise<void> {
+  const panes = spawnSync('tmux', ['-L', sock, 'list-panes', '-a', '-F', '#{pane_pid}'], { encoding: 'utf8' })
+    .stdout.split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
+  spawnSync('tmux', ['-L', sock, 'kill-server'], { stdio: 'ignore' });
+  const running = (pid: string) => {
+    const st = spawnSync('ps', ['-o', 'stat=', '-p', pid], { encoding: 'utf8' }).stdout.trim();
+    return st !== '' && !st.startsWith('Z');
+  };
+  const deadline = Date.now() + 10_000;
+  while (panes.some(running)) {
+    if (Date.now() > deadline) throw new Error(`taria in tmux (pid ${panes.join(', ')}) still running 10 s after kill-server`);
+    await sleep(20);
+  }
+}
+
 describe.runIf(hasTmux)('inside tmux', () => {
   it('renders and streams correctly', async () => {
     const sock = `taria-test-${process.pid}`;
@@ -263,7 +287,7 @@ describe.runIf(hasTmux)('inside tmux', () => {
       const hist = spawnSync('tmux', ['-L', sock, 'capture-pane', '-p', '-S', '-2000'], { encoding: 'utf8', env: testEnv(s.home) }).stdout;
       for (const n of [1, 5, 9]) expect(hist.split('\n').filter((l) => l.trim() === `Section ${n}`).length).toBe(1);
     } finally {
-      spawnSync('tmux', ['-L', sock, 'kill-server'], { stdio: 'ignore' });
+      await stopTmux(sock);
     }
   }, 60_000);
 
@@ -294,7 +318,7 @@ describe.runIf(hasTmux)('inside tmux', () => {
       await s!.waitStable();
       expect(s.screen().join('\n')).not.toContain('You said');
     } finally {
-      spawnSync('tmux', ['-L', sock, 'kill-server'], { stdio: 'ignore' });
+      await stopTmux(sock);
     }
   }, 60_000);
 });
