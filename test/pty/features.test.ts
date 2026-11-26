@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { makeHome, spawnTaria, sleep, DEFAULT_CONFIG, type Session } from './harness.js';
+import { WORDS } from '../../src/ui/words.js';
 
 let s: Session | undefined;
 afterEach(async () => {
@@ -383,13 +384,19 @@ describe('reasoning', () => {
   }, 40_000);
 
   it('distinguishes connecting, waiting and streaming in the spinner', async () => {
-    await start({ args: ['-m', 'mock/slow-first?delay=6000&connect=600'] });
+    // Since 0.5.0 the wait shows one of the spinner words (not "Waiting for
+    // the first token" after 5 s); after 15 s the grey part says it waits.
+    await start({ args: ['-m', 'mock/slow-first?delay=17000&connect=600'] });
     s!.write('x\r');
     await s!.waitFor('Connecting…');
-    await s!.waitFor('Waiting for the first token…', 15_000);
+    const word = new RegExp(`(${WORDS.map((w) => w.replace(/[.*+?^\${}()|[\]\\]/g, '\\$&')).join('|')})… \\(\\d+s`);
+    await s!.waitFor(word, 10_000);
+    expect(screen()).not.toContain('waiting for the first token');
+    await s!.waitFor(/… \(1[5-9]s · waiting for the first token · esc to interrupt\)/, 20_000);
+    expect(screen()).not.toContain('Waiting for the first token…');
     s!.write(ESC);
     await s!.waitFor('Interrupted');
-  }, 30_000);
+  }, 45_000);
 
   it('shows visible retries in the status area', async () => {
     await start({ args: ['-m', 'mock/retry?failures=1'] });
