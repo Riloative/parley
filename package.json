@@ -1,6 +1,6 @@
 {
   "name": "taria",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "A terminal chat client for Claude, OpenAI, Mistral and local models",
   "type": "module",
   "license": "MIT",
