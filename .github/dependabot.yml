@@ -11,6 +11,18 @@ updates:
       dev-dependencies:
         dependency-type: development
         update-types: [minor, patch]
+    ignore:
+      # taria supports Node 22 and later (package.json "engines"). Newer
+      # Node types would let code use APIs that Node 22 lacks without the
+      # type check noticing. Move this with the oldest supported Node.
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
+      # Ink measures text with its own string-width (8.x for Ink 8). taria
+      # must use the same major, or the two measure some characters
+      # differently and lines wrap where Ink does not expect them to. Bump
+      # it together with Ink, by hand.
+      - dependency-name: 'string-width'
+        update-types: ['version-update:semver-major']
     # A bump changes dist/: the PR needs `npm run build` and a commit of dist/
     # before CI passes (the stale-bundle check fails otherwise).
   - package-ecosystem: github-actions
