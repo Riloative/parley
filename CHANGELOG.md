@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **A new start screen.** The welcome box spans the terminal: on the left a greeting, taria's owl, the model and the folder you are in; on the right tips for getting started and your three latest conversations. It drops to one column below 76 columns and to a compact box below 44, and keeps an ASCII version for terminals without Unicode.
+- **taria has a mascot:** a small owl, drawn in the accent colour.
+- **`name:`** in the config: "Welcome back, <name>!" (without it, "Welcome back!"; the very first start says "Welcome to taria!").
+- **`welcome_recent: false`** keeps conversation titles off the start screen, for example when sharing your screen.
+
 ## 0.4.0 — 2026-11-25
 
 ### Removed

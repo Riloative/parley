@@ -6,8 +6,9 @@ import type { TurnStats, Tone } from '../core/session.js';
 import { formatTokens } from '../core/usage.js';
 import { renderMarkdown } from '../render/markdown.js';
 import { lineToAnsi, type Line, type Span, type Style } from '../render/style.js';
-import { padEnd, textWidth, truncate, wrapSpans } from '../render/width.js';
+import { padEnd, truncate, wrapSpans } from '../render/width.js';
 import { unicodeOk } from '../term/caps.js';
+import { welcomeBox, type WelcomeInfo } from './welcome.js';
 
 export const GLYPH = unicodeOk() ? '◆' : '*';
 export const BULLET = unicodeOk() ? '●' : '*';
@@ -17,7 +18,7 @@ export const APP_NAME = 'taria';
 const DIM: Style = { fg: 'dim' };
 
 export type Item =
-  | { kind: 'welcome'; key: string; model: string; hint: string; notes: Array<{ text: string; tone: Tone }> }
+  | { kind: 'welcome'; key: string; info: WelcomeInfo; notes: Array<{ text: string; tone: Tone }> }
   | { kind: 'user'; key: string; message: StoredMessage }
   | { kind: 'chunk'; key: string; lines: Line[]; first: boolean }
   | { kind: 'assistant'; key: string; message: StoredMessage; showThinking: boolean }
@@ -39,25 +40,6 @@ function prefixLines(lines: Line[], first: Span[] | null): string {
   return lines
     .map((l, i) => lineToAnsi([...(i === 0 && first ? first : [{ text: '  ' }]), ...l]))
     .join('\n');
-}
-
-export function welcomeBox(cols: number, model: string, hint: string): string {
-  const inner = Math.max(20, Math.min(cols, 72) - 2);
-  const b: Style = { fg: 'accent' };
-  const row = (spans: Span[]): string => {
-    const w = spans.reduce((a, s) => a + textWidth(s.text), 0);
-    const pad = Math.max(0, inner - 2 - w);
-    return lineToAnsi([{ text: '│ ', style: b }, ...spans, { text: ' '.repeat(pad) + ' │', style: b }]);
-  };
-  const fit = (s: string, extra = 0) => truncate(s, inner - 2 - extra);
-  return [
-    lineToAnsi([{ text: `╭${'─'.repeat(inner)}╮`, style: b }]),
-    row([{ text: `${GLYPH} `, style: { fg: 'accent' } }, { text: 'Welcome to ', style: {} }, { text: APP_NAME, style: { bold: true } }]),
-    row([]),
-    row([{ text: fit(`  model: ${model}`), style: DIM }]),
-    row([{ text: fit(`  ${hint}`), style: DIM }]),
-    lineToAnsi([{ text: `╰${'─'.repeat(inner)}╯`, style: b }]),
-  ].join('\n');
 }
 
 export function userBlock(m: StoredMessage, cols: number): string {
@@ -104,7 +86,7 @@ function assistantBody(m: StoredMessage, cols: number): string {
 export function renderItem(item: Item, cols: number): string {
   switch (item.kind) {
     case 'welcome': {
-      const box = welcomeBox(cols, item.model, item.hint);
+      const box = welcomeBox(cols, item.info, unicodeOk());
       const notes = item.notes.map((n) => wrapSpans([{ text: n.text, style: toneStyle(n.tone) }], cols - 2).map((l) => '  ' + lineToAnsi(l)).join('\n'));
       return [box, ...notes].join('\n');
     }
