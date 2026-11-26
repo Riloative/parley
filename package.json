@@ -42,7 +42,7 @@
     "node-pty": "^1.1.0",
     "react": "^19.3.1",
     "string-width": "^8.3.0",
-    "typescript": "^6.0.3",
+    "typescript": "^7.0.2",
     "typescript-eslint": "^8.73.0",
     "undici": "^8.13.1",
     "vitest": "^5.1.1",
