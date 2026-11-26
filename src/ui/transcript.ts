@@ -57,6 +57,15 @@ export class TranscriptModel extends EventEmitter {
     session.on('event', (e: SessionEvent) => this.onEvent(e));
   }
 
+  /** Rebuild the welcome box (its contents changed after the first frame)
+   * and ask the app to redraw it in place, which it does only while the box
+   * is alone on the screen. Otherwise the next reprint shows the new one. */
+  refreshWelcome(): void {
+    if (this.items[0]?.kind !== 'welcome') return;
+    this.items[0] = this.welcome();
+    this.emit('repaint-welcome');
+  }
+
   private push(...items: Item[]): void {
     this.items = [...this.items, ...items];
   }

@@ -124,7 +124,10 @@ describe('rendering core', () => {
 
     const check = (cols: number) => {
       const all = s!.all().map((l) => l.trimEnd());
-      expect(all.filter((l) => l.includes('Welcome to taria')).length).toBe(1);
+      // The welcome box once: counted by its title border, since with
+      // conversations on disk it greets "Welcome back!" (0.5.0).
+      expect(all.filter((l) => /^╭─+ taria v/.test(l)).length).toBe(1);
+      expect(all.filter((l) => l.includes('Welcome back!')).length).toBe(1);
       const order = all.flatMap((l) => (/^> question (\d+)$/.exec(l) ? [Number(RegExp.$1)] : []));
       expect(order).toEqual([...Array(40).keys()]);
       for (const l of all) expect(l.length).toBeLessThanOrEqual(cols);

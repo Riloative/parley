@@ -2,7 +2,9 @@
 //   trace — the program's own TARIA_STARTUP_TRACE (ms since process start)
 //   wall  — from spawn until the prompt is visible in the output
 //
-// Usage: node scripts/bench-startup.mjs [--runs 20] [--bin path/to/taria]...
+// Usage: node scripts/bench-startup.mjs [--runs 20] [--conversations N] [--bin path/to/taria]...
+// --conversations puts N small conversations in each build's data folder
+// first (the start screen lists the latest ones).
 // Without --bin it measures the Node build (node bin/taria.js). A --bin that
 // ends in .js is run with this Node. Repeat --bin to compare builds: their
 // runs alternate, so a busy machine slows them all alike.
@@ -18,6 +20,7 @@ const arg = (name, def) => {
   return i > 0 ? process.argv[i + 1] : def;
 };
 const runs = Number(arg('runs', 20));
+const conversations = Number(arg('conversations', 0));
 const root = new URL('..', import.meta.url).pathname;
 const bins = process.argv.flatMap((a, i) => (a === '--bin' ? [resolve(process.argv[i + 1])] : []));
 const targets = (bins.length ? bins : [join(root, 'bin', 'taria.js')]).map((b) =>
@@ -34,6 +37,21 @@ for (const t of targets) {
   t.home = mkdtempSync(join(tmpdir(), 'taria-bench-'));
   mkdirSync(join(t.home, 'config', t.app), { recursive: true });
   writeFileSync(join(t.home, 'config', t.app, 'config.yaml'), 'default_model: mock/echo\nbell: false\nproviders:\n  mock:\n    type: mock\n');
+  if (conversations) {
+    const dir = join(t.home, 'data', t.app, 'conversations');
+    mkdirSync(dir, { recursive: true });
+    for (let i = 0; i < conversations; i++) {
+      const id = `20260101-${String(i).padStart(6, '0')}-bnch`;
+      const ts = 1_767_225_600_000 + i * 60_000;
+      const lines = [
+        { type: 'meta', v: 1, id, createdAt: ts, app: t.app },
+        { type: 'message', id: 'u1', parentId: null, role: 'user', content: [{ type: 'text', text: `question ${i}` }], ts },
+        { type: 'message', id: 'a1', parentId: 'u1', role: 'assistant', content: [{ type: 'text', text: `answer ${i} `.repeat(40) }], ts: ts + 1, model: 'mock/echo' },
+        { type: 'title', title: `Conversation ${i}` },
+      ];
+      writeFileSync(join(dir, `${id}.jsonl`), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+    }
+  }
   t.env = { ...process.env, HOME: t.home, XDG_CONFIG_HOME: join(t.home, 'config'), XDG_DATA_HOME: join(t.home, 'data'), XDG_STATE_HOME: join(t.home, 'state'), XDG_CACHE_HOME: join(t.home, 'cache'), TERM: 'xterm-256color', COLORTERM: 'truecolor', [`${t.app.toUpperCase()}_NO_KEYCHAIN`]: '1' };
   for (const k of ['CI', 'GITHUB_ACTIONS']) delete t.env[k];
 }

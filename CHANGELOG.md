@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Added
+
+- **A new start screen.** The welcome box spans the terminal: on the left a greeting, taria's owl, the model and the folder you are in; on the right tips for getting started and your three latest conversations. It drops to one column below 76 columns and to a compact box below 44, and keeps an ASCII version for terminals without Unicode.
+- **taria has a mascot:** a small owl, drawn in the accent colour.
+- **`name:`** in the config: "Welcome back, <name>!" (without it, "Welcome back!"; the very first start says "Welcome to taria!").
+- **`welcome_recent: false`** keeps conversation titles off the start screen, for example when sharing your screen.
+
 ### Changed
 
 - **Livelier words while taria waits and writes.** The spinner line picks from 80 words (it was 16), starts each reply on a fresh one, changes every 8 seconds (it was 12) and never shows the same word twice in a row. It now keeps a word while waiting too: after 15 seconds the grey part adds "waiting for the first token" (or "the model may still be loading" for a local server) instead of the whole line switching to "Waiting for the first token" after 5. "Thinking" still means the model is reasoning, and reduced motion still shows a single word.

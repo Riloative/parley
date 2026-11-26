@@ -13,12 +13,16 @@ import { paths } from './config/paths.js';
 import { TerminalController, installExitHandlers, restoreTerminal } from './term/terminal.js';
 import type { Background, EarlyProbe } from './term/probe.js';
 import { flushDrafts, pruneDrafts } from './core/drafts.js';
-import { renameNotices } from './brand.js';
+import { APP, renameNotices } from './brand.js';
 import { VERSION } from './version.js';
 import { notifier } from './ui/notify.js';
 import { TranscriptModel } from './ui/transcript.js';
 import { App } from './ui/App.js';
 import type { Item } from './ui/blocks.js';
+import { RECENT_ROWS, ago, welcomeTips, type WelcomeInfo } from './ui/welcome.js';
+import type { ConversationSummary } from './core/store.js';
+import { OWL, mascotLines } from './ui/mascot.js';
+import { unicodeOk } from './term/caps.js';
 import { loadConfig } from './config/config.js';
 import { lineToAnsi } from './render/style.js';
 import { mark, startupMarks } from './trace.js';
@@ -68,7 +72,8 @@ export async function runInteractive(args: Args, probe?: EarlyProbe): Promise<vo
   pruneDrafts();
 
   let initialConv: string | undefined;
-  if (args.continue) initialConv = b.store.list()[0]?.id;
+  const listed = args.continue ? b.store.list() : undefined;
+  if (listed) initialConv = listed[0]?.id;
   if (args.resume && args.resumeId) initialConv = args.resumeId;
 
   const session = new Session({ config: b.config, registry: b.registry, store: b.store, model: chooseModel(b, args.model) });
@@ -85,11 +90,29 @@ export async function runInteractive(args: Args, probe?: EarlyProbe): Promise<vo
   if (!session.model && b.configExists) notes.push({ text: 'No model selected yet. Pick one with /model (or set default_model in the config).', tone: 'warning' });
 
   const terminal = new TerminalController({ setTitle: b.config.terminalTitle, probe, focusReports: notifier(b.config) !== undefined });
+  // What the welcome box shows is read once, at start; only the model can
+  // change before a reprint. Reading the latest conversations costs 10-15 ms
+  // in a fresh process, so on a plain start they are read just after the
+  // first frame and the box is redrawn in place (it keeps its height). When
+  // a conversation is resumed they are read now: the box is not alone on the
+  // screen then, so it could not be redrawn.
+  const toRecent = (list: ConversationSummary[]) => list.slice(0, RECENT_ROWS).map((c) => ({ title: c.title, when: ago(c.updatedAt) }));
+  // With no conversation on disk the list is known to be empty: the box is
+  // complete in the first frame and is not drawn again.
+  const firstRun = listed ? !listed.length : !b.store.hasConversations();
+  const startInfo: Omit<WelcomeInfo, 'model' | 'tips'> = {
+    app: APP,
+    version: VERSION,
+    name: b.config.name,
+    firstRun,
+    cwd: process.cwd(),
+    recent: !b.config.welcomeRecent ? undefined : listed ? toRecent(listed) : firstRun ? [] : initialConv ? toRecent(b.store.recent(RECENT_ROWS)) : 'loading',
+    mascot: mascotLines(OWL, unicodeOk()),
+  };
   const welcome = (): Item => ({
     kind: 'welcome',
     key: `w${Math.random()}`,
-    model: session.model || '(none — use /model)',
-    hint: '/help for commands · /model to switch · esc to interrupt',
+    info: { ...startInfo, model: session.model, tips: welcomeTips(!!session.model) },
     notes: welcomeNotes(),
   });
   const welcomeNotes = () => notes;
@@ -198,6 +221,20 @@ export async function runInteractive(args: Args, probe?: EarlyProbe): Promise<vo
     void instance.waitUntilRenderFlush().then(() => {
       mark('first-frame');
       appendFileSync(process.env.TARIA_STARTUP_TRACE!, `${performance.now().toFixed(1)}\n${JSON.stringify(startupMarks())}\n`);
+    });
+  }
+
+  if (startInfo.recent === 'loading') {
+    void instance.waitUntilRenderFlush().then(() => {
+      setImmediate(() => {
+        if (exiting) return;
+        try {
+          startInfo.recent = toRecent(b.store.recent(RECENT_ROWS));
+        } catch {
+          startInfo.recent = [];
+        }
+        transcript.refreshWelcome();
+      });
     });
   }
 
