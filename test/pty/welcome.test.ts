@@ -62,6 +62,10 @@ describe('the start screen', () => {
   it('greets by the name in the config and lists the latest three conversations, newest first', async () => {
     const home = homeWith(['Oldest chat', 'Garden beds', 'Regex for dates', 'Newest chat'], `${DEFAULT_CONFIG}name: Sam\n`);
     s = spawnTaria({ home, cols: 110, rows: 30 });
+    // The list is read after the first frame and the box drawn again in
+    // place, which on a busy machine can come well after the first frame has
+    // settled: wait for the repaint (one write holds the whole box).
+    await s.waitFor('Garden beds');
     await s.waitStable({ lastLine: /context/ });
     const text = boxLines(s.all().map((l) => l.trimEnd())).join('\n');
     expect(text).toContain('Welcome back, Sam!');
@@ -85,6 +89,8 @@ describe('the start screen', () => {
   it('a conversation title cannot send control sequences to the terminal', async () => {
     const home = homeWith(['evil\x1b]0;pwned\x07\x1b[2J title']);
     s = spawnTaria({ home, cols: 110, rows: 30 });
+    // Wait for the list, which is filled in after the first frame.
+    await s.waitFor('title · ');
     await s.waitStable({ lastLine: /context/ });
     expect(s.raw).not.toContain('\x1b]0;pwned');
     expect(s.raw).not.toContain('\x1b[2J title');
