@@ -5,35 +5,13 @@ import { formatTokens } from '../core/usage.js';
 import { themeHex } from '../render/theme.js';
 import { unicodeOk } from '../term/caps.js';
 import { truncate } from '../render/width.js';
+import { turnWord } from './words.js';
 
 const FRAMES_UNICODE = ['·', '✢', '✳', '✶', '✻', '✽', '✽', '✻', '✶', '✳', '✢', '·'];
 const FRAMES_ASCII = ['-', '\\', '|', '/'];
 export const FRAMES = unicodeOk() ? FRAMES_UNICODE : FRAMES_ASCII;
 /** The glyph shown when motion is reduced. */
 export const STILL_FRAME = unicodeOk() ? '✻' : '*';
-
-const VERBS = [
-  'Thinking',
-  'Pondering',
-  'Composing',
-  'Mulling',
-  'Considering',
-  'Drafting',
-  'Musing',
-  'Reasoning',
-  'Weighing',
-  'Formulating',
-  'Deliberating',
-  'Ruminating',
-  'Contemplating',
-  'Writing',
-  'Wording',
-  'Reflecting',
-];
-
-export function pickVerb(seed: number): string {
-  return VERBS[Math.abs(seed) % VERBS.length]!;
-}
 
 export interface SpinnerProps {
   stream: StreamState | null;
@@ -79,8 +57,9 @@ export function Spinner({ stream, busyLabel, cols, still }: SpinnerProps): React
       if (stream.endpoint) detail.push(stream.endpoint.replace(/^https?:\/\//, ''));
       break;
     case 'waiting':
-      label = secs >= 5 ? 'Waiting for the first token' : still ? 'Thinking' : pickVerb(Math.floor(stream.startedAt / 1000));
-      if (secs >= 15 && /localhost|127\.0\.0\.1|\.local/.test(stream.endpoint)) detail.push('the model may still be loading');
+      label = still ? 'Thinking' : turnWord(stream.startedAt, secs);
+      // Long waits say so in the grey part; the word stays.
+      if (secs >= 15) detail.push(/localhost|127\.0\.0\.1|\.local/.test(stream.endpoint) ? 'the model may still be loading' : 'waiting for the first token');
       break;
     case 'retrying': {
       const r = stream.retry;
@@ -90,7 +69,7 @@ export function Spinner({ stream, busyLabel, cols, still }: SpinnerProps): React
       break;
     }
     default:
-      label = stream.reasoning && !stream.text ? 'Thinking' : still ? 'Writing' : pickVerb(Math.floor(stream.startedAt / 1000) + Math.floor(secs / 12));
+      label = stream.reasoning && !stream.text ? 'Thinking' : still ? 'Writing' : turnWord(stream.startedAt, secs);
   }
   if (stream.outputTokens > 0 && stream.status !== 'retrying') detail.push(`↓ ${formatTokens(stream.outputTokens)} tokens`);
   detail.push(stream.status === 'retrying' ? 'esc to cancel' : 'esc to interrupt');

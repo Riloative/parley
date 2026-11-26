@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **Livelier words while taria waits and writes.** The spinner line picks from 80 words (it was 16), starts each reply on a fresh one, changes every 8 seconds (it was 12) and never shows the same word twice in a row. It now keeps a word while waiting too: after 15 seconds the grey part adds "waiting for the first token" (or "the model may still be loading" for a local server) instead of the whole line switching to "Waiting for the first token" after 5. "Thinking" still means the model is reasoning, and reduced motion still shows a single word.
+
 ## 0.4.0 — 2026-11-25
 
 ### Removed
