@@ -42,7 +42,8 @@
         "context_window": { "type": "integer", "minimum": 256 },
         "sampling": { "$ref": "#/$defs/sampling" },
         "models": { "type": "object", "additionalProperties": { "$ref": "#/$defs/model" } },
-        "timeout_ms": { "type": "integer", "minimum": 1000 }
+        "timeout_ms": { "type": "integer", "minimum": 1000 },
+        "web_search_style": { "enum": ["deepseek", "venice", "openrouter", "none"], "description": "For an openai-compatible provider: which service's own web search to use. Read from base_url when not set; none turns it off." }
       }
     },
     "price": {

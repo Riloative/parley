@@ -1,0 +1,12 @@
+data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1795000000,"model":"m","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}],"venice_parameters":{"enable_web_search":"auto","enable_web_citations":false,"include_search_results_in_stream":true,"web_search_citations":[{"title":"Why is the sky blue? | BBC Sky at Night Magazine","url":"https://www.skyatnightmagazine.com/space-science/why-is-the-sky-blue","date":"2024-08-13T13:45:16.000Z","content":"The sky is blue because of Rayleigh scattering."},{"title":"Blue sky ‮evil‬","url":"https://example.org/sky","content":"Short wavelengths scatter more."},{"title":"Not a web address","url":"javascript:alert(1)"}]}}
+
+data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1795000000,"model":"m","choices":[{"index":0,"delta":{"content":"The sky is blue because air scatters "},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1795000000,"model":"m","choices":[{"index":0,"delta":{"content":"short wavelengths the most."},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1795000000,"model":"m","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1795000000,"model":"m","choices":[],"usage":{"prompt_tokens":900,"completion_tokens":20,"total_tokens":920}}
+
+data: [DONE]
+
