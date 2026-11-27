@@ -20,7 +20,7 @@ import type { Config } from '../config/config.js';
 import { paths } from '../config/paths.js';
 import { costOf, formatTokens, priceFor } from '../core/usage.js';
 import type { StoredMessage } from '../core/conversation.js';
-import { parseModelRef } from '../providers/types.js';
+import { parseModelRef, type ModelCapabilities } from '../providers/types.js';
 import { codeBlockTexts, mdCode, mdTable } from '../render/markdown.js';
 
 export interface UiApi {
@@ -281,6 +281,21 @@ export function builtinCommands(): CommandDef[] {
       },
     },
     {
+      name: 'search',
+      description: "Web search by the model's provider: on, off, or show the state",
+      argHint: '[on | off]',
+      run(ui, args) {
+        const a = args.trim().toLowerCase();
+        if (a && a !== 'on' && a !== 'off') return ui.notice('Use /search on or /search off, or /search alone to see the state.', 'error');
+        if (a) ui.session.setWebSearch(a === 'on');
+        const model = ui.session.model;
+        void ui.session
+          .capabilities()
+          .catch(() => undefined)
+          .then((caps) => ui.notice(searchStatus(ui.session.webSearch, model, caps, ui.session.searchMax)));
+      },
+    },
+    {
       name: 'history',
       description: 'Show or hide the early messages of a very long conversation',
       noArgs: true,
@@ -423,15 +438,28 @@ export function builtinCommands(): CommandDef[] {
         let total = 0;
         let anyPrice = false;
         const table: string[][] = [];
+        const searched = rows.some(([, u]) => u.searches > 0);
         for (const [model, u] of rows) {
           const c = costOf(u, priceFor(ui.config.prices, model));
           if (c !== undefined) {
             total += c;
             anyPrice = true;
           }
-          table.push([model, String(u.requests), `${formatTokens(u.inputTokens)}${u.estimated ? '~' : ''}`, formatTokens(u.outputTokens), formatTokens(u.cacheReadTokens), c === undefined ? '—' : `$${c.toFixed(4)}`]);
+          table.push([
+            model,
+            String(u.requests),
+            `${formatTokens(u.inputTokens)}${u.estimated ? '~' : ''}`,
+            formatTokens(u.outputTokens),
+            formatTokens(u.cacheReadTokens),
+            // The searches column appears once a search has run.
+            ...(searched ? [String(u.searches)] : []),
+            c === undefined ? '—' : `$${c.toFixed(4)}`,
+          ]);
         }
-        let md = mdTable(['Model', 'Requests', 'Input', 'Output', 'Cache read', 'Cost'], table, ['left', 'right', 'right', 'right', 'right', 'right']);
+        let md = mdTable(['Model', 'Requests', 'Input', 'Output', 'Cache read', ...(searched ? ['Searches'] : []), 'Cost'], table, ['left', 'right', 'right', 'right', 'right', 'right', ...(searched ? ['right' as const] : [])]);
+        if (searched && anyPrice && !rows.some(([model, u]) => u.searches > 0 && priceFor(ui.config.prices, model)?.search !== undefined)) {
+          md += "\n\nSearches are not in the cost: add `search` (US dollars per 1,000 searches) to the model's entry under `prices`.";
+        }
         if (anyPrice) md += `\n\n**Estimated total: $${total.toFixed(4)}**`;
         else md += '\n\nNo prices are configured, so cost is not estimated. Add a `prices` table to the config file.';
         if (rows.some(([, u]) => u.estimated)) md += '\n\n~ marks estimates for providers that do not report usage.';
@@ -558,3 +586,21 @@ export function findCommand(cmds: CommandDef[], name: string): CommandDef | unde
 }
 
 export type { Tone };
+
+/** What /search says: the state, what the current model can do, the limit. */
+export function searchStatus(on: boolean, model: string, caps: ModelCapabilities | undefined, max: number | undefined): string {
+  if (!on) {
+    return "Web search is off. /search on lets the model search the web with its provider's own search for the rest of this session (web_search: true in the config file keeps it on). Each search costs extra, and its query goes to the provider's search.";
+  }
+  const lines = ['Web search is on. /search off turns it off.'];
+  if (!model) return lines[0]!;
+  if (caps?.webSearch === false) lines.push(`${model} has no web search as far as taria can tell: its messages are sent without it.`);
+  else if (caps?.webSearch === true) lines.push(`${model} can search; it decides when to.`);
+  else lines.push(`taria cannot tell whether ${model} can search, so it will be asked to.`);
+  if (caps?.webSearch !== false) {
+    if (max === undefined) lines.push('There is no limit on searches per reply (web_search_max: 0).');
+    else if (caps?.searchLimit === false) lines.push(`This provider cannot limit the searches of a reply, so web_search_max (${max}) does not apply here.`);
+    else lines.push(`A reply may run at most ${max} search${max === 1 ? '' : 'es'} (web_search_max).`);
+  }
+  return lines.join(' ');
+}

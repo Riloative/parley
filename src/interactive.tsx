@@ -87,6 +87,7 @@ export async function runInteractive(args: Args, probe?: EarlyProbe): Promise<vo
   // Said here: at this point nothing listens to the session's notices yet.
   if (!resumeFailed && session.file?.repaired) notes.push({ text: repairNotice(session.file.repaired), tone: 'success' });
   if (args.model) session.setModel(args.model);
+  if (args.search !== undefined) session.setWebSearch(args.search);
   if (!session.model && b.configExists) notes.push({ text: 'No model selected yet. Pick one with /model (or set default_model in the config).', tone: 'warning' });
 
   const terminal = new TerminalController({ setTitle: b.config.terminalTitle, probe, focusReports: notifier(b.config) !== undefined });

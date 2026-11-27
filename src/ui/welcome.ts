@@ -14,6 +14,7 @@
 // Narrower terminals get one column, and very narrow ones a compact box
 // without the mascot.
 
+import { cleanText } from '../render/clean.js';
 import { homedir } from 'node:os';
 import { lineToAnsi, type Span, type Style } from '../render/style.js';
 import { textWidth, truncate } from '../render/width.js';
@@ -64,7 +65,7 @@ const DIM: Style = { fg: 'dim' };
  * control characters: a title could otherwise carry escape sequences that
  * clear the screen or retitle the terminal. */
 export function clean(s: string): string {
-  return s.replace(/[\r\n\t]+/g, ' ').replace(/[\x00-\x1f\x7f-\x9f]/g, '').trim();
+  return cleanText(s);
 }
 
 /** How long ago, in plain words: "just now", "5m ago", "yesterday", … */

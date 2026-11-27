@@ -2,6 +2,7 @@
 // No colour or spinner unless stdout is a terminal; errors go to stderr with
 // a non-zero exit code.
 
+import { listSources, plainSources } from './core/sources.js';
 import type { Args } from './args.js';
 import { boot, chooseModel } from './bootstrap.js';
 import { Session, type SessionEvent, repairNotice } from './core/session.js';
@@ -56,6 +57,7 @@ export async function runPrint(args: Args): Promise<number> {
   }
   session.setModel(model);
   if (args.system) session.setSystemPrompt(args.system);
+  if (args.search !== undefined) session.setWebSearch(args.search);
 
   const width = Math.min(process.stdout.columns || 100, 120);
   const md = tty && !args.json ? new StreamingMarkdown(width) : null;
@@ -84,7 +86,7 @@ export async function runPrint(args: Args): Promise<number> {
   } else if (tty && process.stderr.isTTY && !args.json) {
     spinner = setInterval(() => {
       if (session.stream?.text) return stopSpinner();
-      process.stderr.write(`\r\x1b[2K\x1b[38;2;217;119;87m${FRAMES[frame++ % FRAMES.length]}\x1b[0m ${session.stream?.status === 'retrying' ? 'Retrying…' : 'Thinking…'}`);
+      process.stderr.write(`\r\x1b[2K\x1b[38;2;217;119;87m${FRAMES[frame++ % FRAMES.length]}\x1b[0m ${session.stream?.status === 'retrying' ? 'Retrying…' : session.stream?.searching !== undefined ? 'Searching the web…' : 'Thinking…'}`);
     }, 120);
   }
 
@@ -133,10 +135,22 @@ export async function runPrint(args: Args): Promise<number> {
       error: errorText ?? m?.error ?? null,
       usage: m?.usage ?? null,
       duration_ms: end?.stats.durationMs ?? null,
+      // Web search (0.6.0): what the reply cites, and the searches that ran.
+      sources: listSources(m?.content ?? []).map((s) => ({ title: s.title, url: s.url, ...(s.snippet ? { snippet: s.snippet } : {}) })),
+      searches: (m?.content ?? []).filter((p) => p.type === 'search').map((p) => ({ query: p.query, status: p.status, ...(p.error ? { error: p.error } : {}) })),
     };
     process.stdout.write(JSON.stringify(out, null, 2) + '\n');
   } else if (!md && written > 0 && !(session.conv.head?.content.map((p) => (p.type === 'text' ? p.text : '')).join('') ?? '').endsWith('\n')) {
     process.stdout.write('\n');
+  }
+  // --sources: the sources as plain text after the answer. Titles are
+  // cleaned; a search that failed is said on stderr, like other warnings.
+  if (!args.json && end) {
+    for (const p of end.message.content) {
+      if (p.type === 'search' && p.status === 'failed') process.stderr.write(`taria: web search failed${p.error ? `: ${p.error}` : ''}\n`);
+    }
+    const sources = args.sources ? plainSources(end.message.content, 50) : '';
+    if (sources) process.stdout.write(`\n${sources}\n`);
   }
   if (errorText) {
     process.stderr.write(`taria: ${errorText}\n`);

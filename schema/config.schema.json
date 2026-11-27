@@ -25,7 +25,8 @@
         "sampling": { "$ref": "#/$defs/sampling" },
         "context_window": { "type": "integer", "minimum": 256 },
         "images": { "type": "boolean", "description": "The model accepts images (overrides what the provider reports)." },
-        "reasoning": { "type": "boolean", "description": "The model reasons (overrides what the provider reports)." }
+        "reasoning": { "type": "boolean", "description": "The model reasons (overrides what the provider reports)." },
+        "web_search": { "type": "boolean", "description": "The model has the provider's web search (overrides what taria detects)." }
       }
     },
     "provider": {
@@ -53,7 +54,8 @@
         "input": { "type": "number", "minimum": 0 },
         "output": { "type": "number", "minimum": 0 },
         "cache_read": { "type": "number", "minimum": 0 },
-        "cache_write": { "type": "number", "minimum": 0 }
+        "cache_write": { "type": "number", "minimum": 0 },
+        "search": { "type": "number", "minimum": 0, "description": "US dollars per 1,000 web searches." }
       }
     }
   },
@@ -72,6 +74,8 @@
     "clipboard": { "enum": ["auto", "native", "osc52", "off"], "description": "How /copy reaches the clipboard." },
     "clipboard_command": { "type": "string", "description": "A command that takes the text on stdin, tried first." },
     "reduced_motion": { "type": "boolean" },
+    "web_search": { "type": "boolean", "description": "Let models search the web with their provider's own search (default false). Each search costs money and sends its query to the provider's search service." },
+    "web_search_max": { "type": "integer", "minimum": 0, "maximum": 100, "description": "The most searches one reply may run, where the provider can limit them (default 5; 0 = no limit)." },
     "check_for_updates": { "type": "boolean" },
     "system_prompt": { "type": "string" },
     "reasoning_effort": { "enum": ["off", "minimal", "low", "medium", "high", "xhigh", "max"] },

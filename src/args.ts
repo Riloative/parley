@@ -10,6 +10,10 @@ export interface Args {
   resume: boolean;
   resumeId?: string;
   json: boolean;
+  /** --search / --no-search: web search for this run (overrides the config). */
+  search?: boolean;
+  /** --sources: with -p, list the sources after the answer. */
+  sources: boolean;
   debug: boolean;
   debugFile?: string;
   noColor: boolean;
@@ -19,7 +23,7 @@ export interface Args {
 }
 
 export function parseArgs(argv: string[]): Args | { error: string } {
-  const a: Args = { print: false, continue: false, resume: false, json: false, debug: false, noColor: false, rest: [] };
+  const a: Args = { print: false, continue: false, resume: false, json: false, sources: false, debug: false, noColor: false, rest: [] };
   const positional: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!;
@@ -70,6 +74,15 @@ export function parseArgs(argv: string[]): Args | { error: string } {
           break;
         case '--json':
           a.json = true;
+          break;
+        case '--search':
+          a.search = true;
+          break;
+        case '--no-search':
+          a.search = false;
+          break;
+        case '--sources':
+          a.sources = true;
           break;
         case '--debug':
           a.debug = true;

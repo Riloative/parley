@@ -36,6 +36,7 @@ taria looks and behaves like a terminal coding assistant, but it only converses:
 - [Setting up providers](#setting-up-providers)
 - [API keys](#api-keys)
 - [Keys](#keys)
+- [Web search](#web-search)
 - [Slash commands](#slash-commands)
 - [Configuration file](#configuration-file)
 - [Non-interactive use](#non-interactive-use)
@@ -264,6 +265,7 @@ providers:
         context_window: 40960   # if the server doesn't report it
         images: false           # override detected capabilities
         reasoning: true
+        web_search: false       # see "Web search"
 ```
 
 Note: current Anthropic API versions reject `temperature`, `top_p` and `top_k`; leave them unset for Anthropic models.
@@ -313,6 +315,55 @@ taria key remove anthropic
 
 Large pastes collapse to `[Pasted text #1 +42 lines]` and are expanded when sent. Dragging files into the terminal attaches them.
 
+## Web search
+
+taria can let a model search the web **with its provider's own search**. The provider runs the search on its servers; taria never fetches a web page, needs no extra key and talks to no other service.
+
+It is **off by default**, because a search costs money and sends its query to the provider's search. Turn it on in any of these ways:
+
+| | |
+| --- | --- |
+| `web_search: true` in the config file | on at every start |
+| `/search on`, `/search off` | for the current session; `/search` alone shows the state, the limit and what the current model can do |
+| `taria --search`, `taria --no-search` | for one run, whatever the config says |
+
+With search on, the model decides when to search. While it does, the spinner line says `Searching the web: <query>`. The reply carries small markers such as `[1]`, and a numbered list of its sources follows it:
+
+```
+● Rain is expected tomorrow in Vilnius [1], with highs near 4 °C [2].
+
+  Sources
+   1. Vilnius forecast · meteo.lt
+   2. Weather in Vilnius · bbc.com
+  3.1s · 212 tokens · 1 search
+```
+
+- Each source shows the site its address really leads to, after a title the page chose itself. Titles and addresses come from the web: taria removes control and direction-changing characters from them and never lets them send anything to your terminal.
+- Where the terminal supports hyperlinks the title is a link; elsewhere the address is printed under it. `Ctrl+O` adds the queries, the full addresses and the quoted passages.
+- `/cost` counts searches. To include them in the estimate, add `search` (US dollars per 1,000 searches) to the model's entry under `prices`.
+
+**What it costs.** A search is billed by the provider on top of tokens, and the text of the results counts as input tokens, in this reply and in later turns of the conversation. `web_search_max` (default 5, `0` for no limit) is the most searches one reply may run; `/search` says when a provider cannot apply such a limit.
+
+**Which models.** taria asks the provider where it can; `/search` shows what it found for the current model. A model without web search gets your message without it, and taria says so once. If taria is wrong about a model, set `web_search: true` (or `false`) for it:
+
+```yaml
+web_search: true
+web_search_max: 5
+providers:
+  example:
+    models:
+      some-model-id:
+        web_search: true      # this model does have its provider's web search
+```
+
+If a provider refuses a request because of web search (for example because it is not enabled for your account), taria sends your message once more without it and tells you.
+
+**Good to know.**
+
+- Switching web search on or off in the middle of a conversation can make the next request cost more once: the provider's prompt cache starts again, and earlier thinking is not sent back.
+- A reply that searched keeps the provider's own data for its results, so that the same model can refer to them later. Another model gets the reply's text and a plain list of its sources instead.
+- `taria -p` prints the answer alone, as before; `--sources` adds the list of sources after it, and `--json` has `sources` and `searches`.
+
 ## Slash commands
 
 | Command | Description |
@@ -323,6 +374,7 @@ Large pastes collapse to `[Pasted text #1 +42 lines]` and are expanded when sent
 | `/rewind` | Same as `Esc` `Esc` |
 | `/branches` | Switch between the branches that rewinding and retrying create (a `⑂ branch 2 of 3` line marks each branch point) |
 | `/find <text>` | Search this conversation; Enter shows the chosen message again |
+| `/search [on \| off]` | [Web search](#web-search) by the model's provider: switch it, or show the state |
 | `/history` | Show or hide the early part of a very long conversation (beyond 240 messages, only the newest 200 are printed) |
 | `/retry [provider/id]` | Regenerate the last response, optionally with another model (a new branch) |
 | `/system [text \| clear]` | View or set this conversation's system prompt |
@@ -377,6 +429,8 @@ name: Sam                            # "Welcome back, Sam!" on the start screen 
 welcome_recent: true                 # false: the start screen does not list your latest conversations (e.g. when sharing your screen)
 soft_line_breaks: keep               # keep | join: a single newline inside a paragraph stays a line break, or joins the lines
 reduced_motion: false                # true: a still spinner instead of an animated one
+web_search: false                    # true: models may search the web with their provider's search (costs extra; see "Web search")
+web_search_max: 5                    # the most searches one reply may run, where the provider can limit them (0: no limit)
 clipboard: auto                      # auto | native | osc52 | off: how /copy reaches the clipboard
 # clipboard_command: wl-copy -p       # a program (and arguments) that takes the text on stdin, tried first; not run by a shell
 check_for_updates: false             # true: once a day, ask GitHub for the latest release and mention a newer one (nothing is downloaded)
@@ -427,7 +481,9 @@ taria -c -p "and in French?"       # continue the most recent conversation
 | `-s, --system text` | System prompt |
 | `-c, --continue` | Continue the most recent conversation |
 | `-r, --resume [id]` | Resume a conversation (picker without an id) |
-| `--json` | One JSON object: text, reasoning, usage, stop reason, conversation id |
+| `--json` | One JSON object: text, reasoning, usage, stop reason, conversation id, sources, searches |
+| `--search`, `--no-search` | [Web search](#web-search) on or off for this run |
+| `--sources` | With `-p`: list the web sources after the answer |
 | `--theme name`, `--no-color` | Appearance |
 | `--debug [file]` | Log requests, responses and timings, keys redacted |
 | `taria doctor` | Check terminal, clipboard, keychain and each provider |

@@ -80,6 +80,9 @@ function toBlock(p: ContentPart, provider: string, model: string, role: 'user' |
       if (p.redacted) return { type: 'redacted_thinking', data: p.redacted };
       if (p.signature) return { type: 'thinking', thinking: p.text, signature: p.signature };
       return null;
+    default:
+      // Web search parts never reach an adapter as they are (toChatMessages).
+      return null;
   }
 }
 

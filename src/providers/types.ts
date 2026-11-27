@@ -32,8 +32,44 @@ export type ContentPart =
       model: string;
       signature?: string;
       redacted?: string;
+    }
+  | {
+      /** A web search the provider ran on its own servers for this reply. */
+      type: 'search';
+      id: string;
+      /** As the model wrote it, cleaned for display. */
+      query: string;
+      /** `interrupted`: no result arrived (Ctrl+C, a lost connection). */
+      status: 'done' | 'failed' | 'interrupted';
+      /** Why it failed, in plain words. */
+      error?: string;
+    }
+  | {
+      /** A web page a search found. Everything in it comes from the web:
+       * clean it before it reaches the terminal (render/clean.ts). */
+      type: 'source';
+      url: string;
+      title: string;
+      /** Text quoted from the page. */
+      snippet?: string;
+      /** The reply cites it. With `at`, at that offset of the reply's text. */
+      cited?: boolean;
+      at?: number;
+    }
+  | {
+      /** What a provider needs back unchanged in later turns (encrypted
+       * search results, item ids). Only the adapter that wrote it reads it;
+       * it goes to the same provider and model or nowhere, and it is never
+       * rendered or printed. */
+      type: 'provider_data';
+      provider: string;
+      model: string;
+      data: string;
     };
 // Future: | { type: 'tool_call'; ... } | { type: 'tool_result'; ... }
+
+export type SearchPart = Extract<ContentPart, { type: 'search' }>;
+export type SourcePart = Extract<ContentPart, { type: 'source' }>;
 
 export type Role = 'user' | 'assistant';
 
@@ -48,6 +84,8 @@ export interface Usage {
   cacheReadTokens?: number;
   cacheWriteTokens?: number;
   reasoningTokens?: number;
+  /** Web searches the provider billed for this reply. */
+  searches?: number;
 }
 
 export type ReasoningEffort = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
@@ -67,6 +105,9 @@ export interface ChatRequest {
   messages: ChatMessage[];
   sampling: SamplingSettings;
   reasoningEffort?: ReasoningEffort;
+  /** Let the model search the web with the provider's own search. Absent:
+   * the request is exactly what it was before web search existed. */
+  webSearch?: { maxUses?: number };
   signal: AbortSignal;
 }
 
@@ -77,6 +118,16 @@ export type StreamEvent =
   /** A complete reasoning block with provider-specific verification data,
    * emitted once the block ends. */
   | { type: 'reasoning_block'; signature?: string; redacted?: string }
+  /** A provider-run web search: `started` when the model asks for it (the
+   * query may follow in a later event with the same id), then `done` or
+   * `failed`. */
+  | { type: 'search'; id: string; status: 'started' | 'done' | 'failed'; query?: string; error?: string }
+  /** A page a search found. `cite: 'mark'`: the text just before this event
+   * rests on it; `'list'`: cited, position unknown or already linked in the
+   * text; `'none'`: found only. */
+  | { type: 'source'; url: string; title?: string; snippet?: string; cite: 'mark' | 'list' | 'none' }
+  /** Opaque data for later turns, once, when the reply has ended cleanly. */
+  | { type: 'provider_data'; data: string }
   | { type: 'usage'; usage: Usage }
   | { type: 'retry'; attempt: number; delayMs: number; reason: string }
   | { type: 'error'; error: ProviderError }
@@ -93,6 +144,9 @@ export type ErrorKind =
   | 'context_overflow'
   | 'server'
   | 'aborted'
+  /** The request was refused because it asked for web search (the model
+   * or the account does not have it). Nothing was produced. */
+  | 'search_unavailable'
   | 'unknown';
 
 export class ProviderError extends Error {
@@ -125,6 +179,10 @@ export interface ModelCapabilities {
   reasoningEfforts: ReasoningEffort[];
   contextWindow?: number;
   maxOutputTokens?: number;
+  /** Provider-run web search. Absent means unknown. */
+  webSearch?: boolean | 'unknown';
+  /** The provider can limit the searches of one reply. */
+  searchLimit?: boolean;
 }
 
 export interface ModelInfo {

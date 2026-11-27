@@ -1404,7 +1404,7 @@ export function App(props: AppProps): React.ReactElement {
   if (!caps) void session.capabilities().then(() => force()).catch(() => {});
   const effortText = caps?.reasoningEfforts.length && session.effort ? ` · ${session.effort} effort` : caps?.reasoningEfforts.length ? ' · default effort' : '';
   const ctxText = ctx.pct !== undefined ? ` · ${ctx.pct}% context` : ctx.used > 0 ? ` · ${formatTokens(ctx.used)} tokens` : '';
-  const right = `${session.model}${effortText}${ctxText}`;
+  const right = `${session.model}${effortText}${session.webSearch ? ' · web search' : ''}${ctxText}`;
   const newlineHint = kitty ? 'shift+⏎ for newline' : '\\⏎ for newline';
   let left: string;
   if (hint && hint.until > Date.now()) left = hint.text;

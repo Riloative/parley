@@ -6,7 +6,9 @@
 import { EventEmitter } from 'node:events';
 import type { Config } from '../config/config.js';
 import { Conversation, newId, toChatMessages, type StoredMessage } from './conversation.js';
-import { ConversationLockedError, storageProblem, type ConversationFile, type Store } from './store.js';
+import { ConversationLockedError, hasBody, messageEvents, storageProblem, type ConversationFile, type Store } from './store.js';
+import { MAX_QUERY, MAX_SNIPPET, MAX_SOURCES, MAX_TITLE, markerOffset } from './sources.js';
+import { cleanText } from '../render/clean.js';
 import { CostTracker, estimateTokens } from './usage.js';
 import type { Registry } from '../providers/registry.js';
 import {
@@ -16,6 +18,8 @@ import {
   type ContentPart,
   type ModelCapabilities,
   type ReasoningEffort,
+  type SearchPart,
+  type SourcePart,
   type Usage,
 } from '../providers/types.js';
 import { debug } from '../debug.js';
@@ -36,6 +40,11 @@ export interface StreamState {
   outputTokens: number;
   outputEstimated: boolean;
   retry?: { attempt: number; max: number; until: number; reason: string };
+  /** The query of the web search that is running now ('' until known). */
+  searching?: string;
+  /** Searches and sources of this reply so far (cleaned for display). */
+  searches: SearchPart[];
+  sources: SourcePart[];
 }
 
 export interface TurnStats {
@@ -43,6 +52,8 @@ export interface TurnStats {
   outputTokens: number;
   tokensPerSecond?: number;
   reasoningMs?: number;
+  /** Web searches that ran for the reply. */
+  searches?: number;
 }
 
 export type Tone = 'dim' | 'error' | 'success' | 'warning';
@@ -108,6 +119,13 @@ export class Session extends EventEmitter {
   private frameTimer: NodeJS.Timeout | null = null;
   private persistTimer: NodeJS.Timeout | null = null;
   private pendingDelta = { text: '', reasoning: '' };
+  /** Finished searches and new sources not yet on disk. */
+  private pendingAnnex: ContentPart[] = [];
+  /** Web search for the replies of this session (config, flag, /search). */
+  webSearch: boolean;
+  /** Models that turned out not to search, or were told so once. */
+  private searchRefused = new Set<string>();
+  private searchNoticed = new Set<string>();
   private capsCache = new Map<string, ModelCapabilities>();
   private warned80 = false;
   private titlePending = false;
@@ -122,6 +140,7 @@ export class Session extends EventEmitter {
     this.model = opts.model;
     this.ephemeral = !!opts.ephemeral || !opts.store;
     this.effort = (opts.config.reasoningEffort as ReasoningEffort | undefined) ?? undefined;
+    this.webSearch = opts.config.webSearch;
     this.conv = new Conversation('unsaved');
     this.conv.systemPrompt = opts.config.systemPrompt;
   }
@@ -227,6 +246,22 @@ export class Session extends EventEmitter {
       this.persist({ type: 'delta', id: this.stream.id, ...(text ? { text } : {}), ...(reasoning ? { reasoning } : {}) });
       this.pendingDelta = { text: '', reasoning: '' };
     }
+    // After the text, so a source's position never points past what is saved.
+    if (this.pendingAnnex.length) {
+      this.persist({ type: 'annex', id: this.stream.id, parts: this.pendingAnnex });
+      this.pendingAnnex = [];
+    }
+  }
+
+  /** /search, --search: web search for the replies from now on. */
+  setWebSearch(on: boolean): void {
+    this.webSearch = on;
+    this.send_({ type: 'frame' });
+  }
+
+  /** The most searches one reply may run; undefined: no limit is set. */
+  get searchMax(): number | undefined {
+    return this.config.webSearchMax > 0 ? this.config.webSearchMax : undefined;
   }
 
   // ------------------------------------------------------------- settings
@@ -496,9 +531,12 @@ export class Session extends EventEmitter {
       reasoning: '',
       outputTokens: 0,
       outputEstimated: true,
+      searches: [],
+      sources: [],
     };
     this.stream = state;
     this.pendingDelta = { text: '', reasoning: '' };
+    this.pendingAnnex = [];
     this.persist({ type: 'partial', id, parentId, model, ts: state.startedAt });
     this.send_({ type: 'assistant-start', state });
 
@@ -507,6 +545,7 @@ export class Session extends EventEmitter {
     let error: ProviderError | undefined;
     let reasoningSig: { signature?: string; redacted?: string } | undefined;
     const reasoningParts: ContentPart[] = [];
+    let providerData: string | undefined;
     let inputEstimate = 0;
 
     try {
@@ -517,6 +556,18 @@ export class Session extends EventEmitter {
       const sampling = this.registry.sampling(model);
       const caps = await this.capabilities(model).catch(() => undefined);
       const effort = caps?.reasoningEfforts.length && this.effort && caps.reasoningEfforts.includes(this.effort) ? this.effort : undefined;
+      // Web search goes to every model that is not known to lack it. One
+      // that lacks it gets the message without search, and one notice.
+      let search = this.webSearch && caps?.webSearch !== false && !this.searchRefused.has(model);
+      if (this.webSearch && !search && !this.searchNoticed.has(model)) {
+        this.searchNoticed.add(model);
+        this.notice(
+          this.searchRefused.has(model)
+            ? `${model} refused web search earlier, so this message is sent without it.`
+            : `${model} has no web search as far as taria can tell, so this message is sent without it. If it does have it, set "web_search: true" for the model in the config file.`,
+          'warning',
+        );
+      }
       for (let attempt = 1; ; attempt++) {
         try {
           for await (const ev of provider.stream({
@@ -525,6 +576,7 @@ export class Session extends EventEmitter {
             messages,
             sampling,
             reasoningEffort: effort,
+            ...(search ? { webSearch: { ...(caps?.searchLimit !== false && this.searchMax ? { maxUses: this.searchMax } : {}) } } : {}),
             signal: abort.signal,
           })) {
             switch (ev.type) {
@@ -555,6 +607,48 @@ export class Session extends EventEmitter {
                 this.pendingDelta.text += ev.text;
                 this.schedulePersist();
                 break;
+              case 'search': {
+                let part = state.searches.find((x) => x.id === ev.id);
+                if (!part) {
+                  // Until its result arrives a search counts as interrupted.
+                  part = { type: 'search', id: ev.id, query: '', status: 'interrupted' };
+                  state.searches.push(part);
+                }
+                // The query is model output: one clean line, of bounded length.
+                if (ev.query) part.query = cleanText(ev.query).slice(0, MAX_QUERY);
+                if (ev.status === 'started') {
+                  state.searching = part.query;
+                } else {
+                  part.status = ev.status;
+                  if (ev.error) part.error = redact(cleanText(ev.error)).slice(0, MAX_SNIPPET);
+                  state.searching = undefined;
+                  this.pendingAnnex.push({ ...part });
+                  this.schedulePersist();
+                }
+                break;
+              }
+              case 'source': {
+                if (state.sources.length >= MAX_SOURCES || typeof ev.url !== 'string' || !ev.url) break;
+                // A marker goes at the end of the text so far, or nowhere.
+                const at = ev.cite === 'mark' ? markerOffset(state.text) : undefined;
+                if (at !== undefined && state.sources.some((x) => x.url === ev.url && x.at === at)) break;
+                const snippet = ev.snippet ? cleanText(ev.snippet).slice(0, MAX_SNIPPET) : '';
+                const part: SourcePart = {
+                  type: 'source',
+                  url: ev.url.slice(0, 4096),
+                  title: cleanText(ev.title ?? '').slice(0, MAX_TITLE),
+                  ...(snippet ? { snippet } : {}),
+                  ...(ev.cite !== 'none' ? { cited: true } : {}),
+                  ...(at !== undefined ? { at } : {}),
+                };
+                state.sources.push(part);
+                this.pendingAnnex.push(part);
+                this.schedulePersist();
+                break;
+              }
+              case 'provider_data':
+                providerData = ev.data;
+                break;
               case 'usage':
                 usage = { ...usage, ...Object.fromEntries(Object.entries(ev.usage).filter(([, v]) => v !== undefined)) };
                 if (ev.usage.outputTokens !== undefined) {
@@ -575,7 +669,22 @@ export class Session extends EventEmitter {
           break;
         } catch (e) {
           const err = e instanceof ProviderError ? e : new ProviderError('unknown', (e as Error)?.message ?? String(e));
-          const nothingYet = !state.text && !state.reasoning;
+          const nothingYet = !state.text && !state.reasoning && !state.searches.length;
+          // The provider refused the request because it asked for web
+          // search. Nothing was produced, so the same message goes out once
+          // more without search, and the user is told.
+          if (err.kind === 'search_unavailable' && search && nothingYet && !abort.signal.aborted) {
+            search = false;
+            this.searchRefused.add(model);
+            this.searchNoticed.add(model);
+            const why = err.providerMessage ? ` (${redact(cleanText(err.providerMessage)).slice(0, 300)})` : '';
+            this.notice(`${provider.name} refused web search for ${ref.model}${why}. The message was sent again without it. /search off turns web search off.`, 'warning');
+            reasoningParts.length = 0;
+            reasoningSig = undefined;
+            state.status = 'connecting';
+            this.send_({ type: 'frame' });
+            continue;
+          }
           // Honour Retry-After; if the provider wants a longer wait than we
           // are willing to sit through, stop and say how long instead of
           // retrying early (which would only be refused again).
@@ -586,6 +695,9 @@ export class Session extends EventEmitter {
             // it next turn could be refused.
             reasoningParts.length = 0;
             reasoningSig = undefined;
+            providerData = undefined;
+            state.sources = [];
+            this.pendingAnnex = [];
             const delay = err.retryAfterMs ?? Math.min(30_000, 1000 * 2 ** (attempt - 1)) + Math.floor(Math.random() * 400);
             state.status = 'retrying';
             state.retry = { attempt: attempt + 1, max: MAX_ATTEMPTS, until: Date.now() + delay, reason: redact(err.message) };
@@ -623,6 +735,8 @@ export class Session extends EventEmitter {
       this.persistTimer = null;
     }
     this.pendingDelta = { text: '', reasoning: '' };
+    this.pendingAnnex = [];
+    state.searching = undefined;
 
     const interrupted = abort.signal.aborted || error?.kind === 'aborted';
     const end = Date.now();
@@ -630,6 +744,10 @@ export class Session extends EventEmitter {
     if (reasoningParts.length) content.push(...reasoningParts);
     else if (state.reasoning) content.push({ type: 'reasoning', text: state.reasoning, provider: ref.provider, model: ref.model, ...(reasoningSig ?? {}) });
     if (state.text) content.push({ type: 'text', text: state.text });
+    content.push(...state.searches, ...state.sources);
+    // The provider's own data is only good for a reply that ended cleanly:
+    // a search without its result must never be sent back.
+    if (providerData && !interrupted && !error) content.push({ type: 'provider_data', provider: ref.provider, model: ref.model, data: providerData });
     const message: StoredMessage = {
       id,
       parentId,
@@ -646,9 +764,9 @@ export class Session extends EventEmitter {
     };
     // Only keep a node for replies that produced something (or failed
     // visibly) so the transcript and context stay clean.
-    if (content.length || (error && !interrupted)) {
+    if (hasBody(message) || (error && !interrupted)) {
       this.conv.add(message);
-      this.persist({ type: 'message', ...message });
+      for (const e of messageEvents(message)) this.persist(e);
     } else {
       this.persist({ type: 'head', id: parentId, ts: end });
       this.conv.headId = parentId;
@@ -661,6 +779,7 @@ export class Session extends EventEmitter {
       outputTokens: state.outputTokens,
       tokensPerSecond: state.outputTokens > 0 && genMs > 200 ? state.outputTokens / (genMs / 1000) : undefined,
       reasoningMs: message.reasoningMs,
+      ...(state.searches.length ? { searches: state.searches.filter((x) => x.status === 'done').length } : {}),
     };
     this.stream = null;
     this.abort = null;

@@ -4,6 +4,7 @@
 
 import { randomBytes } from 'node:crypto';
 import type { ChatMessage, ContentPart, Usage } from '../providers/types.js';
+import { plainSources } from './sources.js';
 
 export type MessageRole = 'user' | 'assistant' | 'summary';
 
@@ -106,8 +107,9 @@ export class Conversation {
 
 /**
  * Convert stored messages into the provider-neutral wire form. Reasoning
- * blocks are kept only when they came from the same provider and model that
- * will receive them; empty or failed assistant turns are skipped; adjacent
+ * blocks and a provider's opaque data are kept only when they came from the
+ * same provider and model that will receive them; searches and sources never
+ * go out as parts; empty or failed assistant turns are skipped; adjacent
  * messages with the same role are merged so every provider accepts them.
  */
 export function toChatMessages(msgs: StoredMessage[], target: { provider: string; model: string }): ChatMessage[] {
@@ -122,9 +124,19 @@ export function toChatMessages(msgs: StoredMessage[], target: { provider: string
     } else {
       role = m.role;
       content = m.content.filter((p) => {
+        if (p.type === 'search' || p.type === 'source') return false;
+        if (p.type === 'provider_data') return p.provider === target.provider && p.model === target.model;
         if (p.type !== 'reasoning') return true;
         return p.provider === target.provider && p.model === target.model && (p.signature || p.redacted);
       });
+      // A reply that searched the web. The provider and model that wrote it
+      // get their own data back unchanged (the adapter rebuilds the turn
+      // from it). Anyone else gets the text, followed by the sources as
+      // plain text.
+      if (role === 'assistant' && content.some((p) => p.type === 'text' && p.text.trim()) && !content.some((p) => p.type === 'provider_data')) {
+        const sources = plainSources(m.content);
+        if (sources) content.push({ type: 'text', text: `\n\n${sources}` });
+      }
     }
     if (role === 'assistant' && !content.some((p) => (p.type === 'text' && p.text.trim()) || p.type === 'reasoning')) continue;
     if (role === 'assistant' && !content.some((p) => p.type === 'text' && p.text.trim())) continue;

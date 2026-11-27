@@ -115,6 +115,9 @@ bell_after_seconds: 10
 terminal_title: true     # show the conversation title in the terminal title
 # name: Sam              # "Welcome back, Sam!" on the start screen
 # welcome_recent: false  # hide your latest conversations on the start screen
+# web_search: true        # let models search the web with their provider's
+#                         # own search (costs extra; /search switches it)
+# web_search_max: 5       # the most searches one reply may run
 # system_prompt: "You are a helpful assistant."
 # reasoning_effort: medium
 

@@ -4,10 +4,13 @@
 import type { StoredMessage } from '../core/conversation.js';
 import type { TurnStats, Tone } from '../core/session.js';
 import { formatTokens } from '../core/usage.js';
+import { displayText, hostOf, listSources } from '../core/sources.js';
+import { cleanText } from '../render/clean.js';
+import type { ContentPart } from '../providers/types.js';
 import { renderMarkdown } from '../render/markdown.js';
 import { lineToAnsi, type Line, type Span, type Style } from '../render/style.js';
-import { padEnd, truncate, wrapSpans } from '../render/width.js';
-import { unicodeOk } from '../term/caps.js';
+import { padEnd, textWidth, truncate, wrapSpans } from '../render/width.js';
+import { hyperlinksEnabled, linkTarget, unicodeOk } from '../term/caps.js';
 import { welcomeBox, type WelcomeInfo } from './welcome.js';
 
 export const GLYPH = unicodeOk() ? '◆' : '*';
@@ -24,6 +27,8 @@ export type Item =
   | { kind: 'assistant'; key: string; message: StoredMessage; showThinking: boolean }
   | { kind: 'thought'; key: string; ms: number; text?: string }
   | { kind: 'stats'; key: string; stats: TurnStats }
+  /** The sources (and failed searches) of a reply that just streamed. */
+  | { kind: 'sources'; key: string; parts: ContentPart[]; expanded: boolean }
   | { kind: 'outcome'; key: string; text: string; tone: Tone }
   | { kind: 'notice'; key: string; text: string; tone: Tone }
   | { kind: 'summary'; key: string; message: StoredMessage }
@@ -73,14 +78,89 @@ export function statsLine(s: TurnStats): string {
   const secs = s.durationMs / 1000;
   const parts = [`${secs < 10 ? secs.toFixed(1) : Math.round(secs)}s`, `${formatTokens(s.outputTokens)} tokens`];
   if (s.tokensPerSecond !== undefined) parts.push(`${s.tokensPerSecond.toFixed(s.tokensPerSecond < 10 ? 1 : 0)} tok/s`);
+  if (s.searches) parts.push(`${s.searches} search${s.searches === 1 ? '' : 'es'}`);
   return lineToAnsi([{ text: parts.join(' · '), style: DIM }]).replace(/^/, '  ');
 }
 
 function assistantBody(m: StoredMessage, cols: number): string {
   const text = m.content.map((p) => (p.type === 'text' ? p.text : '')).join('');
   if (!text.trim()) return '';
-  const lines = renderMarkdown(text, { width: contentWidth(cols), numberCode: true });
+  const lines = renderMarkdown(displayText(text, m.content), { width: contentWidth(cols), numberCode: true });
   return prefixLines(lines, [{ text: `${BULLET} ` }]);
+}
+
+/** The end of a string that is too wide: the part of a host that says whose
+ * site it is comes last. */
+function truncateStart(s: string, width: number): string {
+  if (textWidth(s) <= width) return s;
+  let out = '';
+  for (const ch of [...s].reverse()) {
+    if (textWidth(ch + out) > width - 1) break;
+    out = ch + out;
+  }
+  return `…${out}`;
+}
+
+/**
+ * The sources of a reply that searched the web: a numbered list (the
+ * numbers are the markers in the text), then any search that failed.
+ *
+ * Titles, URLs and snippets come from the web, so:
+ * - each is cleaned to one line of plain text (no control, escape or
+ *   direction-changing characters);
+ * - every source shows the host its URL really has, whatever its title says;
+ * - a URL becomes a link only if linkTarget() accepts it;
+ * - every line is cut or wrapped to the width.
+ *
+ * `expanded` (Ctrl+O) adds the queries, full URLs and quoted text. Where the
+ * terminal has no hyperlinks the URL is always shown, cut to one line.
+ */
+export function sourcesBlock(parts: ContentPart[], cols: number, expanded: boolean): string {
+  const width = contentWidth(cols);
+  const list = listSources(parts);
+  const searches = parts.filter((p): p is Extract<ContentPart, { type: 'search' }> => p.type === 'search');
+  const lines: Line[] = [];
+  if (list.length) {
+    lines.push([{ text: 'Sources', style: { bold: true } }]);
+    const numWidth = String(list.length).length;
+    const links = hyperlinksEnabled();
+    for (const s of list) {
+      const num = `${String(s.n).padStart(numWidth)}. `;
+      const indent = ' '.repeat(textWidth(num) + 1);
+      const room = Math.max(4, width - 1 - textWidth(num));
+      const url = cleanText(s.url);
+      const target = linkTarget(s.url);
+      const host = hostOf(s.url);
+      // What the address really is: its host, or (not a web address) the
+      // address itself. A title never stands alone.
+      const where = truncateStart(host ?? truncate(url, 40), Math.min(room, Math.max(12, Math.floor(room / 2))));
+      const titleRoom = room - textWidth(where) - 3;
+      const title = cleanText(s.title);
+      const href = links && target ? { href: target } : {};
+      const line: Span[] = [{ text: ` ${num}`, style: DIM }];
+      if (title && titleRoom >= 6) line.push({ text: truncate(title, titleRoom), style: href }, { text: ' · ', style: DIM });
+      line.push({ text: where, style: { fg: 'dim', ...href } });
+      lines.push(line);
+      if (expanded) {
+        lines.push(...wrapSpans([{ text: url, style: DIM }], width, { firstPrefix: [{ text: indent }] }));
+        if (s.snippet) lines.push(...wrapSpans([{ text: `“${s.snippet}”`, style: { fg: 'dim', italic: true } }], width, { firstPrefix: [{ text: indent }] }));
+      } else if (!href.href) {
+        lines.push([{ text: indent }, { text: truncate(url, Math.max(4, width - textWidth(indent))), style: DIM }]);
+      }
+    }
+  }
+  if (expanded) {
+    for (const s of searches) {
+      if (!s.query) continue;
+      const what = s.status === 'done' ? 'Searched the web' : s.status === 'failed' ? 'Search failed' : 'Search interrupted';
+      lines.push(...wrapSpans([{ text: `${what}: ${cleanText(s.query)}`, style: { fg: 'dim', italic: true } }], width));
+    }
+  }
+  const out = lines.length ? [prefixLines(lines, null)] : [];
+  for (const s of searches) {
+    if (s.status === 'failed') out.push(outcomeLine(`Web search failed${s.error ? `: ${cleanText(s.error)}` : '.'}`, 'warning', cols));
+  }
+  return out.join('\n');
 }
 
 export function renderItem(item: Item, cols: number): string {
@@ -102,6 +182,8 @@ export function renderItem(item: Item, cols: number): string {
       }
       const body = assistantBody(item.message, cols);
       if (body) out.push('\n' + body);
+      const sources = sourcesBlock(item.message.content, cols, item.showThinking);
+      if (sources) out.push('\n' + sources);
       if (item.message.interrupted) out.push(outcomeLine('Interrupted', 'error'));
       else if (item.message.error) out.push(outcomeLine(item.message.error, 'error', cols));
       return out.join('\n');
@@ -110,6 +192,10 @@ export function renderItem(item: Item, cols: number): string {
       return '\n' + thoughtLine(item.ms, item.text, cols);
     case 'stats':
       return statsLine(item.stats);
+    case 'sources': {
+      const block = sourcesBlock(item.parts, cols, item.expanded);
+      return block ? '\n' + block : '';
+    }
     case 'outcome':
       return outcomeLine(item.text, item.tone, cols);
     case 'notice': {

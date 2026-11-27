@@ -38,7 +38,31 @@ export type StoreEvent =
   | { type: 'head'; id: string | null; ts: number }
   | { type: 'title'; title: string }
   | { type: 'system'; prompt: string | null }
-  | { type: 'model'; model: string };
+  | { type: 'model'; model: string }
+  /** Web search parts of a reply (searches, sources, the provider's opaque
+   * data). They are kept out of `message` events because readers before
+   * 0.6.0 do not know them, and 0.0.1 keeps a message's parts unchecked.
+   * Older readers skip this event and still see the whole reply text. */
+  | { type: 'annex'; id: string; parts: ContentPart[] };
+
+const WEB_PARTS = new Set(['search', 'source', 'provider_data']);
+
+/** A reply has something to show or send: text or reasoning. */
+export const hasBody = (m: StoredMessage): boolean => m.content.some((p) => p.type === 'text' || p.type === 'reasoning');
+
+/**
+ * The events that record a message: the message with the parts every reader
+ * knows, then its web search parts in an `annex`. Never write a message any
+ * other way.
+ */
+export function messageEvents(m: StoredMessage): StoreEvent[] {
+  const web = m.content.filter((p) => WEB_PARTS.has(p.type));
+  if (!web.length) return [{ type: 'message', ...m }];
+  return [
+    { type: 'message', ...m, content: m.content.filter((p) => !WEB_PARTS.has(p.type)) },
+    { type: 'annex', id: m.id, parts: web },
+  ];
+}
 
 export interface ConversationSummary {
   id: string;
@@ -125,6 +149,32 @@ export class ConversationLockedError extends Error {
 const ROLES = new Set(['user', 'assistant', 'summary']);
 const isStr = (v: unknown): v is string => typeof v === 'string';
 
+function validWebPart(p: unknown): ContentPart | null {
+  if (!p || typeof p !== 'object') return null;
+  const o = p as Record<string, unknown>;
+  switch (o.type) {
+    case 'search':
+      return isStr(o.id) && isStr(o.query) && (o.status === 'done' || o.status === 'failed' || o.status === 'interrupted')
+        ? { type: 'search', id: o.id, query: o.query, status: o.status, ...(isStr(o.error) ? { error: o.error } : {}) }
+        : null;
+    case 'source':
+      return isStr(o.url) && isStr(o.title)
+        ? {
+            type: 'source',
+            url: o.url,
+            title: o.title,
+            ...(isStr(o.snippet) ? { snippet: o.snippet } : {}),
+            ...(o.cited === true ? { cited: true } : {}),
+            ...(typeof o.at === 'number' && Number.isFinite(o.at) && o.at >= 0 ? { at: Math.floor(o.at) } : {}),
+          }
+        : null;
+    case 'provider_data':
+      return isStr(o.provider) && isStr(o.model) && isStr(o.data) ? { type: 'provider_data', provider: o.provider, model: o.model, data: o.data } : null;
+    default:
+      return null;
+  }
+}
+
 function validPart(p: unknown): ContentPart | null {
   if (!p || typeof p !== 'object') return null;
   const o = p as Record<string, unknown>;
@@ -177,6 +227,10 @@ export function validEvent(raw: unknown): StoreEvent | null {
       return e.prompt === null || isStr(e.prompt) ? (e as unknown as StoreEvent) : null;
     case 'model':
       return isStr(e.model) ? (e as unknown as StoreEvent) : null;
+    case 'annex': {
+      if (!isStr(e.id) || !Array.isArray(e.parts)) return null;
+      return { type: 'annex', id: e.id, parts: e.parts.map(validWebPart).filter((p): p is ContentPart => p !== null) };
+    }
     default:
       return null;
   }
@@ -242,6 +296,14 @@ export function replay(id: string, text: string): { conv: Conversation; partial?
       case 'model':
         conv.model = ev.model;
         break;
+      case 'annex': {
+        // Parts of a finished message, or of a reply that is still
+        // streaming. A message event replaces the reply it finishes, so the
+        // annex written after it is the one that counts.
+        const m = conv.messages.get(ev.id) ?? partials.get(ev.id);
+        if (m) m.content.push(...ev.parts);
+        break;
+      }
     }
   }
   if (conv.headId && !conv.messages.has(conv.headId) && !partials.has(conv.headId)) conv.headId = null;
@@ -263,7 +325,7 @@ export function replay(id: string, text: string): { conv: Conversation; partial?
     partial = partials.get(lastPartial)!;
     // A reply that was streaming when the process died, with nothing after
     // it: recover what arrived, as the newest message.
-    if (partial.content.length) conv.add(partial);
+    if (hasBody(partial)) conv.add(partial);
   }
   return { conv, partial, lost };
 }
@@ -492,12 +554,12 @@ export class Store {
         //   partial, so once the conversation continued it would be dropped,
         //   and every later message would hang off a parent that no longer
         //   exists. Recording it as an (interrupted) message keeps it.
-        appended = (!!text && !text.endsWith('\n')) || !!partial?.content.length || lost.length > 0;
+        appended = (!!text && !text.endsWith('\n')) || (!!partial && hasBody(partial)) || lost.length > 0;
         if (text && !text.endsWith('\n')) appendFileSync(file, '\n', { mode: 0o600 });
-        if (partial?.content.length) cf.append({ type: 'message', ...partial });
+        if (partial && hasBody(partial)) for (const e of messageEvents(partial)) cf.append(e);
         // Replies lost to the 0.0.1–0.2.0 crash bug: recorded the same way, so
         // the file is whole for every reader.
-        for (const m of lost) cf.append({ type: 'message', ...m });
+        for (const m of lost) for (const e of messageEvents(m)) cf.append(e);
         cf.repaired = lost.length;
         // Older readers move the head to the last message they read: point it
         // back at the real tip, which is `null` when the user had rewound to

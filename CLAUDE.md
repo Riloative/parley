@@ -80,7 +80,8 @@ src/providers/
   mock.ts                scripted provider used by every test (permanent feature)
 
 src/core/
-  conversation.ts        message tree + head pointer; toChatMessages() (provider-neutral history, reasoning filtering)
+  conversation.ts        message tree + head pointer; toChatMessages() (provider-neutral history, reasoning filtering, web search parts)
+  sources.ts             web search sources: numbering, display-only markers (displayText), the plain form for other models
   store.ts               append-only JSONL per conversation, replay/crash recovery, locks, list/search, attachments
   session.ts             turns, frame batching (33ms), delta persistence (400ms), retries, queue, rewind/retry, compaction, titles
   drafts.ts              the unsent input text per conversation (debounced, atomic, flushed on shutdown)
@@ -89,6 +90,7 @@ src/core/
 
 src/render/
   markdown.ts            marked lexer → styled Lines; StreamingMarkdown (commit-once incremental renderer)
+  clean.ts               cleanText(): one safe line from text taria did not write (titles, queries, web content)
   highlight.ts           highlight.js, lazily imported; finished code is held back until it is loaded
   style.ts, theme.ts, width.ts   spans/lines → ANSI; themes; grapheme-aware widths and wrapping
 
@@ -135,6 +137,18 @@ src/config/              config.ts (YAML + validation with line numbers), creden
 - A late background answer repaints the welcome box in place (`repaint-welcome`: cursor up, erase down) only when it is the sole item, the size is unchanged since the first print, and the input is empty and idle. Every other case keeps the old colours; never clear the scrollback for this.
 - `TARIA_DEBUG_CRASH=render|uncaught[:ms]` forces a crash, for the terminal-restore tests in `test/pty/bugs.test.ts`.
 
+## Web search (0.6.0)
+
+Search is run by the provider on its servers. taria never fetches a page, and a request without `ChatRequest.webSearch` is exactly what it was before 0.6.0.
+
+- **Parts** (`types.ts`): `search` (query, `done | failed | interrupted`), `source` (url, title, snippet, `cited`, `at`), `provider_data` (opaque, tagged with provider and model). **Events**: `search`, `source` (`cite: 'mark' | 'list' | 'none'`), `provider_data` (once, at the clean end of a reply), `Usage.searches`.
+- **Nothing above `src/providers/*` reads `provider_data`.** It is stored unchanged, goes back only to the provider and model that wrote it (`toChatMessages`), is saved only for a reply that ended cleanly (a search call without its result must never be replayed), and is never rendered, printed or put in `--json`. Any other model gets the reply's text plus `plainSources()`.
+- **Storage:** web parts live in an `annex` event after the `message` event (`messageEvents()` in `store.ts`; never write a message another way). Readers before 0.6.0 skip `annex`; 0.0.1 keeps a message's parts unchecked, so an unknown part inside a `message` could crash it. While a reply streams, finished searches and new sources go out in `annex` events with the deltas, after the text they point into.
+- **Markers are display-only.** `displayText()` adds ` [n]` at each source's `at`; the stored text stays what the model wrote. The session sets `at` to the end of the text received so far (`markerOffset()`: never after white space, never inside a code block; otherwise the source is listed without a marker). So the display text only ever grows at its end, and the commit-once invariant holds (tested with random chunkings and citation points).
+- **Web content is hostile.** Titles, snippets and queries go through `cleanText()` when the session takes them in and again when they are rendered. A source always shows `hostOf(url)` in visible text; a URL is a link only through `linkTarget()`; every line of `sourcesBlock()` is cut or wrapped to the width. Errors of a search pass through `redact()`.
+- **Detection:** `ModelCapabilities.webSearch` (`true | false | 'unknown'`, config override `web_search` per model) and `searchLimit`. `false`: one notice, the message goes without search. An adapter that is refused because of search throws `ProviderError('search_unavailable')` before producing anything; the session then sends the message once more without search, says so, and remembers the model for the session.
+- **Mock:** `mock/search?…` scripts searches, sources (also hostile ones), failures, a hanging or dropped search, a refusal and the size of the opaque data; see `searchScript()` in `mock.ts`.
+
 ## Conventions
 
 - Provider-specific details stay inside `src/providers/*`. Everything above talks in `ContentPart`/`StreamEvent`. Tool calls would be new `ContentPart` variants.
@@ -142,6 +156,7 @@ src/config/              config.ts (YAML + validation with line numbers), creden
 - Errors shown to the user are plain language and include the provider's own message, passed through `redact()`. Never put a key in a message, log, transcript or config.
 - Persistence is append-only; never rewrite or delete conversation lines. `replay()` recovers every partial reply that later messages hang off (the 0.0.1–0.2.0 crash bug left such files) without moving the head, and a `message` event for an id that already has children does not move the head either; `Store.open()` with the lock records those replies and then appends a `head` event, because older readers move the head to the last message they read. `Store.open()` (with the lock) settles what a crash left behind by appending: a newline after a torn last line, and the recovered partial reply as a `message`, because replay only recovers the *last* partial. New event types must be ignored safely by older readers (bump `SCHEMA_VERSION` only for incompatible changes).
 - Colours: use theme tokens (`fg: 'accent' | 'dim' | …`), never raw hex in UI code. `themeHex()` for Ink props respects NO_COLOR and the ANSI theme.
+- A message is written to disk only through `messageEvents()`; a new kind of content part goes into the `annex` event, never into `message`.
 - Tests: no network. Use the mock provider (`mock/<script>?opts`) or the local HTTP fixture server in `test/unit/adapters.test.ts`. PTY tests go through `test/pty/harness.ts`, which strips CI/proxy/key variables from the child environment and isolates XDG directories.
 - Fix root causes; don't special-case tests.
 
