@@ -162,9 +162,20 @@ describe('rendering core', () => {
     await s.waitFor('Send a message');
     s.write('go\r');
     await s.waitFor('Section 4');
+    const mark = s.parsed.length;
     s.resize(72, 30);
-    await s.waitFor(/^ {2}\d+(\.\d)?s · .*tokens/m, 30_000);
-    await sleep(200);
+    // Wait for what the resize causes, not for what may be on the screen
+    // already: on a busy machine the emulator is still working through
+    // output written at the old width, and the reply may even have ended
+    // (its stats line showing) before taria hears of the resize. taria then
+    // clears the scrollback and prints the conversation again; the reply is
+    // complete when its stats line follows that.
+    await s.waitFor(() => {
+      const after = s!.parsed.slice(mark);
+      const cleared = after.lastIndexOf('\x1b[3J');
+      return cleared >= 0 && /\d+(\.\d)?s · [^\n]*tokens/.test(after.slice(cleared)) && after.slice(cleared).includes('Send a message');
+    }, 30_000);
+    await s.waitStable({ lastLine: /for commands/ });
     expect(answerLines(s.all())).toEqual(expectedAnswer(model, 72));
   }, 60_000);
 
