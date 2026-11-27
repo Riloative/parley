@@ -57,6 +57,9 @@ describe('model picker', () => {
     // Unmarking it removes the group again.
     s.write('\x06');
     await s.waitFor(() => !screen().includes('Favourites'));
+    // The heading goes with the first row of the redraw; the rest of the
+    // frame may still be on its way. Look at the screen once it is whole.
+    await s.waitStable();
     expect(state().favouriteModels).toEqual([]);
     expect(screen()).not.toContain('★');
   }, 40_000);
