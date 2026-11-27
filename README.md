@@ -358,6 +358,7 @@ providers:
 
 | Provider | Search costs | Notes |
 | --- | --- | --- |
+| Anthropic (Claude) | $10 per 1,000 searches, plus the results as input tokens | Every current Claude model; taria reads it from Anthropic's model list. It is on for an organization unless an administrator turned it off in the Console. `web_search_max` applies. |
 | OpenAI | $10 per 1,000 searches, plus the results as input tokens | The current GPT families; OpenAI has no way to ask, so taria goes by the model's name and tries the others. A project can have the tool switched off. `web_search_max` limits all of a reply's tool calls together. With reasoning models a reply can also open pages it found; that is not billed as a search. |
 
 Prices are the providers' own, as published in November 2026; check their pricing pages.
@@ -366,7 +367,8 @@ If a provider refuses a request because of web search (for example because it is
 
 **Good to know.**
 
-- Switching web search on or off in the middle of a conversation can make the next request cost more once: the provider's prompt cache starts again, and earlier thinking is not sent back.
+- Switching web search on in the middle of a conversation can make the next request cost more once: the provider's prompt cache starts again, and earlier thinking is not sent back.
+- With Claude, once a conversation has used web search, switching it off keeps the conversation's cache and thinking valid: taria still tells Claude the tool exists but forbids its use, so nothing is searched and nothing is charged for search.
 - A reply that searched keeps the provider's own data for its results, so that the same model can refer to them later. Another model gets the reply's text and a plain list of its sources instead.
 - `taria -p` prints the answer alone, as before; `--sources` adds the list of sources after it, and `--json` has `sources` and `searches`.
 
