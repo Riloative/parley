@@ -4,7 +4,7 @@ import type { StreamState } from '../core/session.js';
 import { formatTokens } from '../core/usage.js';
 import { themeHex } from '../render/theme.js';
 import { unicodeOk } from '../term/caps.js';
-import { truncate } from '../render/width.js';
+import { textWidth, truncate } from '../render/width.js';
 import { turnWord } from './words.js';
 
 const FRAMES_UNICODE = ['·', '✢', '✳', '✶', '✻', '✽', '✽', '✻', '✶', '✳', '✢', '·'];
@@ -71,6 +71,12 @@ export function Spinner({ stream, busyLabel, cols, still }: SpinnerProps): React
     default:
       label = stream.reasoning && !stream.text ? 'Thinking' : still ? 'Writing' : turnWord(stream.startedAt, secs);
   }
+  // A web search is running: say so in plain words, with the query (model
+  // output, cleaned by the session; cut here so the line fits).
+  if (stream.searching !== undefined && stream.status !== 'retrying') {
+    // In a narrow terminal the query matters more than the grey details.
+    label = truncate(stream.searching ? `Searching the web: ${stream.searching}` : 'Searching the web', Math.max(18, cols >= 64 ? cols - 30 : cols - 4));
+  }
   if (stream.outputTokens > 0 && stream.status !== 'retrying') detail.push(`↓ ${formatTokens(stream.outputTokens)} tokens`);
   detail.push(stream.status === 'retrying' ? 'esc to cancel' : 'esc to interrupt');
   const text = `${label}… (${detail.join(' · ')})`;
@@ -78,7 +84,7 @@ export function Spinner({ stream, busyLabel, cols, still }: SpinnerProps): React
     <Text wrap="truncate-end">
       <Text color={accent}>{glyph} </Text>
       <Text color={accent}>{label}…</Text>
-      <Text color={dim}>{truncate(text.slice(label.length + 1), Math.max(0, cols - label.length - 4))}</Text>
+      <Text color={dim}>{truncate(text.slice(label.length + 1), Math.max(0, cols - textWidth(label) - 4))}</Text>
     </Text>
   );
 }

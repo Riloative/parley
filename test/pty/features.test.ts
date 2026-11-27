@@ -436,7 +436,7 @@ describe('configuration', () => {
   it('/providers shows a live connectivity check', async () => {
     await start();
     s!.write('/providers\r');
-    await s!.waitFor(/mock\s+mock · .*✓ reachable · 11 models/);
+    await s!.waitFor(/mock\s+mock · .*✓ reachable · 12 models/);
     await s!.waitFor('+ Add a provider');
   }, 30_000);
 

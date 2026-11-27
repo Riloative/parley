@@ -13,6 +13,8 @@ export interface ModelConfig {
   sampling?: SamplingSettings;
   contextWindow?: number;
   images?: boolean;
+  /** The model has the provider's web search (overrides what is detected). */
+  webSearch?: boolean;
   reasoning?: boolean;
 }
 
@@ -42,6 +44,8 @@ export interface Price {
   output: number;
   cacheRead?: number;
   cacheWrite?: number;
+  /** US dollars per 1,000 web searches. */
+  search?: number;
 }
 
 export interface Config {
@@ -66,6 +70,13 @@ export interface Config {
   clipboardCommand?: string;
   /** No animated spinner: a still glyph and a label that does not change. */
   reducedMotion: boolean;
+  /** Let models search the web with their provider's own search. Off by
+   * default: a search costs money and its query goes to the provider's
+   * search service. */
+  webSearch: boolean;
+  /** The most searches one reply may run, where the provider can limit
+   * them. 0: no limit. */
+  webSearchMax: number;
   /** Opt-in: at most once a day, ask GitHub whether a newer release exists
    * and say so. Never downloads or installs anything. */
   checkForUpdates: boolean;
@@ -100,6 +111,8 @@ export const defaultConfig = (): Config => ({
   welcomeRecent: true,
   clipboard: 'auto',
   reducedMotion: false,
+  webSearch: false,
+  webSearchMax: 5,
   checkForUpdates: false,
   softLineBreaks: 'keep',
   providers: {},
@@ -122,6 +135,8 @@ export const TOP_KEYS = [
   'clipboard',
   'clipboard_command',
   'reduced_motion',
+  'web_search',
+  'web_search_max',
   'check_for_updates',
   'system_prompt',
   'reasoning_effort',
@@ -132,7 +147,8 @@ export const TOP_KEYS = [
 
 export const PROVIDER_KEYS = ['type', 'base_url', 'api_key_env', 'no_key', 'headers', 'context_window', 'sampling', 'models', 'timeout_ms'];
 export const SAMPLING_KEYS = ['temperature', 'top_p', 'top_k', 'max_tokens', 'extra_body'];
-export const MODEL_KEYS = ['sampling', 'context_window', 'images', 'reasoning'];
+export const MODEL_KEYS = ['sampling', 'context_window', 'images', 'reasoning', 'web_search'];
+export const PRICE_KEYS = ['input', 'output', 'cache_read', 'cache_write', 'search'];
 export const PROVIDER_TYPES: ProviderType[] = ['anthropic', 'openai', 'openai-compatible', 'mock'];
 const SECRET_KEYS = /^(api_?key|key|token|secret|password|authorization)$/i;
 
@@ -312,6 +328,8 @@ export function parseConfig(text: string): { config: Config; issues: ConfigIssue
   if (clipProblem) v.err(v.keyNode(['clipboard_command']), `clipboard_command ${clipProblem}, so it is not used. It is not run by a shell: write the program and its arguments, with quotes around a word that contains spaces.`);
   else config.clipboardCommand = clipCommand || undefined;
   config.reducedMotion = v.bool(['reduced_motion'], r.reduced_motion, 'reduced_motion') ?? config.reducedMotion;
+  config.webSearch = v.bool(['web_search'], r.web_search, 'web_search') ?? config.webSearch;
+  config.webSearchMax = Math.floor(v.num(['web_search_max'], r.web_search_max, 'web_search_max', 0, 100) ?? config.webSearchMax);
   config.checkForUpdates = v.bool(['check_for_updates'], r.check_for_updates, 'check_for_updates') ?? config.checkForUpdates;
   const slb = v.str(['soft_line_breaks'], r.soft_line_breaks, 'soft_line_breaks');
   if (slb !== undefined) {
@@ -372,6 +390,7 @@ export function parseConfig(text: string): { config: Config; issues: ConfigIssue
         contextWindow: v.num([...mpath, 'context_window'], m.context_window, 'context_window', 256),
         images: v.bool([...mpath, 'images'], m.images, 'images'),
         reasoning: v.bool([...mpath, 'reasoning'], m.reasoning, 'reasoning'),
+        webSearch: v.bool([...mpath, 'web_search'], m.web_search, 'web_search'),
       };
     }
     const apiKeyEnv = v.str([...path, 'api_key_env'], p.api_key_env, `providers.${name}.api_key_env`);
@@ -413,7 +432,7 @@ export function parseConfig(text: string): { config: Config; issues: ConfigIssue
     const path = ['prices', ref];
     const m = v.map(path, pv, `prices["${ref}"]`);
     if (!m) continue;
-    v.checkKeys(path, m, ['input', 'output', 'cache_read', 'cache_write'], `prices["${ref}"]`);
+    v.checkKeys(path, m, PRICE_KEYS, `prices["${ref}"]`);
     const input = v.num([...path, 'input'], m.input, 'input price', 0);
     const output = v.num([...path, 'output'], m.output, 'output price', 0);
     if (input === undefined || output === undefined) {
@@ -425,6 +444,7 @@ export function parseConfig(text: string): { config: Config; issues: ConfigIssue
       output,
       cacheRead: v.num([...path, 'cache_read'], m.cache_read, 'cache_read price', 0),
       cacheWrite: v.num([...path, 'cache_write'], m.cache_write, 'cache_write price', 0),
+      search: v.num([...path, 'search'], m.search, 'search price', 0),
     };
   }
 

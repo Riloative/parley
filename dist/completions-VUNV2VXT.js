@@ -1,5 +1,5 @@
 import { createRequire as __tariaCreateRequire } from 'node:module'; const require = __tariaCreateRequire(import.meta.url);
-import{c as r,d as a,e as o,f as c}from"./chunk-Y4MQCQJR.js";import"./chunk-SGJ7RKDV.js";var l=[...new Set(r.map(e=>e.usage.split(" ")[0]))],p=e=>!!e.arg&&!e.optionalArg;function h(){let e=a.flatMap(s=>[`--${s.long}`,...s.short?[`-${s.short}`]:[]]).join(" "),n=a.filter(s=>s.values).map(s=>`    --${s.long}) COMPREPLY=($(compgen -W "${s.values.join(" ")}" -- "$cur")); return ;;`).join(`
+import{c as r,d as a,e as o,f as c}from"./chunk-I3PSHFT5.js";import"./chunk-SGJ7RKDV.js";var l=[...new Set(r.map(e=>e.usage.split(" ")[0]))],p=e=>!!e.arg&&!e.optionalArg;function h(){let e=a.flatMap(s=>[`--${s.long}`,...s.short?[`-${s.short}`]:[]]).join(" "),n=a.filter(s=>s.values).map(s=>`    --${s.long}) COMPREPLY=($(compgen -W "${s.values.join(" ")}" -- "$cur")); return ;;`).join(`
 `),t=a.filter(p).flatMap(s=>[`--${s.long}`,...s.short?[`-${s.short}`]:[]]).join("|");return`# bash completion for taria. Install:
 #   taria completions bash > ~/.local/share/bash-completion/completions/taria
 _taria() {

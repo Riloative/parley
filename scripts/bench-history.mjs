@@ -7,7 +7,7 @@
 //   - resuming the long conversation (time to first frame)
 //   - a resize that reprints the long conversation
 //
-// Usage: node scripts/bench-history.mjs [--conversations 1000] [--long-turns 300] [--runs 5] [--bin path]...
+// Usage: node scripts/bench-history.mjs [--conversations 1000] [--long-turns 300] [--runs 5] [--sources N [--blob-kb 48]] [--bin path]...
 // A --bin that ends in .js runs with this Node; repeat --bin to compare builds.
 
 import { spawnSync } from "node:child_process";
@@ -31,6 +31,11 @@ const arg = (name, def) => {
 const conversations = Number(arg("conversations", 1000));
 const longTurns = Number(arg("long-turns", 300));
 const runs = Number(arg("runs", 5));
+// --sources N: every Nth reply of the long conversation searched the web: one
+// search, five sources (two cited) and --blob-kb of the provider's opaque
+// data (48 KB is about what one search's encrypted results come to).
+const sourcesEvery = Number(arg("sources", 0));
+const blobKb = Number(arg("blob-kb", 48));
 const root = new URL("..", import.meta.url).pathname;
 const bins = process.argv.flatMap((a, i) =>
   a === "--bin" ? [resolve(process.argv[i + 1])] : [],
@@ -116,6 +121,23 @@ function writeConversation(dir, id, turns, ts) {
       durationMs: 2000,
       stopReason: "end_turn",
     });
+    if (sourcesEvery && turns === longTurns && t % sourcesEvery === 0) {
+      lines.push({
+        type: "annex",
+        id: a,
+        parts: [
+          { type: "search", id: `s${t}`, query: `question ${t}`, status: "done" },
+          ...Array.from({ length: 5 }, (_, k) => ({
+            type: "source",
+            url: `https://example.com/${t}/${k}`,
+            title: `Result ${k} for question ${t}`,
+            snippet: words(20),
+            ...(k < 2 ? { cited: true, at: 40 + k * 30 } : {}),
+          })),
+          { type: "provider_data", provider: "mock", model: "echo", data: "e".repeat(blobKb * 1024) },
+        ],
+      });
+    }
     if (t === 0) lines.push({ type: "title", title: `Conversation ${id}` });
     parent = a;
   }

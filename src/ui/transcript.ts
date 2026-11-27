@@ -9,6 +9,7 @@ import { StreamingMarkdown } from '../render/markdown.js';
 import type { Line } from '../render/style.js';
 import { contentWidth, type Item } from './blocks.js';
 import { wrapSpans } from '../render/width.js';
+import { displayText } from '../core/sources.js';
 
 export interface LiveView {
   /** Markdown tail lines of the streaming answer (content width). */
@@ -93,6 +94,10 @@ export class TranscriptModel extends EventEmitter {
         if (!this.thoughtCommitted && (reasoning || m.reasoningMs)) {
           this.push({ kind: 'thought', key: key('t'), ms: m.reasoningMs ?? e.stats.durationMs, text: this.showThinking ? reasoning : undefined });
         }
+        // Sources and failed searches, under the text they belong to.
+        if (m.content.some((p) => p.type === 'source' || (p.type === 'search' && (p.status === 'failed' || this.showThinking)))) {
+          this.push({ kind: 'sources', key: key('w'), parts: m.content, expanded: this.showThinking });
+        }
         if (e.outcome === 'interrupted') this.push({ kind: 'outcome', key: key('o'), text: 'Interrupted', tone: 'error' });
         else if (e.outcome === 'done' && (m.content.length || m.usage)) this.push({ kind: 'stats', key: key('s'), stats: e.stats });
         this.md = null;
@@ -133,7 +138,9 @@ export class TranscriptModel extends EventEmitter {
       this.thoughtCommitted = true;
     }
     if (!s) return;
-    const u = this.md.update(text, final);
+    // With source markers: they are only ever added at the end of the text
+    // (see displayText), so what is committed never changes.
+    const u = this.md.update(s.sources.length ? displayText(text, s.sources) : text, final);
     if (u.commit.length) {
       this.push({ kind: 'chunk', key: key('c'), lines: u.commit, first: this.bulletPending });
       this.bulletPending = false;
@@ -235,6 +242,7 @@ export class TranscriptModel extends EventEmitter {
           durationMs: m.durationMs,
           outputTokens: m.usage?.outputTokens ?? Math.round(m.content.map((p) => (p.type === 'text' ? p.text.length : 0)).reduce((a, b) => a + b, 0) / 4),
           tokensPerSecond: undefined,
+          ...(m.content.some((p) => p.type === 'search') ? { searches: m.content.filter((p) => p.type === 'search' && p.status === 'done').length } : {}),
         },
       });
     }

@@ -118,6 +118,7 @@ export class Registry {
       if (mc.reasoning && !out.reasoningEfforts.length) out.reasoningEfforts = ['low', 'medium', 'high'] as ReasoningEffort[];
       if (!mc.reasoning) out.reasoningEfforts = [];
     }
+    if (mc?.webSearch !== undefined) out.webSearch = mc.webSearch;
     if (mc?.contextWindow) out.contextWindow = mc.contextWindow;
     else if (pc?.contextWindow && !out.contextWindow) out.contextWindow = pc.contextWindow;
     return out;

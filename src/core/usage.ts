@@ -41,18 +41,21 @@ export interface ModelUsage {
   cacheReadTokens: number;
   cacheWriteTokens: number;
   estimated: boolean;
+  /** Web searches the provider reported. */
+  searches: number;
 }
 
 export class CostTracker {
   readonly byModel = new Map<string, ModelUsage>();
 
   add(model: string, u: Usage | undefined, estimatedOutput: number, estimatedInput: number): void {
-    const cur = this.byModel.get(model) ?? { requests: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, estimated: false };
+    const cur = this.byModel.get(model) ?? { requests: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, estimated: false, searches: 0 };
     cur.requests++;
     cur.inputTokens += u?.inputTokens ?? estimatedInput;
     cur.outputTokens += u?.outputTokens ?? estimatedOutput;
     cur.cacheReadTokens += u?.cacheReadTokens ?? 0;
     cur.cacheWriteTokens += u?.cacheWriteTokens ?? 0;
+    cur.searches += u?.searches ?? 0;
     if (u?.inputTokens === undefined || u?.outputTokens === undefined) cur.estimated = true;
     this.byModel.set(model, cur);
   }
@@ -72,6 +75,7 @@ export function costOf(u: ModelUsage, price: Price | undefined): number | undefi
     (u.inputTokens * price.input) / M +
     (u.outputTokens * price.output) / M +
     (u.cacheReadTokens * (price.cacheRead ?? price.input * 0.1)) / M +
-    (u.cacheWriteTokens * (price.cacheWrite ?? price.input * 1.25)) / M
+    (u.cacheWriteTokens * (price.cacheWrite ?? price.input * 1.25)) / M +
+    (u.searches * (price.search ?? 0)) / 1000
   );
 }
