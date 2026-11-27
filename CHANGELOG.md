@@ -23,7 +23,7 @@
 
 ### Changed
 
-- With search off, requests are exactly what they were in 0.5.0, and start-up, streaming and resume times are unchanged (measured before and after).
+- With search off, requests are exactly what they were in 0.5.0. Measured before and after: start-up and resume times are unchanged; while a reply streams, taria uses about 4% more CPU than 0.5.0, at the same frame rate and typing latency.
 
 ### Under the hood
 
