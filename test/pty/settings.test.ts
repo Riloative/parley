@@ -246,9 +246,12 @@ describe('late background answer', () => {
   const LIGHT_ACCENT = '38;2;193;95;60';
 
   it('repaints a welcome box that is still alone on the screen, in place', async () => {
-    s = spawnTaria({ cols: 80, rows: 24, home: makeHome(AUTO), background: 'rgb:ffff/ffff/ffff', backgroundDelayMs: 1500 });
+    s = spawnTaria({ cols: 80, rows: 24, home: makeHome(AUTO), background: 'rgb:ffff/ffff/ffff', backgroundAfter: '% context' });
     await s.waitFor('% context'); // the status line is complete
-    expect(s.raw).not.toContain(LIGHT_ACCENT);
+    // The terminal answers only now (not after a fixed time, which a slow
+    // start can outlast): the first frame was drawn in the dark palette.
+    expect(s.raw.slice(0, s.raw.indexOf('% context'))).toContain('Welcome to taria');
+    expect(s.raw.slice(0, s.raw.indexOf('% context'))).not.toContain(LIGHT_ACCENT);
     const before = lines().join('\n');
     await s.waitFor(() => s!.raw.includes(LIGHT_ACCENT));
     await sleep(300);

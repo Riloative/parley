@@ -294,9 +294,14 @@ describe('appearance and editor', () => {
     }, 30_000);
 
     it('a late answer (slow link) applies from then on, without reprinting, and never reaches the input box', async () => {
-      await start({ home: makeHome(AUTO), background: 'rgb:ffff/ffff/ffff', backgroundDelayMs: 700 });
+      // The terminal answers only once the first frame is out. A fixed delay
+      // (it was 700 ms) is not late enough when the start itself is slow: on
+      // a busy machine the answer then came first and the box was light.
+      await start({ home: makeHome(AUTO), background: 'rgb:ffff/ffff/ffff', backgroundAfter: 'Send a message' });
       await s!.waitFor('Send a message');
-      expect(s!.raw).not.toContain(LIGHT_ACCENT); // the welcome box was drawn before the answer
+      // The welcome box was drawn before the answer.
+      expect(s!.raw.slice(0, s!.raw.indexOf('Send a message'))).toContain('Welcome to taria');
+      expect(s!.raw.slice(0, s!.raw.indexOf('Send a message'))).not.toContain(LIGHT_ACCENT);
       await sleep(900);
       s!.write('abc');
       await s!.waitFor('│ > abc');
