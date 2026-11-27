@@ -356,6 +356,12 @@ providers:
         web_search: true      # this model does have its provider's web search
 ```
 
+| Provider | Search costs | Notes |
+| --- | --- | --- |
+| OpenAI | $10 per 1,000 searches, plus the results as input tokens | The current GPT families; OpenAI has no way to ask, so taria goes by the model's name and tries the others. A project can have the tool switched off. `web_search_max` limits all of a reply's tool calls together. With reasoning models a reply can also open pages it found; that is not billed as a search. |
+
+Prices are the providers' own, as published in November 2026; check their pricing pages.
+
 If a provider refuses a request because of web search (for example because it is not enabled for your account), taria sends your message once more without it and tells you.
 
 **Good to know.**

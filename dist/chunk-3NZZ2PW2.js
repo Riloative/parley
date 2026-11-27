@@ -1,0 +1,2 @@
+import { createRequire as __tariaCreateRequire } from 'node:module'; const require = __tariaCreateRequire(import.meta.url);
+var u=new RegExp("[\\u00ad\\u061c\\u180e\\u200b\\u200e\\u200f\\u202a-\\u202e\\u2060-\\u2069\\ufeff\\ufff9-\\ufffb]","g"),f=new RegExp("[\\r\\n\\t\\u2028\\u2029]+","g"),n=new RegExp("[\\x00-\\x1f\\x7f-\\x9f]","g");function t(e){return e.replace(f," ").replace(n,"").replace(u,"").trim()}export{t as a};
