@@ -1,0 +1,12 @@
+data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1795000000,"model":"m","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1795000000,"model":"deepseek-flash","choices":[{"index":0,"delta":{},"finish_reason":null,"server_tool_event":{"type":"call_started","step":0,"call":{"index":0,"id":"srvtoolu_s_00_72b1a35619ec4611884415c48d35ba34","type":"deepseek_web_search","kind":"search","action":{"type":"search","queries":["Iceland population 2025","Iceland population 2026"]}}}}]}
+
+data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1795000000,"model":"deepseek-flash","choices":[{"index":0,"delta":{},"finish_reason":null,"server_tool_event":{"type":"call_completed","step":0,"call":{"index":0,"id":"srvtoolu_s_00_72b1a35619ec4611884415c48d35ba34","type":"deepseek_web_search","kind":"search","action":{"type":"search","queries":["Iceland population 2025","Iceland population 2026"]},"status":"failed","error":{"code":"unavailable"}}}}]}
+
+data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1795000000,"model":"m","choices":[{"index":0,"delta":{"content":"I could not search, so this is from memory."},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1795000000,"model":"m","choices":[{"index":0,"delta":{"server_tool_calls":[{"index":0,"calls":[{"index":0,"id":"srvtoolu_s_00_72b1a35619ec4611884415c48d35ba34","type":"deepseek_web_search","kind":"search","action":{"type":"search","queries":["Iceland population 2025","Iceland population 2026"]},"status":"failed","error":{"code":"unavailable"}}]}]},"finish_reason":"stop"}]}
+
+data: [DONE]
+

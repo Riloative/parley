@@ -1,0 +1,12 @@
+data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1795000000,"model":"m","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1795000000,"model":"m","choices":[{"index":0,"delta":{"content":"Bitcoin is at "},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1795000000,"model":"m","choices":[{"index":0,"delta":{"content":"$63,992 today."},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1795000000,"model":"m","choices":[{"index":0,"delta":{"annotations":[{"type":"url_citation","url_citation":{"url":"https://www.example.com/btc","title":"Bitcoin price today","content":"BTC trades at $63,992 [...] down 1.5%","start_index":0,"end_index":28}},{"type":"url_citation","url_citation":{"url":"https://www.example.com/btc","title":"Bitcoin price today","start_index":0,"end_index":28}},{"type":"url_citation","url_citation":{"url":"https://markets.example.net/crypto","title":"Crypto markets","start_index":0,"end_index":28}}]},"finish_reason":"stop"}]}
+
+data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1795000000,"model":"m","choices":[],"usage":{"prompt_tokens":105,"completion_tokens":250,"total_tokens":355,"server_tool_use_details":{"tool_calls_requested":2,"tool_calls_executed":2,"web_search_requests":2}}}
+
+data: [DONE]
+

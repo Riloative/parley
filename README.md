@@ -360,6 +360,11 @@ providers:
 | --- | --- | --- |
 | Anthropic (Claude) | $10 per 1,000 searches, plus the results as input tokens | Every current Claude model; taria reads it from Anthropic's model list. It is on for an organization unless an administrator turned it off in the Console. `web_search_max` applies. |
 | OpenAI | $10 per 1,000 searches, plus the results as input tokens | The current GPT families; OpenAI has no way to ask, so taria goes by the model's name and tries the others. A project can have the tool switched off. `web_search_max` limits all of a reply's tool calls together. With reasoning models a reply can also open pages it found; that is not billed as a search. |
+| DeepSeek | Not billed; tokens only | Use `deepseek-flash`. DeepSeek has no limit on searches per reply. taria sends the reply's search data back in later turns, as DeepSeek asks. |
+| Venice | $10 per 1,000 requests that search, plus tokens | Venice calls the feature experimental. Its model list says which models can search. It reports the pages it found, not which ones the answer uses, so all are listed, without markers. No limit per reply. |
+| OpenRouter | $0.001 to $0.015 per search, by search engine, or the model's own search price | Any model. Sources are listed without markers. `web_search_max` applies (OpenRouter passes it on only to Anthropic models when their own search is used). |
+
+taria recognises DeepSeek, Venice and OpenRouter by their address. Behind another address (a gateway, say), set `web_search_style: deepseek`, `venice` or `openrouter` for the provider; `none` turns it off. Other OpenAI-compatible servers, local ones included, have no web search in taria.
 
 Prices are the providers' own, as published in November 2026; check their pricing pages.
 

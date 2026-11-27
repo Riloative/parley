@@ -22,6 +22,8 @@ export const PRESETS: Preset[] = [
   { id: 'llamacpp', label: 'llama.cpp server', type: 'openai-compatible', baseUrl: 'http://localhost:8080/v1', local: true },
   { id: 'ollama', label: 'Ollama', type: 'openai-compatible', baseUrl: 'http://localhost:11434/v1', local: true },
   { id: 'lmstudio', label: 'LM Studio', type: 'openai-compatible', baseUrl: 'http://localhost:1234/v1', local: true },
+  { id: 'deepseek', label: 'DeepSeek', type: 'openai-compatible', baseUrl: 'https://api.deepseek.com', keyEnv: 'DEEPSEEK_API_KEY' },
+  { id: 'venice', label: 'Venice', type: 'openai-compatible', baseUrl: 'https://api.venice.ai/api/v1', keyEnv: 'VENICE_API_KEY' },
 ];
 
 export interface ProviderSpec {

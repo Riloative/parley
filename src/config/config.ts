@@ -31,6 +31,9 @@ export interface ProviderConfig {
   sampling?: SamplingSettings;
   models: Record<string, ModelConfig>;
   timeoutMs?: number;
+  /** Which service's web search form to use (openai-compatible providers):
+   * read from the address unless set; "none" for no search. */
+  webSearchStyle?: string;
 }
 
 export interface Persona {
@@ -145,7 +148,8 @@ export const TOP_KEYS = [
   'prices',
 ] as const;
 
-export const PROVIDER_KEYS = ['type', 'base_url', 'api_key_env', 'no_key', 'headers', 'context_window', 'sampling', 'models', 'timeout_ms'];
+export const PROVIDER_KEYS = ['type', 'base_url', 'api_key_env', 'no_key', 'headers', 'context_window', 'sampling', 'models', 'timeout_ms', 'web_search_style'];
+export const WEB_SEARCH_STYLES = ['deepseek', 'venice', 'openrouter', 'none'];
 export const SAMPLING_KEYS = ['temperature', 'top_p', 'top_k', 'max_tokens', 'extra_body'];
 export const MODEL_KEYS = ['sampling', 'context_window', 'images', 'reasoning', 'web_search'];
 export const PRICE_KEYS = ['input', 'output', 'cache_read', 'cache_write', 'search'];
@@ -397,6 +401,11 @@ export function parseConfig(text: string): { config: Config; issues: ConfigIssue
     if (apiKeyEnv && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(apiKeyEnv)) {
       v.err(v.keyNode([...path, 'api_key_env']), `api_key_env should be the NAME of an environment variable (like MY_API_KEY), not the key itself.`);
     }
+    let style = v.str([...path, 'web_search_style'], p.web_search_style, `providers.${name}.web_search_style`);
+    if (style !== undefined && !WEB_SEARCH_STYLES.includes(style)) {
+      v.err(v.keyNode([...path, 'web_search_style']), `web_search_style must be one of ${WEB_SEARCH_STYLES.join(', ')} (got "${style}").`);
+      style = undefined;
+    }
     config.providers[name] = {
       name,
       type: type as ProviderType,
@@ -408,6 +417,7 @@ export function parseConfig(text: string): { config: Config; issues: ConfigIssue
       sampling: v.sampling([...path, 'sampling'], p.sampling, name),
       models,
       timeoutMs: v.num([...path, 'timeout_ms'], p.timeout_ms, 'timeout_ms', 1000),
+      webSearchStyle: style,
     };
   }
 

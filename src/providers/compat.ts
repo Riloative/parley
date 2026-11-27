@@ -16,9 +16,78 @@ interface CompatModel {
   images?: boolean;
   reasoning?: boolean;
   efforts?: ReasoningEffort[];
+  /** The model list says whether the model can search (Venice). */
+  webSearch?: boolean;
 }
 
-export function toChatCompletionMessages(msgs: ChatMessage[], system?: string): unknown[] {
+// ------------------------------------------------------------- web search
+//
+// Chat completions has no standard for provider-run web search. taria
+// knows three services whose documentation (read 2026-11-27) describes both
+// how to turn it on and how the sources come back:
+//
+// - DeepSeek: `tools: [{ type: "deepseek_web_search" }]`. Progress arrives
+//   in `server_tool_event` next to `delta` (call_started, call_completed
+//   with sources); the last chunk's delta carries `annotations` and the
+//   whole `server_tool_calls`, which later requests should pass back
+//   unchanged. No limit on searches; they are not billed.
+// - Venice: `venice_parameters: { enable_web_search: "auto",
+//   include_search_results_in_stream: true }`. The pages found come as
+//   `venice_parameters.web_search_citations` in one chunk (the first or the
+//   last: its pages disagree). Labelled experimental. No limit.
+// - OpenRouter: `tools: [{ type: "openrouter:web_search", parameters: {
+//   max_uses } }]`. Citations are `annotations[].url_citation` on the
+//   message; where they sit in a stream is not documented, so any chunk is
+//   accepted. `usage.server_tool_use_details.web_search_requests` counts.
+//
+// Which one a provider speaks is read from its address, or set with
+// `web_search_style` in its config. Any other server gets no search.
+
+export type SearchStyle = 'deepseek' | 'venice' | 'openrouter';
+export const SEARCH_STYLES: SearchStyle[] = ['deepseek', 'venice', 'openrouter'];
+
+export function searchStyleOf(baseUrl: string | undefined, configured?: string): SearchStyle | undefined {
+  if (configured === 'none') return undefined;
+  if (configured && (SEARCH_STYLES as string[]).includes(configured)) return configured as SearchStyle;
+  let host = '';
+  try {
+    host = new URL(baseUrl ?? '').hostname.toLowerCase();
+  } catch {
+    return undefined;
+  }
+  if (host === 'api.deepseek.com') return 'deepseek';
+  if (host === 'api.venice.ai') return 'venice';
+  if (host === 'openrouter.ai') return 'openrouter';
+  return undefined;
+}
+
+/** DeepSeek's `server_tool_calls` of a reply, to pass back unchanged. */
+interface KeptCalls {
+  v: 1;
+  server_tool_calls: unknown[];
+}
+
+function parseKeptCalls(data: string): KeptCalls | undefined {
+  try {
+    const j = JSON.parse(data) as Partial<KeptCalls>;
+    return j.v === 1 && Array.isArray(j.server_tool_calls) && j.server_tool_calls.length ? (j as KeptCalls) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+const isWebUrl = (u: unknown): u is string => typeof u === 'string' && /^https?:\/\//i.test(u);
+
+/** What a DeepSeek call did, in words. */
+function actionText(action: unknown): string | undefined {
+  const a = (action ?? {}) as { type?: string; queries?: unknown; url?: unknown; pattern?: unknown };
+  if (Array.isArray(a.queries) && a.queries.length) return a.queries.filter((q) => typeof q === 'string').join(' · ');
+  if ((a.type === 'open_page' || a.type === 'read_link') && typeof a.url === 'string') return `reading ${a.url}`;
+  if (a.type === 'find_in_page' && typeof a.pattern === 'string') return `looking for "${a.pattern}" in a page`;
+  return undefined;
+}
+
+export function toChatCompletionMessages(msgs: ChatMessage[], system?: string, opts: { keptCalls?: boolean } = {}): unknown[] {
   const out: unknown[] = [];
   if (system) out.push({ role: 'system', content: system });
   for (const m of msgs) {
@@ -28,7 +97,10 @@ export function toChatCompletionMessages(msgs: ChatMessage[], system?: string): 
       const text = m.content
         .map((p) => (p.type === 'text' ? p.text : p.type === 'file' ? `<file name="${p.name}">\n${p.text}\n</file>\n` : ''))
         .join('');
-      out.push({ role: m.role, content: text || '(empty)' });
+      // DeepSeek: a reply that searched goes back with its calls unchanged.
+      const data = opts.keptCalls && m.role === 'assistant' ? m.content.filter((p) => p.type === 'provider_data') : [];
+      const kept = data.length === 1 && data[0]!.type === 'provider_data' ? parseKeptCalls(data[0]!.data) : undefined;
+      out.push({ role: m.role, content: text || '(empty)', ...(kept ? { server_tool_calls: kept.server_tool_calls } : {}) });
       continue;
     }
     const parts: unknown[] = [];
@@ -118,6 +190,11 @@ export async function* parseChatStream(body: AsyncIterable<Uint8Array>, provider
   let stop: string | undefined;
   let usage: Usage | undefined;
   let sawReasoningField = false;
+  let searches: number | undefined;
+  let searched = false;
+  let veniceSeen = false;
+  let kept: unknown[] | undefined;
+  const citedUrls = new Set<string>();
   for await (const ev of parseSse(body)) {
     const data = ev.data.trim();
     if (!data) continue;
@@ -139,9 +216,57 @@ export async function* parseChatStream(body: AsyncIterable<Uint8Array>, provider
     if (timings && !usage) {
       usage = { inputTokens: timings.prompt_n, outputTokens: timings.predicted_n, cacheReadTokens: timings.cache_n || undefined };
     }
+    // Web search, in whichever of the known forms it arrives.
+    // Venice: the pages found, in one chunk.
+    const found = (j.venice_parameters as { web_search_citations?: unknown } | undefined)?.web_search_citations;
+    if (Array.isArray(found) && found.length && !veniceSeen) {
+      veniceSeen = true;
+      searched = true;
+      yield { type: 'search', id: 'web-search', status: 'done' };
+      for (const s of found as Array<Record<string, unknown>>) {
+        if (isWebUrl(s?.url)) yield { type: 'source', url: s.url, title: typeof s.title === 'string' ? s.title : '', snippet: typeof s.content === 'string' ? s.content : undefined, cite: 'none' };
+      }
+    }
+    // OpenRouter and DeepSeek report how many searches ran.
+    const counted = (j.usage as { server_tool_use_details?: { web_search_requests?: unknown }; server_tool_use?: { tool_search?: unknown } } | undefined) ?? {};
+    const n = counted.server_tool_use_details?.web_search_requests ?? counted.server_tool_use?.tool_search;
+    if (typeof n === 'number') searches = n;
     const choices = (j.choices as Array<Record<string, unknown>> | undefined) ?? [];
     for (const c of choices) {
       const delta = (c.delta ?? c.message ?? {}) as Record<string, unknown>;
+      // DeepSeek: the progress of a call, next to the delta.
+      const tool = c.server_tool_event as { type?: string; call?: Record<string, unknown> } | undefined;
+      if (tool?.call && typeof tool.call.id === 'string' && (tool.type === 'call_started' || tool.type === 'call_completed')) {
+        const call = tool.call;
+        const id = String(call.id);
+        const query = actionText(call.action);
+        searched = true;
+        if (tool.type === 'call_started') {
+          yield { type: 'search', id, status: 'started', ...(query ? { query } : {}) };
+        } else if (call.status === 'failed') {
+          const code = (call.error as { code?: unknown } | undefined)?.code;
+          yield { type: 'search', id, status: 'failed', ...(query ? { query } : {}), error: typeof code === 'string' ? `the search did not succeed (${code})` : 'the search did not succeed' };
+        } else {
+          yield { type: 'search', id, status: 'done', ...(query ? { query } : {}) };
+          for (const s of Array.isArray(call.sources) ? (call.sources as Array<Record<string, unknown>>) : []) {
+            if (isWebUrl(s?.url)) yield { type: 'source', url: s.url, title: typeof s.title === 'string' ? s.title : '', snippet: typeof s.snippet === 'string' ? s.snippet : undefined, cite: 'none' };
+          }
+        }
+      }
+      // Citations (OpenRouter, DeepSeek): url_citation annotations on the
+      // delta or the message, usually in the last chunk. Their positions
+      // are known only when the text is complete, so they are listed.
+      const notes = delta.annotations ?? (c.message as { annotations?: unknown } | undefined)?.annotations;
+      for (const a of Array.isArray(notes) ? (notes as Array<Record<string, unknown>>) : []) {
+        const u = (a?.type === 'url_citation' ? (a.url_citation ?? a) : undefined) as { url?: unknown; title?: unknown; content?: unknown } | undefined;
+        if (!u || !isWebUrl(u.url) || citedUrls.has(u.url)) continue;
+        citedUrls.add(u.url);
+        // DeepSeek: "title is the URL when the title is unknown".
+        const title = typeof u.title === 'string' && u.title !== u.url ? u.title : '';
+        yield { type: 'source', url: u.url, title, snippet: typeof u.content === 'string' ? u.content : undefined, cite: 'list' };
+      }
+      // DeepSeek: the calls of the whole reply, to pass back next turn.
+      if (Array.isArray(delta.server_tool_calls) && delta.server_tool_calls.length) kept = delta.server_tool_calls;
       const r = delta.reasoning_content ?? delta.reasoning;
       if (typeof r === 'string' && r) {
         sawReasoningField = true;
@@ -179,7 +304,11 @@ export async function* parseChatStream(body: AsyncIterable<Uint8Array>, provider
     }
   }
   for (const piece of think.flush()) yield piece.kind === 'text' ? { type: 'text', text: piece.text } : { type: 'reasoning', text: piece.text };
-  if (usage) yield { type: 'usage', usage };
+  // A service that says only that it searched, or only what it cites
+  // (OpenRouter): one search, so the reply shows that the web was used.
+  if (!searched && (citedUrls.size > 0 || (searches ?? 0) > 0)) yield { type: 'search', id: 'web-search', status: 'done' };
+  if (kept && stop !== undefined) yield { type: 'provider_data', data: JSON.stringify({ v: 1, server_tool_calls: kept } satisfies KeptCalls) };
+  if (usage || searches !== undefined) yield { type: 'usage', usage: { ...(usage ?? {}), ...(searches !== undefined ? { searches } : {}) } };
   yield { type: 'done', stopReason: stop };
 }
 
@@ -211,6 +340,8 @@ export function modelFromListEntry(m: Record<string, unknown>): CompatModel {
     contextWindow: num(m.context_length) ?? num(m.max_context_length) ?? num(m.context_window) ?? num(m.max_model_len) ?? num(top.context_length) ?? num(meta.n_ctx_train),
     images,
     reasoning,
+    // Venice: model_spec.capabilities.supportsWebSearch.
+    webSearch: typeof ((m.model_spec as { capabilities?: { supportsWebSearch?: unknown } } | undefined)?.capabilities?.supportsWebSearch) === 'boolean' ? !!(m.model_spec as { capabilities: { supportsWebSearch: boolean } }).capabilities.supportsWebSearch : undefined,
     efforts: reasoningInfo?.supported_efforts?.filter((e): e is ReasoningEffort => ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'].includes(e)),
   };
 }
@@ -223,10 +354,13 @@ export class CompatProvider implements Provider {
   private extra = new Map<string, Promise<Partial<CompatModel>>>();
   /** Optional request fields this server rejected; never sent again. */
   private rejected = new Set<string>();
+  /** The web search this service runs itself, if taria knows its form. */
+  private readonly searchStyle: SearchStyle | undefined;
 
   constructor(private readonly ctx: AdapterContext) {
     this.name = ctx.config.name;
     this.endpoint = ctx.config.baseUrl!;
+    this.searchStyle = searchStyleOf(ctx.config.baseUrl, ctx.config.webSearchStyle);
   }
 
   private get origin(): string {
@@ -273,6 +407,10 @@ export class CompatProvider implements Provider {
       reasoning: reasoning ?? 'unknown',
       reasoningEfforts: efforts?.length ? efforts : reasoning ? ['low', 'medium', 'high'] : [],
       contextWindow: extra.contextWindow ?? m?.contextWindow,
+      // A server taria knows no search form for has none. OpenRouter gives
+      // it to any model; Venice says per model; DeepSeek does not say.
+      webSearch: !this.searchStyle ? false : this.searchStyle === 'openrouter' ? true : (m?.webSearch ?? 'unknown'),
+      searchLimit: this.searchStyle === 'openrouter',
     };
   }
 
@@ -346,12 +484,20 @@ export class CompatProvider implements Provider {
 
   async *stream(req: ChatRequest): AsyncGenerator<StreamEvent> {
     const s = req.sampling;
+    // Search goes out only in a form this service is known to understand.
+    const search = req.webSearch ? this.searchStyle : undefined;
+    if (req.webSearch && !search) {
+      throw new ProviderError('search_unavailable', `${this.name} has no web search that taria knows how to use.`, { providerMessage: 'taria knows the web search of DeepSeek, Venice and OpenRouter; set web_search_style for another address of theirs' });
+    }
     const build = (): Record<string, unknown> => {
       const body: Record<string, unknown> = {
         model: req.model,
-        messages: toChatCompletionMessages(req.messages, req.system),
+        messages: toChatCompletionMessages(req.messages, req.system, { keptCalls: search === 'deepseek' }),
         stream: true,
       };
+      if (search === 'deepseek') body.tools = [{ type: 'deepseek_web_search' }];
+      else if (search === 'openrouter') body.tools = [{ type: 'openrouter:web_search', ...(req.webSearch?.maxUses ? { parameters: { max_uses: req.webSearch.maxUses } } : {}) }];
+      else if (search === 'venice') body.venice_parameters = { enable_web_search: 'auto', enable_web_citations: false, include_search_results_in_stream: true };
       if (!this.rejected.has('stream_options')) body.stream_options = { include_usage: true };
       if (s.maxTokens !== undefined) body.max_tokens = s.maxTokens;
       if (s.temperature !== undefined) body.temperature = s.temperature;
@@ -376,6 +522,12 @@ export class CompatProvider implements Provider {
             debug('compat: server rejected field, retrying without it', { provider: this.name, field });
             this.rejected.add(field);
             continue;
+          }
+          // The request asked for web search and was refused for it (the
+          // model has none, or the account may not use it). Nothing was
+          // produced: the session sends the message again without search.
+          if (search && /search|tool|venice_parameters/i.test(msg)) {
+            throw new ProviderError('search_unavailable', e.message, { status: e.status, providerMessage: e.providerMessage });
           }
         }
         throw e;
