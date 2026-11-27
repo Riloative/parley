@@ -1,0 +1,54 @@
+event: response.created
+data: {"type":"response.created","sequence_number":0,"response":{"id":"resp_1","status":"in_progress"}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","sequence_number":1,"output_index":0,"item":{"id":"rs_1","type":"reasoning","summary":[]}}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","sequence_number":2,"output_index":0,"item":{"id":"rs_1","type":"reasoning","summary":[],"encrypted_content":"gAAAAABsearchreasoning=="}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","sequence_number":3,"output_index":1,"item":{"id":"ws_67c9fa0502748190b7dd390736892e100be649c1a5ff9609","type":"web_search_call","status":"in_progress"}}
+
+event: response.web_search_call.in_progress
+data: {"type":"response.web_search_call.in_progress","sequence_number":4,"output_index":1,"item_id":"ws_67c9fa0502748190b7dd390736892e100be649c1a5ff9609"}
+
+event: response.web_search_call.searching
+data: {"type":"response.web_search_call.searching","sequence_number":5,"output_index":1,"item_id":"ws_67c9fa0502748190b7dd390736892e100be649c1a5ff9609"}
+
+event: response.web_search_call.completed
+data: {"type":"response.web_search_call.completed","sequence_number":6,"output_index":1,"item_id":"ws_67c9fa0502748190b7dd390736892e100be649c1a5ff9609"}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","sequence_number":7,"output_index":1,"item":{"id":"ws_67c9fa0502748190b7dd390736892e100be649c1a5ff9609","type":"web_search_call","status":"completed","action":{"type":"search","query":"latest news about AI","sources":[{"type":"url","url":"https://example.com/ai-news"},{"type":"url","url":"https://news.example.org/today"},{"type":"api","name":"oai-weather"}]}}}
+
+event: response.web_search_call.in_progress
+data: {"type":"response.web_search_call.in_progress","sequence_number":8,"output_index":2,"item_id":"ws_open"}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","sequence_number":9,"output_index":2,"item":{"id":"ws_open","type":"web_search_call","status":"completed","action":{"type":"open_page","url":"https://example.com/ai-news"}}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","sequence_number":10,"output_index":3,"item":{"id":"msg_1","type":"message","status":"in_progress","role":"assistant","content":[]}}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","sequence_number":11,"item_id":"msg_1","output_index":3,"content_index":0,"delta":"Several things happened today ([example."}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","sequence_number":12,"item_id":"msg_1","output_index":3,"content_index":0,"delta":"com](https://example.com/ai-news?utm_source=chatgpt.com)). "}
+
+event: response.output_text.annotation.added
+data: {"type":"response.output_text.annotation.added","sequence_number":13,"item_id":"msg_1","output_index":3,"content_index":0,"annotation_index":0,"annotation":{"type":"url_citation","start_index":30,"end_index":96,"url":"https://example.com/ai-news?utm_source=chatgpt.com","title":"AI news today"}}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","sequence_number":14,"item_id":"msg_1","output_index":3,"content_index":0,"delta":"A second report agrees."}
+
+event: response.output_text.annotation.added
+data: {"type":"response.output_text.annotation.added","sequence_number":15,"item_id":"msg_1","output_index":3,"content_index":0,"annotation_index":1,"annotation":{"type":"url_citation","start_index":97,"end_index":120,"url":"https://news.example.org/today?utm_source=chatgpt.com","title":"Today in AI ‮\u001b[2J"}}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","sequence_number":16,"output_index":3,"item":{"id":"msg_1","type":"message","status":"completed","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"Several things happened today ([example.com](https://example.com/ai-news?utm_source=chatgpt.com)). A second report agrees.","annotations":[{"type":"url_citation","start_index":30,"end_index":96,"url":"https://example.com/ai-news?utm_source=chatgpt.com","title":"AI news today"},{"type":"url_citation","start_index":97,"end_index":120,"url":"https://news.example.org/today?utm_source=chatgpt.com","title":"Today in AI ‮\u001b[2J"}],"logprobs":[]}]}}
+
+event: response.completed
+data: {"type":"response.completed","sequence_number":17,"response":{"id":"resp_1","status":"completed","output":[{"id":"rs_1","type":"reasoning","summary":[],"encrypted_content":"gAAAAABsearchreasoning=="},{"id":"ws_67c9fa0502748190b7dd390736892e100be649c1a5ff9609","type":"web_search_call","status":"completed","action":{"type":"search","query":"latest news about AI","sources":[{"type":"url","url":"https://example.com/ai-news"},{"type":"url","url":"https://news.example.org/today"},{"type":"api","name":"oai-weather"}]}},{"id":"ws_open","type":"web_search_call","status":"completed","action":{"type":"open_page","url":"https://example.com/ai-news"}},{"id":"msg_1","type":"message","status":"completed","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"Several things happened today ([example.com](https://example.com/ai-news?utm_source=chatgpt.com)). A second report agrees.","annotations":[{"type":"url_citation","start_index":30,"end_index":96,"url":"https://example.com/ai-news?utm_source=chatgpt.com","title":"AI news today"},{"type":"url_citation","start_index":97,"end_index":120,"url":"https://news.example.org/today?utm_source=chatgpt.com","title":"Today in AI ‮\u001b[2J"}],"logprobs":[]}]}],"usage":{"input_tokens":8200,"output_tokens":120,"input_tokens_details":{"cached_tokens":0},"output_tokens_details":{"reasoning_tokens":64}},"tool_usage":{"web_search":{"num_requests":1}}}}
+

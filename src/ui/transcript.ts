@@ -242,7 +242,7 @@ export class TranscriptModel extends EventEmitter {
           durationMs: m.durationMs,
           outputTokens: m.usage?.outputTokens ?? Math.round(m.content.map((p) => (p.type === 'text' ? p.text.length : 0)).reduce((a, b) => a + b, 0) / 4),
           tokensPerSecond: undefined,
-          ...(m.content.some((p) => p.type === 'search') ? { searches: m.content.filter((p) => p.type === 'search' && p.status === 'done').length } : {}),
+          ...(m.content.some((p) => p.type === 'search') ? { searches: m.usage?.searches ?? m.content.filter((p) => p.type === 'search' && p.status === 'done').length } : {}),
         },
       });
     }

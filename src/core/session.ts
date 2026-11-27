@@ -779,7 +779,8 @@ export class Session extends EventEmitter {
       outputTokens: state.outputTokens,
       tokensPerSecond: state.outputTokens > 0 && genMs > 200 ? state.outputTokens / (genMs / 1000) : undefined,
       reasoningMs: message.reasoningMs,
-      ...(state.searches.length ? { searches: state.searches.filter((x) => x.status === 'done').length } : {}),
+      // What the provider billed, where it says; else the searches seen.
+      ...(state.searches.length ? { searches: usage?.searches ?? state.searches.filter((x) => x.status === 'done').length } : {}),
     };
     this.stream = null;
     this.abort = null;
