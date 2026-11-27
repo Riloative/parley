@@ -65,6 +65,9 @@ export interface SpawnOptions {
   background?: string;
   /** ...after this many milliseconds (a slow link). */
   backgroundDelayMs?: number;
+  /** ...only once this text has been written (an answer that is certainly
+   * later than the frame that holds the text, however slow the start). */
+  backgroundAfter?: string;
   /** Also answer DA2 and XTVERSION as xterm does (tmux asks, to pick features). */
   identifyAsXterm?: boolean;
 }
@@ -134,6 +137,7 @@ export function spawnTaria(opts: SpawnOptions = {}): Session {
     env: testEnv(home, opts.env),
   });
   let raw = '';
+  let backgroundAnswered = false;
   let parsed = '';
   let pending = Promise.resolve();
   proc.onData((d) => {
@@ -149,7 +153,12 @@ export function spawnTaria(opts: SpawnOptions = {}): Session {
     );
     // Answer the terminal queries the way a basic xterm does (DA1 only, no
     // kitty keyboard protocol) so behaviour is deterministic.
-    if (opts.background && d.includes('\x1b]11;?')) {
+    if (opts.background && opts.backgroundAfter) {
+      if (!backgroundAnswered && raw.includes(opts.backgroundAfter)) {
+        backgroundAnswered = true;
+        proc.write(`\x1b]11;${opts.background}\x1b\\`);
+      }
+    } else if (opts.background && d.includes('\x1b]11;?')) {
       const reply = `\x1b]11;${opts.background}\x1b\\`;
       if (opts.backgroundDelayMs) setTimeout(() => proc.write(reply), opts.backgroundDelayMs);
       else proc.write(reply);
