@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.6.0 — 2026-11-27
+
+### Added
+
+- **Web search, run by the provider.** With search on, the model can look things up on the web: the provider runs the search on its own servers and sends back the answer with its sources. taria itself never fetches a page, needs no new key and talks to no new host. Search is **off** until you turn it on:
+  - `web_search: true` in the config, `/search on` or `/search off` in a conversation, `--search` or `--no-search` on the command line. The status line shows "web search" while it is on.
+  - While the provider searches, the spinner line says "Searching the web:" with the query.
+  - A reply that used the web carries small markers like `[1]` where a source supports the text, and a **Sources** list below it with each page's title and its real host; the title is a link where the terminal supports links, and the address is printed elsewhere. Ctrl+O adds the queries, the full addresses and the quoted passages. The stats line counts the searches, and `/cost` has a Searches column.
+  - `web_search_max` (default 5, `0` for no limit) caps the searches per reply, where the provider has such a limit.
+  - `taria -p` prints exactly what it printed before; `--sources` adds the list of sources, and `--json` gains `searches` and `sources` fields.
+- **Providers with web search:** Claude (Anthropic's web search tool), OpenAI (the Responses API's web search tool), and over chat completions DeepSeek, Venice and OpenRouter, which taria recognises by their address (or by `web_search_style:` on the provider, for a proxy in front of one of them). Search is billed by the provider; the README has the table with what each one charges and limits.
+- **A model without web search** gets your message without it, and taria says so once. If a provider refuses a request because of search, taria says so and sends the message once more without search; it never sends a message twice silently.
+- **Presets for DeepSeek and Venice** in the first-run setup and `/providers`.
+- `web_search: true | false` per model in the config, for a server that taria cannot ask.
+
+### Safety
+
+- **Text from the web is treated as hostile.** Page titles, snippets and search queries are stripped of escape sequences, control characters and direction-changing characters before they are stored and again before they are shown; a source always shows the host its address really points to; nothing in the list is wider than the terminal.
+- **Conversations stay readable by every earlier version.** Searches and sources are stored as a new kind of line that older versions skip; the file format version is unchanged. What a provider needs to continue a searched conversation (encrypted results, for example) is kept as it arrived, goes back only to the provider and model that wrote it, and is never shown, printed or exported.
+- **An interrupted search is safe.** A reply cut off in the middle of a search (Esc, a lost connection, a crash) keeps its text and the sources found so far, and the unfinished search is never sent back to the provider.
+
+### Changed
+
+- With search off, requests are exactly what they were in 0.5.0, and start-up, streaming and resume times are unchanged (measured before and after).
+
+### Under the hood
+
+- Anthropic SDK 1.12 and undici 8.13.1; eslint 10; newer versions of the GitHub Actions used in CI and releases.
+- Dependabot no longer proposes major versions of `@types/node` (taria supports Node 22) or `string-width` (the build patches it).
+- Six tests that could fail on a busy machine no longer depend on timing: four wait for the screen to settle before looking at it (the welcome box, the tmux test's cleanup, a resize in the middle of a reply, the favourites in the model picker), and two that need a late answer from the terminal now get it after the first frame instead of after a fixed time. No behaviour changed.
+
+Not tested against the real services: the web search of every provider was built from its documentation as read on 2026-11-27 and tested against recorded-shape fixtures on a local server. If a provider answers differently from its documentation, please report it.
+
 ## 0.5.0 — 2026-11-26
 
 ### Added
